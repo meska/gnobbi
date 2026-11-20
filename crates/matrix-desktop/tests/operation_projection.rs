@@ -21,7 +21,7 @@ fn edited_body_copy_does_not_include_status_annotation() {
     );
     rows.project_operations(actions.confirmed());
     assert_eq!(rows.events()[0].text, "edited");
-    assert!(rows.events()[0].time.ends_with(" · modificato"));
+    assert!(rows.events()[0].time.ends_with(" · edited"));
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn acknowledged_redaction_keeps_placeholder_at_same_identity() {
     ack(&mut actions, Operation::Redact, "$redaction");
     rows.project_operations(actions.confirmed());
     assert_eq!(rows.events().len(), 1);
-    assert_eq!(rows.events()[0].text, "[Messaggio eliminato]");
+    assert_eq!(rows.events()[0].text, "[Message deleted]");
     assert_eq!(
         rows.events()[0].id.id,
         TimelineId::Server(EventId::new("$first"))
@@ -88,7 +88,7 @@ fn acknowledged_reply_adds_one_identified_bubble() {
     rows.project_operations(actions.confirmed());
     assert_eq!(rows.events().len(), 2);
     assert_eq!(rows.events()[1].text, "reply");
-    assert!(rows.events()[1].time.contains("Risposta"));
+    assert!(rows.events()[1].time.contains("Reply"));
     assert_eq!(
         rows.events()[1].id.id,
         TimelineId::Server(EventId::new("$reply"))
@@ -266,6 +266,6 @@ fn refresh_server_keeps_edited_suffix_on_local_clock_time() {
         attachment_name: None,
         attachment_size: None, media: None,
     }]);
-    let expected = format!("{} · modificato", matrix_desktop::time_fmt::clock_time(ts));
+    let expected = format!("{} · edited", matrix_desktop::time_fmt::clock_time(ts));
     assert_eq!(rows.events()[0].time, expected);
 }

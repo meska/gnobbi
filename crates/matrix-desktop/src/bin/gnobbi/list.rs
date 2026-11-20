@@ -197,7 +197,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                 ui.painter().text(egui::pos2(rect.right() - 12., rect.top() + 10.), Align2::RIGHT_TOP, s, FontId::proportional(12.), rgb(t.secondary));
             }
             let row_mark = mark(room.pinned(), room.low_priority());
-            let preview = one_line(ui, &room.preview, 13., rgb(t.secondary), (rect.right() - 12. - text_left - right_reserved(room.unread > 0, row_mark)).max(20.));
+            let preview = one_line(ui, matrix_desktop::row_text::engine_placeholder(&room.preview), 13., rgb(t.secondary), (rect.right() - 12. - text_left - right_reserved(room.unread > 0, row_mark)).max(20.));
             ui.painter().galley(egui::pos2(text_left, rect.top() + 29.), preview, rgb(t.secondary));
             let mut mark_right = rect.right() - 12.;
             if room.unread > 0 {

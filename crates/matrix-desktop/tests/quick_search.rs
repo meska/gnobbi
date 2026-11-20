@@ -251,7 +251,7 @@ fn view_entries_find_dm_by_matrix_id_contact_and_room_by_alias_even_with_empty_s
 #[test]
 fn chip_keys_and_user_requests() {
     let chip = Some(Category::People);
-    assert_eq!(Category::People.chip_label(), "Filtro: Persone");
+    assert_eq!(Category::People.chip_label(), "Filter: People");
     // Esc: chip first, then close. Backspace removes the chip only on an empty field.
     assert!(!escape_closes(chip) && escape_closes(None));
     assert!(backspace_removes_chip(chip, "") && !backspace_removes_chip(chip, "a"));
@@ -304,7 +304,7 @@ fn dir_room(id: &str, n: u64) -> matrix_engine::operations::DirectoryRoom {
 fn entries_follow_element_and_directory_ones_carry_a_kind() {
     use matrix_engine::operations::DirectoryKind::{Rooms, Spaces};
     let labels: Vec<_> = Category::ALL.iter().map(|c| c.label()).collect();
-    assert_eq!(labels, ["Spazi pubblici", "Stanze pubbliche", "Persone"]);
+    assert_eq!(labels, ["Public spaces", "Public rooms", "People"]);
     let kinds: Vec<_> = Category::ALL.iter().map(|c| c.kind()).collect();
     assert_eq!(kinds, [Some(Spaces), Some(Rooms), None]);
 }
@@ -331,7 +331,7 @@ fn directory_rows_are_capped_and_show_alias_and_members() {
     let rooms: Vec<_> = (0..8).map(|i| dir_room(&format!("r{i}"), 1 + i)).collect();
     let five = room_hits(&rooms, ROOMS_LIMIT);
     assert_eq!(five.len(), 5);
-    assert_eq!((five[0].id.as_str(), five[0].secondary.as_str()), ("r0", "#r0:x.org · 1 membro"));
-    assert_eq!(five[1].secondary, "#r1:x.org · 2 membri");
+    assert_eq!((five[0].id.as_str(), five[0].secondary.as_str()), ("r0", "#r0:x.org · 1 member"));
+    assert_eq!(five[1].secondary, "#r1:x.org · 2 members");
     assert_eq!(room_hits(&rooms, usize::MAX).len(), 8);
 }

@@ -20,14 +20,14 @@ pub enum NameError {
 impl NameError {
     pub fn text(self) -> &'static str {
         match self {
-            Self::Empty => "Serve il nome del server, ad esempio matrix.org",
-            Self::User => "Questo è un ID utente: serve il nome del server, ad esempio matrix.org",
-            Self::NotHttps => "Sono ammessi solo indirizzi https",
-            Self::Path => "Scrivi solo il nome del server, senza percorso",
-            Self::Credentials => "Serve il nome del server, senza utente o password",
-            Self::InvalidPort => "Porta non valida",
-            Self::InvalidIp => "Indirizzo IP non valido",
-            Self::Invalid => "Serve il nome del server, ad esempio matrix.org",
+            Self::Empty => crate::i18n::t("The server name is needed, for example matrix.org"),
+            Self::User => crate::i18n::t("This is a user ID: the server name is needed, for example matrix.org"),
+            Self::NotHttps => crate::i18n::t("Only https addresses are allowed"),
+            Self::Path => crate::i18n::t("Write only the server name, without a path"),
+            Self::Credentials => crate::i18n::t("The server name is needed, without user or password"),
+            Self::InvalidPort => crate::i18n::t("Invalid port"),
+            Self::InvalidIp => crate::i18n::t("Invalid IP address"),
+            Self::Invalid => crate::i18n::t("The server name is needed, for example matrix.org"),
         }
     }
 }
@@ -122,13 +122,13 @@ pub enum AddError {
 impl AddError {
     pub fn text(self) -> &'static str {
         match self {
-            Self::NoResponse => "Il server non risponde",
-            Self::NotMatrix => "Non è un server Matrix",
-            Self::DirectoryHidden => "Il server non mostra le sue stanze",
-            Self::Tls => "Certificato del server non valido",
-            Self::OurServerBlocked => "Il tuo server non raggiunge questo server",
+            Self::NoResponse => crate::i18n::t("The server does not respond"),
+            Self::NotMatrix => crate::i18n::t("Not a Matrix server"),
+            Self::DirectoryHidden => crate::i18n::t("The server does not show its rooms"),
+            Self::Tls => crate::i18n::t("Invalid server certificate"),
+            Self::OurServerBlocked => crate::i18n::t("Your server cannot reach this server"),
             Self::InvalidName(e) => e.text(),
-            Self::Present => "Già presente",
+            Self::Present => crate::i18n::t("Already present"),
         }
     }
 }

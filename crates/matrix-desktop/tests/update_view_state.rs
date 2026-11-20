@@ -10,8 +10,8 @@ fn ready_shows_dot_row_and_label_until_later() {
         Some(Ready { version: "1.2.3".into(), build: 9, path: "x".into(), size: 1, sha256: String::new() });
     // Dot (menu button) and row (drawer) both read announced().
     let v = update::announced().expect("Ready -> dot and row");
-    assert_eq!(update::indicator_row(&v), "Aggiornamento disponibile · 1.2.3");
-    assert_eq!(update::indicator_label(&v), "Aggiornamento disponibile, versione 1.2.3");
+    assert_eq!(update::indicator_row(&v), "Update available · 1.2.3");
+    assert_eq!(update::indicator_label(&v), "Update available, version 1.2.3");
     update::dismiss_indicator();
     assert_eq!(update::announced(), None, "«Più tardi» hides dot and row");
     assert!(update::shared_state().lock().unwrap().ready.is_some(), "the update stays ready");
@@ -20,10 +20,10 @@ fn ready_shows_dot_row_and_label_until_later() {
 #[test]
 fn unsent_text_defers_and_never_installs() {
     let calls = Cell::new(0);
-    let spy = || { calls.set(calls.get() + 1); Err("Aggiornamento non riuscito: cartella non scrivibile".into()) };
-    assert_eq!(update::install_unless_unsent(true, spy), "Aggiornamento rinviato: messaggio non inviato");
+    let spy = || { calls.set(calls.get() + 1); Err("Update failed: folder not writable".into()) };
+    assert_eq!(update::install_unless_unsent(true, spy), "Update postponed: message not sent");
     assert_eq!(calls.get(), 0, "install_staged must not run");
-    assert_eq!(update::install_unless_unsent(false, spy), "Aggiornamento non riuscito: cartella non scrivibile");
+    assert_eq!(update::install_unless_unsent(false, spy), "Update failed: folder not writable");
     assert_eq!(calls.get(), 1);
 }
 

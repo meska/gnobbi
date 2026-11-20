@@ -232,7 +232,7 @@ fn vault_form_without_a_password_shows_a_password_only_message() {
             error: Some(SignInError::InvalidSecret)
         })
     );
-    assert_eq!(form.error_message(), Some("Inserisci la password Matrix."));
+    assert_eq!(form.error_message(), Some("Enter the Matrix password."));
 }
 
 #[test]
@@ -285,13 +285,13 @@ fn vault_failures_get_their_own_actionable_messages() {
     for error in [Unavailable, Locked] {
         let text = message(error);
         assert!(
-            text.to_lowercase().contains("portachiavi"),
+            text.to_lowercase().contains("keychain"),
             "{error:?}: {text}"
         );
-        assert!(!text.contains("percorso del profilo"), "{error:?}: {text}");
+        assert!(!text.contains("profile path"), "{error:?}: {text}");
     }
     for error in [Missing, InvalidItem, AlreadyExists] {
-        assert!(message(error).contains("chiave del profilo"), "{error:?}");
+        assert!(message(error).contains("profile key"), "{error:?}");
     }
     assert_ne!(message(Unavailable), message(Missing));
 }
@@ -334,7 +334,7 @@ fn empty_recovery_key_fails_locally_and_allows_a_retry() {
         form.recovery(),
         Some(RecoveryState::Failed(RecoveryFailure::InvalidKey))
     );
-    assert!(form.error_message().unwrap().contains("Chiave errata"));
+    assert!(form.error_message().unwrap().contains("Wrong key"));
     let retry = form.source().unwrap();
     assert_ne!(retry, source);
     form.phrase.replace(None, "second attempt key");
@@ -361,7 +361,7 @@ fn every_recovery_failure_has_its_own_message_and_keeps_skip_and_retry() {
     }
     let mut form = offered_form();
     form.apply(SignInEvent::Recovery(RecoveryState::Unsupported));
-    assert!(form.error_message().unwrap().contains("archivio segreto"));
+    assert!(form.error_message().unwrap().contains("secret storage"));
     let source = form.source().unwrap();
     form.phrase.replace(None, "ignored");
     assert!(
@@ -369,14 +369,6 @@ fn every_recovery_failure_has_its_own_message_and_keeps_skip_and_retry() {
         "no key route without secret storage"
     );
     assert_eq!(form.recovery(), Some(RecoveryState::Unsupported));
-}
-
-#[test]
-fn recovery_wording_names_the_matrix_key_and_the_backup_limit() {
-    assert!(matrix_desktop::RECOVERY_NOTE.contains("chiave di recupero Matrix"));
-    assert!(matrix_desktop::RECOVERY_NOTE.contains("non è la frase locale"));
-    assert!(matrix_desktop::RECOVERY_NOTE.contains("non tutti i vecchi messaggi"));
-    assert_eq!(matrix_desktop::RECOVER_LABEL, "Recupera cronologia cifrata");
 }
 
 mod recovery_setup {
@@ -548,20 +540,12 @@ mod recovery_setup {
         form.apply_setup(SetupEvent::Failed(SetupFailure::AlreadyExists));
         assert_eq!(form.recovery(), Some(RecoveryState::Offered));
         assert!(!form.setup_offered());
-        assert!(form.error_message().unwrap().contains("già"));
+        assert!(form.error_message().unwrap().contains("already"));
         let source = form.source().unwrap();
         form.phrase.replace(None, "existing recovery key fixture");
         assert!(matches!(
             form.recover_source(source),
             Some(SignInCommand::EnterRecovery(_))
         ));
-    }
-
-    #[test]
-    fn labels_keep_setup_distinct_from_restore() {
-        assert_ne!(matrix_desktop::SETUP_LABEL, matrix_desktop::RECOVER_LABEL);
-        assert!(matrix_desktop::SETUP_LABEL.contains("Crea"));
-        assert!(matrix_desktop::SAVED_LABEL.contains("salvato"));
-        assert!(matrix_desktop::SETUP_KEY_NOTE.contains("una sola volta"));
     }
 }

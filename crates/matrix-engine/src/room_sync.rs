@@ -1625,7 +1625,7 @@ fn latest_event_text(latest: &matrix_sdk_ui::timeline::LatestEventValue) -> Opti
     }
     let message = content.as_message()?;
     Some(match message.msgtype() {
-        MessageType::Image(_) => "Immagine".to_owned(),
+        MessageType::Image(_) => "Image".to_owned(),
         _ => message.body().to_owned(),
     })
 }
@@ -2650,7 +2650,7 @@ fn message_label(msgtype: &MessageType) -> String {
         MessageType::Text(_) | MessageType::Notice(_) | MessageType::Emote(_)
             if msgtype.body().is_empty() =>
         {
-            "Messaggio senza testo".into()
+            "Message without text".into()
         }
         MessageType::Emote(_) => format!("* {}", msgtype.body()),
         MessageType::Text(_) | MessageType::Notice(_) => msgtype.body().to_owned(),
@@ -2693,8 +2693,8 @@ fn message_label(msgtype: &MessageType) -> String {
                     .collect(),
             )
         }
-        MessageType::Location(_) => "Posizione".into(),
-        MessageType::VerificationRequest(_) => "Richiesta di verifica".into(),
+        MessageType::Location(_) => "Location".into(),
+        MessageType::VerificationRequest(_) => "Verification request".into(),
         MessageType::Image(_) => "Image".into(),
         other => other.msgtype().to_owned(),
     }

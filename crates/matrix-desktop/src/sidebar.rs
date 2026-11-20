@@ -58,8 +58,8 @@ const LOW_PRIORITY: &str = "m.lowpriority";
 /// Label of a tag: the part after `u.`, or the Italian name of the two standard ones.
 pub fn group_label(tag: &str) -> String {
     match tag {
-        "m.favourite" => "Preferiti".into(),
-        "m.lowpriority" => "Bassa priorità".into(),
+        "m.favourite" => crate::i18n::t("Favorites").into(),
+        "m.lowpriority" => crate::i18n::t("Low priority").into(),
         _ => tag.strip_prefix("u.").unwrap_or(tag).to_owned(),
     }
 }
@@ -228,7 +228,7 @@ impl Sidebar {
                     name: if i < ROOMS.len() {
                         seed.name.to_owned()
                     } else {
-                        format!("Stanza demo {:03}", i + 1)
+                        crate::i18n::t("Demo room {n}").replace("{n}", &format!("{:03}", i + 1))
                     },
                     initials: if i < ROOMS.len() {
                         seed.initials.to_owned()
@@ -533,7 +533,7 @@ impl Sidebar {
                 space.initials.clone(),
                 Some(space.color),
             ),
-            None => ((if self.unread_view { "Non lette" } else { "Tutte" }).into(), "▦".into(), None),
+            None => ((if self.unread_view { crate::i18n::t("Unread") } else { crate::i18n::t("All") }).into(), "▦".into(), None),
         }
     }
 
@@ -560,7 +560,7 @@ impl Sidebar {
         let (unread, mentions) = total(&|_| true);
         let mut entries = vec![NavigationEntry {
             scope: None,
-            name: "Tutte".into(),
+            name: crate::i18n::t("All").into(),
             unread,
             mentions,
             selected: self.space.is_none() && !self.unread_view,
@@ -1017,7 +1017,7 @@ mod tests {
     fn list_header_names_the_selected_space_with_initials_or_tutte() {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
-        assert_eq!(sidebar.list_header(), ("Tutte".into(), "▦".into(), None));
+        assert_eq!(sidebar.list_header(), ("All".into(), "▦".into(), None));
         assert_eq!(sidebar.list_header_avatar(), None);
         sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
             scope: scope(&account, "bots"),
@@ -1181,7 +1181,7 @@ mod tests {
         })));
         assert_eq!(sidebar.unread_rooms(), 3);
         assert!(sidebar.set_unread_view(true) && !sidebar.set_unread_view(true));
-        assert_eq!(sidebar.list_header().0, "Non lette");
+        assert_eq!(sidebar.list_header().0, "Unread");
         assert_eq!(names(&sidebar), ["d", "b", "c"]); // pinned first, then activity
         assert!(!sidebar.navigation_entries()[0].selected);
         sidebar.set_query("c");

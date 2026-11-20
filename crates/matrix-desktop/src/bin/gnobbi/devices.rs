@@ -108,7 +108,7 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
                         ui.add(crate::metrics::line(&mut f.export_pass).password(true).desired_width(width).hint_text(i18n::t("Export password")));
                         if ui.button(i18n::t("Export keys")).clicked() && !f.export_pass.is_empty() {
                             let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
-                            let path = std::path::Path::new(&home).join("Downloads").join("gnobbi-chiavi.txt");
+                            let path = std::path::Path::new(&home).join("Downloads").join(i18n::t("gnobbi-keys.txt"));
                             let _ = std::fs::create_dir_all(path.parent().unwrap());
                             f.export_path = Some(path.clone());
                             let pass = zeroize::Zeroizing::new(std::mem::take(&mut f.export_pass));
@@ -316,9 +316,9 @@ pub fn offer(ctx: &egui::Context, v: &DeviceVerification, suppressed: bool, f: &
     let kind = v.recovery_offer(suppressed)?;
     let enter = kind == OfferKind::Enter;
     let mut answer = None;
-    egui::Window::new(OFFER_TITLE).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("Recovery key")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_max_width(380.);
-        ui.label(if enter { ENTER_TEXT } else { OFFER_TEXT });
+        ui.label(if enter { i18n::t("This device does not have the account's recovery keys: enter the key to read old encrypted messages") } else { i18n::t("This account has no recovery key: without one, encrypted messages are lost with the devices") });
         ui.add_space(8.);
         let busy = v.key_recovery() == Some(RecoveryState::Pending);
         if enter {
@@ -335,7 +335,7 @@ pub fn offer(ctx: &egui::Context, v: &DeviceVerification, suppressed: bool, f: &
             if busy {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(RESTORING_LABEL);
+                    ui.label(i18n::t("Restoring…"));
                 });
             } else if let Some(message) = v.key_recovery_message() {
                 ui.colored_label(ui.visuals().error_fg_color, message);
@@ -349,17 +349,17 @@ pub fn offer(ctx: &egui::Context, v: &DeviceVerification, suppressed: bool, f: &
                 {
                     f.key = text.trim().to_owned();
                 }
-                if ui.add_enabled(!busy && !f.key.trim().is_empty(), egui::Button::new(RESTORE_LABEL)).clicked() {
+                if ui.add_enabled(!busy && !f.key.trim().is_empty(), egui::Button::new(i18n::t("Restore"))).clicked() {
                     answer = Some(Offer::Recover(zeroize::Zeroizing::new(std::mem::take(&mut f.key))));
                 }
-            } else if ui.button(CREATE_KEY_LABEL).clicked() {
+            } else if ui.button(i18n::t("Create recovery key")).clicked() {
                 answer = Some(Offer::Create);
             }
             // Not while restoring: «Annulla»/«Non ora» would hide the progress and the outcome.
-            if ui.add_enabled(!busy, egui::Button::new(if enter { CANCEL_LABEL } else { NOT_NOW_LABEL })).clicked() {
+            if ui.add_enabled(!busy, egui::Button::new(if enter { i18n::t("Cancel") } else { i18n::t("Not now") })).clicked() {
                 answer = Some(Offer::NotNow);
             }
-            if ui.add_enabled(!busy, egui::Button::new(NEVER_ASK_LABEL)).clicked() {
+            if ui.add_enabled(!busy, egui::Button::new(i18n::t("Don't ask again for this account"))).clicked() {
                 answer = Some(Offer::Never);
             }
         });
@@ -376,14 +376,14 @@ pub fn key_view(ui: &mut egui::Ui, key: &str, kept: &mut bool) {
     use matrix_desktop::key_export::*;
     ui.horizontal_wrapped(|ui| {
         ui.add(egui::Label::new(RichText::new(key).monospace().size(15.)).selectable(true));
-        if crate::info::copy_icon(ui).on_hover_text(COPY_KEY_LABEL).clicked() {
+        if crate::info::copy_icon(ui).on_hover_text(i18n::t("Copy recovery key")).clicked() {
             crate::secret_clip::copy(ui.ctx(), key);
             *kept = true;
         }
     });
-    ui.label(SAVE_WARNING);
-    if ui.button(SAVE_FILE_LABEL).clicked()
-        && let Some(path) = crate::pick::save_as(KEY_FILE_NAME)
+    ui.label(i18n::t("Save it now: it will not be shown again"));
+    if ui.button(i18n::t("Save to file")).clicked()
+        && let Some(path) = crate::pick::save_as(i18n::t("gnobbi-recovery-key.txt"))
         && write_key_file(&path, key).is_ok()
     {
         *kept = true;
@@ -407,7 +407,7 @@ pub fn new_key(ctx: &egui::Context, v: &mut DeviceVerification) {
             if page.busy {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(RESET_RUNNING);
+                    ui.label(i18n::t("Regenerating…"));
                 });
             } else if let Some((text, _)) = &page.line {
                 ui.colored_label(ui.visuals().error_fg_color, text.as_str());
@@ -417,7 +417,7 @@ pub fn new_key(ctx: &egui::Context, v: &mut DeviceVerification) {
         };
         key_view(ui, key, &mut page.kept);
         ui.horizontal(|ui| {
-            ui.checkbox(&mut page.kept, KEPT_LABEL);
+            ui.checkbox(&mut page.kept, i18n::t("I kept it elsewhere"));
             close = ui.add_enabled(page.kept, egui::Button::new(i18n::t("Done"))).clicked();
         });
     });

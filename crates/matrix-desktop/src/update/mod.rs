@@ -55,25 +55,25 @@ pub fn announced() -> Option<String> {
 
 /// Row text and screen-reader label; the project's one-line rule keeps both short.
 pub fn indicator_row(version: &str) -> String {
-    format!("Aggiornamento disponibile · {version}")
+    crate::i18n::t("Update available · {version}").replace("{version}", version)
 }
 pub fn indicator_label(version: &str) -> String {
-    format!("Aggiornamento disponibile, versione {version}")
+    crate::i18n::t("Update available, version {version}").replace("{version}", version)
 }
 
 /// Line for a stored outcome; `version` is the running one (the new build, or the restored one).
 pub fn outcome_line(result: &str, version: &str) -> String {
     match result {
-        startup::OUTCOME_UPDATED => format!("Aggiornato a {version}"),
-        startup::OUTCOME_RESTORED => format!("Aggiornamento non riuscito: ripristinata la {version}"),
-        _ => "Aggiornamento non riuscito: errore".into(),
+        startup::OUTCOME_UPDATED => crate::i18n::t("Updated to {version}").replace("{version}", version),
+        startup::OUTCOME_RESTORED => crate::i18n::t("Update failed: restored {version}").replace("{version}", version),
+        _ => crate::i18n::t("Update failed: error").into(),
     }
 }
 
 /// «Aggiorna ora»: `install` runs only with nothing unsent; the returned line is what the drawer shows.
 pub fn install_unless_unsent(unsent: bool, install: impl FnOnce() -> Result<std::convert::Infallible, String>) -> String {
     if unsent {
-        return "Aggiornamento rinviato: messaggio non inviato".into();
+        return crate::i18n::t("Update postponed: message not sent").into();
     }
     match install() {
         Err(line) => line,
@@ -108,14 +108,14 @@ mod prefs_tests {
         assert_eq!(indicator(&st).as_deref(), Some("1.2.3"));
         dismiss_indicator();
         assert_eq!(indicator(&st), None);
-        assert_eq!(indicator_row("1.2.3"), "Aggiornamento disponibile · 1.2.3");
-        assert_eq!(indicator_label("1.2.3"), "Aggiornamento disponibile, versione 1.2.3");
+        assert_eq!(indicator_row("1.2.3"), "Update available · 1.2.3");
+        assert_eq!(indicator_label("1.2.3"), "Update available, version 1.2.3");
     }
 
     #[test]
     fn outcome_lines_and_take_once() {
-        assert_eq!(outcome_line("updated", "1.2.3"), "Aggiornato a 1.2.3");
-        assert_eq!(outcome_line("restored", "1.2.2"), "Aggiornamento non riuscito: ripristinata la 1.2.2");
+        assert_eq!(outcome_line("updated", "1.2.3"), "Updated to 1.2.3");
+        assert_eq!(outcome_line("restored", "1.2.2"), "Update failed: restored 1.2.2");
     }
 
     #[test]

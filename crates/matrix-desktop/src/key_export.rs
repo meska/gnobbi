@@ -7,26 +7,6 @@ pub const EXPORT_MIN_CHARS: usize = 12;
 pub const EXPORT_MAX_BYTES: usize = 4096;
 /// Declared delay after which a copied recovery key is wiped from the clipboard.
 pub const CLIPBOARD_SECONDS: u64 = 60;
-pub const EXPORT_ROW_LABEL: &str = "Esporta chiavi…";
-pub const RESET_ROW_LABEL: &str = "Rigenera chiave di recupero…";
-pub const WRONG_PHRASE: &str = "Frase di sblocco errata";
-pub const RESET_WARNING: &str = "La chiave di recupero attuale smetterà di funzionare";
-pub const RESET_RUNNING: &str = "Rigenerazione…";
-pub const SAVE_WARNING: &str = "Salvala ora: non verrà più mostrata";
-pub const COPY_KEY_LABEL: &str = "Copia chiave di recupero";
-pub const SAVE_FILE_LABEL: &str = "Salva su file";
-pub const KEPT_LABEL: &str = "L'ho conservata altrove";
-pub const OFFER_TITLE: &str = "Chiave di recupero";
-pub const OFFER_TEXT: &str = "Questo account non ha una chiave di recupero: senza, i messaggi cifrati si perdono con i dispositivi";
-pub const ENTER_TEXT: &str = "Questo dispositivo non ha le chiavi di recupero dell'account: inserisci la chiave per leggere i messaggi cifrati vecchi";
-pub const ENTER_KEY_LABEL: &str = "Inserisci chiave di recupero";
-pub const RESTORE_LABEL: &str = "Ripristina";
-pub const CANCEL_LABEL: &str = "Annulla";
-pub const RESTORING_LABEL: &str = "Ripristino…";
-pub const CREATE_KEY_LABEL: &str = "Crea chiave di recupero";
-pub const NOT_NOW_LABEL: &str = "Non ora";
-pub const NEVER_ASK_LABEL: &str = "Non chiedere più per questo account";
-pub const KEY_FILE_NAME: &str = "gnobbi-chiave-di-recupero.txt";
 
 /// The offer (create or enter) is shown once per session, unless suppressed for the account
 /// or another key page is already open.
@@ -53,7 +33,7 @@ pub fn offer_kind(disabled: Option<bool>, complete: Option<bool>) -> Option<Offe
 
 /// Plain text of the key file: the key alone on its own line under a title.
 pub fn key_file_text(key: &str) -> String {
-    format!("Chiave di recupero Gnobbi\n{key}\n")
+    format!("{}\n{key}\n", crate::i18n::t("Gnobbi recovery key"))
 }
 
 /// Writes the key file readable by the owner only; an existing file is replaced.
@@ -76,9 +56,9 @@ pub enum PasswordError {
 impl PasswordError {
     pub fn text(self) -> &'static str {
         match self {
-            Self::TooShort => "Password troppo corta: almeno 12 caratteri",
-            Self::TooLong => "Password troppo lunga: al massimo 4096 byte",
-            Self::Mismatch => "Le password non coincidono",
+            Self::TooShort => crate::i18n::t("Password too short: at least 12 characters"),
+            Self::TooLong => crate::i18n::t("Password too long: at most 4096 bytes"),
+            Self::Mismatch => crate::i18n::t("The passwords don't match"),
         }
     }
 }
@@ -97,30 +77,27 @@ pub fn check_password(first: &str, second: &str) -> Result<(), PasswordError> {
 }
 
 pub fn exported_text(count: usize) -> String {
-    match count {
-        1 => "Esportata 1 chiave".into(),
-        n => format!("Esportate {n} chiavi"),
-    }
+    crate::i18n::plural(count as u64, "{n} key exported", "{n} keys exported")
 }
 
 pub fn export_error_text(error: matrix_engine::key_export::KeyExportError) -> &'static str {
     use matrix_engine::key_export::KeyExportError::*;
     match error {
-        WrongPhrase => WRONG_PHRASE,
-        NoKeys => "Nessuna chiave da esportare su questo dispositivo",
-        NotWritable => "Impossibile scrivere in questa posizione",
-        WrongPassword | Deadline | Failed => "Esportazione non riuscita: riprova",
+        WrongPhrase => crate::i18n::t("Wrong unlock passphrase"),
+        NoKeys => crate::i18n::t("No keys to export on this device"),
+        NotWritable => crate::i18n::t("Can't write to this location"),
+        WrongPassword | Deadline | Failed => crate::i18n::t("Export failed: try again"),
     }
 }
 
 pub fn reset_error_text(error: matrix_engine::recovery::RecoveryError) -> &'static str {
     use matrix_engine::recovery::RecoveryError::*;
     match error {
-        WrongPhrase => WRONG_PHRASE,
-        IdentityRequired => "Recupera prima le chiavi su questo dispositivo",
-        AuthRequired => "Il server chiede una conferma non supportata qui",
-        Transport | Deadline => "Server non raggiungibile: riprova",
-        _ => "Rigenerazione non riuscita: riprova",
+        WrongPhrase => crate::i18n::t("Wrong unlock passphrase"),
+        IdentityRequired => crate::i18n::t("Recover the keys on this device first"),
+        AuthRequired => crate::i18n::t("The server asks for a confirmation that is not supported here"),
+        Transport | Deadline => crate::i18n::t("Server unreachable: try again"),
+        _ => crate::i18n::t("Regeneration failed: try again"),
     }
 }
 
@@ -200,8 +177,8 @@ mod tests {
 
     #[test]
     fn outcome_line_counts_keys() {
-        assert_eq!(exported_text(1), "Esportata 1 chiave");
-        assert_eq!(exported_text(7), "Esportate 7 chiavi");
+        assert_eq!(exported_text(1), "1 key exported");
+        assert_eq!(exported_text(7), "7 keys exported");
     }
 
     #[test]
@@ -243,7 +220,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("gnobbi-keyfile-{}.txt", std::process::id()));
         write_key_file(&path, "EsTx abcd").unwrap();
         write_key_file(&path, "EsTx abcd").unwrap(); // replaced, not appended
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "Chiave di recupero Gnobbi\nEsTx abcd\n");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "Gnobbi recovery key\nEsTx abcd\n");
         #[cfg(unix)]
         assert_eq!(std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&path).unwrap().permissions()) & 0o777, 0o600);
         std::fs::remove_file(path).unwrap();
@@ -269,13 +246,13 @@ mod tests {
             .iter()
             .map(|e| e.text().to_owned())
             .collect();
-        texts.extend([exported_text(0), exported_text(3), WRONG_PHRASE.into(), RESET_WARNING.into()]);
+        texts.extend([exported_text(0), exported_text(3)]);
         {
             use matrix_engine::key_export::KeyExportError::*;
             for e in [WrongPhrase, WrongPassword, NoKeys, NotWritable, Deadline, Failed] {
                 texts.push(export_error_text(e).into());
             }
-            assert_eq!(export_error_text(NoKeys), "Nessuna chiave da esportare su questo dispositivo");
+            assert_eq!(export_error_text(NoKeys), "No keys to export on this device");
         }
         for t in texts {
             assert!(!t.contains(secret) && !t.contains("BEGIN MEGOLM"), "{t}");

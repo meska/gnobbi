@@ -1,77 +1,60 @@
 //! UI-only sign-in state; storage and authentication stay on the backend.
 use crate::LoginInput;
+use crate::i18n::t;
 use matrix_engine::signin::{
     RecoveryFailure, RecoveryState, Secret, SetupEvent, SetupFailure, SignInCommand, SignInEvent,
     SignInMode, SignInPrompt,
 };
-pub const RECOVERY_WARNING: &str =
-    "Senza recupero la cronologia cifrata precedente non sarà leggibile su questo dispositivo.";
-pub const RECOVER_LABEL: &str = "Recupera cronologia cifrata";
-pub const RETRY_LABEL: &str = "Riprova recupero";
-pub const RECOVERY_KEY_LABEL: &str = "Chiave di recupero Matrix";
-pub const RECOVERY_NOTE: &str = "Inserisci la chiave di recupero Matrix del tuo account (non è la frase locale del profilo). Il backup può non contenere tutti i messaggi: non tutti i vecchi messaggi sono garantiti.";
-pub const RECOVERY_PENDING: &str =
-    "Verifica della chiave e download delle chiavi dal backup in corso…";
 pub(crate) fn recovery_message(state: RecoveryState) -> Option<&'static str> {
     Some(match state {
         RecoveryState::Failed(RecoveryFailure::InvalidKey) => {
-            "Chiave errata. Controlla e riprova."
+            t("Wrong key. Check it and try again.")
         }
         RecoveryState::Failed(RecoveryFailure::Network) => {
-            "Server non raggiungibile. Riprova più tardi o continua senza recupero."
+            t("Server unreachable. Try again later or continue without recovery.")
         }
         RecoveryState::Failed(RecoveryFailure::Timeout) => {
-            "Il recupero ha impiegato troppo tempo. Riprova o continua senza recupero."
+            t("Recovery took too long. Try again or continue without recovery.")
         }
         RecoveryState::Failed(RecoveryFailure::BackupUnavailable) => {
-            "Nessun backup delle chiavi sul server. Continua senza recupero."
+            t("No key backup on the server. Continue without recovery.")
         }
         RecoveryState::Failed(RecoveryFailure::Other) => {
-            "Recupero non riuscito. Riprova o continua senza recupero."
+            t("Recovery failed. Try again or continue without recovery.")
         }
         RecoveryState::Unsupported => {
-            "Questo account non ha un archivio segreto Matrix: nessuna chiave di recupero da inserire."
+            t("This account has no Matrix secret storage: no recovery key to enter.")
         }
         _ => return None,
     })
 }
-pub const SETUP_LABEL: &str = "Crea chiave di recupero";
-pub const SETUP_NOTE: &str = "Questo account non ha ancora un recupero Matrix. Puoi crearne uno nuovo: Gnobbi genera una chiave di recupero e un backup delle chiavi di cifratura.";
-pub const SETUP_PENDING: &str = "Creazione del recupero e del backup in corso…";
-pub const SETUP_KEY_LABEL: &str = "Chiave di recupero Matrix";
-pub const SETUP_KEY_NOTE: &str = "Questa chiave viene mostrata una sola volta e Gnobbi non la conserva. Salvala in un gestore di password o in un luogo sicuro: senza di essa non potrai ripristinare la cronologia cifrata.";
-pub const SETUP_KEY_MASKED: &str =
-    "Chiave di recupero mostrata a schermo, una sola volta. Non è letta dal lettore di schermo.";
-pub const SETUP_RETRY_LABEL: &str = "Riprova a creare la chiave";
-pub const COPY_LABEL: &str = "Copia chiave";
-pub const SAVED_LABEL: &str = "Ho salvato la chiave: continua";
 pub(crate) fn setup_message(phase: SetupPhase) -> Option<&'static str> {
     Some(match phase {
-        SetupPhase::Pending => SETUP_PENDING,
+        SetupPhase::Pending => t("Creating the recovery and backup…"),
         SetupPhase::KeyShown => return None,
         SetupPhase::Unsupported => {
-            "Il server non offre il backup delle chiavi: nessun recupero da creare. Continua senza recupero."
+            t("The server offers no key backup: no recovery to create. Continue without recovery.")
         }
         SetupPhase::Failed(SetupFailure::AlreadyExists) => {
-            "Questo account ha già un recupero: inserisci la chiave di recupero esistente."
+            t("This account already has a recovery: enter the existing recovery key.")
         }
         SetupPhase::Failed(SetupFailure::Partial) => {
-            "Il recupero di questo account è configurato solo a metà: Gnobbi non lo modifica. Continua senza recupero."
+            t("This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.")
         }
         SetupPhase::Failed(SetupFailure::IdentityRequired) => {
-            "Questo account ha già un’identità crittografica che questo dispositivo non possiede: Gnobbi non la sostituisce. Continua senza recupero."
+            t("This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.")
         }
         SetupPhase::Failed(SetupFailure::AuthRequired) => {
-            "Il server chiede una conferma aggiuntiva che Gnobbi non supporta. Continua senza recupero."
+            t("The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.")
         }
         SetupPhase::Failed(SetupFailure::Network) => {
-            "Server non raggiungibile: il recupero non è stato creato. Riprova o continua senza recupero."
+            t("Server unreachable: the recovery was not created. Try again or continue without recovery.")
         }
         SetupPhase::Failed(SetupFailure::Timeout) => {
-            "La creazione ha impiegato troppo tempo. Riprova o continua senza recupero."
+            t("Creation took too long. Try again or continue without recovery.")
         }
         SetupPhase::Failed(SetupFailure::Other) => {
-            "Creazione del recupero non riuscita. Riprova o continua senza recupero."
+            t("Creating the recovery failed. Try again or continue without recovery.")
         }
     })
 }
@@ -84,7 +67,6 @@ pub enum SetupPhase {
     Failed(SetupFailure),
     Unsupported,
 }
-pub const DEFER_LABEL: &str = "Continua senza recupero";
 /// Editor indices (homeserver, user, password, phrase) shown for a flow.
 pub fn visible_fields(mode: SignInMode, vault: bool) -> &'static [usize] {
     match (mode, vault) {
@@ -114,37 +96,37 @@ impl FormStatus {
             VaultError::{Locked, Unavailable},
         };
         Some(match error {
-            InvalidHomeserver => "Inserisci un nome server o un indirizzo HTTPS valido.",
-            InvalidUserId => "Inserisci l’ID Matrix completo: @nome:server.",
+            InvalidHomeserver => t("Enter a server name or a valid HTTPS address."),
+            InvalidUserId => t("Enter the full Matrix ID: @name:server."),
             InvalidSecret if matches!(self, Self::Prompt(prompt) if prompt.mode == SignInMode::Unlock) => {
-                "Inserisci la frase locale del profilo."
+                t("Enter the profile's local passphrase.")
             }
-            InvalidSecret => "Password richiesta; frase locale di almeno 16 caratteri.",
-            UnsupportedLogin => "Questo server non offre login password. SSO/OIDC non supportati.",
-            NoSlidingSync => "Questo server non supporta lo sliding sync",
+            InvalidSecret => t("Password required; local passphrase of at least 16 characters."),
+            UnsupportedLogin => t("This server offers no password login. SSO/OIDC are not supported."),
+            NoSlidingSync => t("This server does not support sliding sync"),
             ServerStatus => {
-                "Il server ha risposto con un errore: controlla l’indirizzo (es. https://matrix.esempio.it)."
+                t("The server answered with an error: check the address (e.g. https://matrix.example.org).")
             }
             Discovery | InvalidTrustRoot => {
-                "Server non raggiungibile o certificato TLS non valido."
+                t("Server unreachable or invalid TLS certificate.")
             }
             Authentication(matrix_engine::auth::AuthError::CredentialsRejected) => {
-                "Credenziali non accettate. Riprova."
+                t("Credentials not accepted. Try again.")
             }
             Authentication(matrix_engine::auth::AuthError::RateLimited) => {
-                "Troppi tentativi: riprova tra qualche istante."
+                t("Too many attempts: try again in a moment.")
             }
             Authentication(_) => {
-                "Accesso/sblocco non riuscito. Controlla le credenziali e riprova."
+                t("Sign-in/unlock failed. Check the credentials and try again.")
             }
             Vault(Unavailable | Locked) => {
-                "Portachiavi di sistema non disponibile o bloccato. Sbloccalo e riprova."
+                t("System keychain unavailable or locked. Unlock it and try again.")
             }
             Vault(_) => {
-                "La chiave del profilo non è nel portachiavi di sistema. Il profilo non è stato modificato."
+                t("The profile key is not in the system keychain. The profile was not changed.")
             }
-            ProfileBusy => "Profilo già aperto in un’altra istanza. Chiudila e riavvia.",
-            _ => "Profilo locale non disponibile. Chiudi e verifica il percorso del profilo.",
+            ProfileBusy => t("Profile already open in another instance. Close it and restart."),
+            _ => t("Local profile unavailable. Close and check the profile path."),
         })
     }
 }
@@ -268,7 +250,7 @@ impl SignInForm {
             FormStatus::Prompt(SignInPrompt {
                 mode: SignInMode::Password,
                 error: Some(matrix_engine::signin::SignInError::InvalidSecret),
-            }) if self.vault => Some("Inserisci la password Matrix."),
+            }) if self.vault => Some(t("Enter the Matrix password.")),
             status => status.error_message(),
         }
     }
@@ -395,9 +377,6 @@ mod brand_tests {
 
     #[test]
     fn user_facing_notes_say_gnobbi_never_dime() {
-        for text in [SETUP_NOTE, SETUP_KEY_NOTE] {
-            assert!(text.contains("Gnobbi") && !text.contains("Dime"), "{text}");
-        }
         for failure in [
             SetupFailure::Partial,
             SetupFailure::IdentityRequired,
@@ -418,6 +397,6 @@ mod rate_limit_tests {
         let status = FormStatus::Failed(matrix_engine::signin::SignInError::Authentication(
             matrix_engine::auth::AuthError::RateLimited,
         ));
-        assert_eq!(status.error_message(), Some("Troppi tentativi: riprova tra qualche istante."));
+        assert_eq!(status.error_message(), Some(t("Too many attempts: try again in a moment.")));
     }
 }

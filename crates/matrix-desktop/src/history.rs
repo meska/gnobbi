@@ -103,14 +103,10 @@ impl DemoEvent {
     /// «N risposte» under a thread root, with the initials for the latest author's avatar.
     pub fn thread_label(&self) -> Option<(String, String, Option<&str>)> {
         let t = self.thread.as_ref()?;
-        let mut label = match t.num_replies {
-            1 => "1 risposta".to_owned(),
-            n => format!("{n} risposte"),
-        };
-        match t.unread {
-            0 => {}
-            1 => label.push_str(" · 1 non letta"),
-            n => label.push_str(&format!(" · {n} non lette")),
+        let mut label = crate::i18n::plural(t.num_replies as u64, "{n} reply", "{n} replies");
+        if t.unread > 0 {
+            label.push_str(" · ");
+            label.push_str(&crate::i18n::plural(t.unread as u64, "{n} unread", "{n} unread"));
         }
         let who = t.latest_sender.as_ref().map(|s| s.name.as_deref().unwrap_or(&s.id));
         let initials = who.unwrap_or("").trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
@@ -280,7 +276,7 @@ impl DemoHistory {
             },
             text,
             outgoing: true,
-            time: "locale".into(),
+            time: crate::i18n::t("local").into(),
             send_state: Some(DemoSendState::Pending),
             sender: None,
             timestamp_ms: 0,
@@ -343,10 +339,10 @@ impl DemoHistory {
             {
                 row.timestamp_ms = event.timestamp_ms;
                 if event.timestamp_ms != 0 {
-                    let edited = row.time.ends_with(" · modificato");
+                    let edited = row.time.ends_with(&format!(" · {}", crate::i18n::t("edited")));
                     row.time = crate::time_fmt::clock_time(event.timestamp_ms);
                     if edited {
-                        row.time.push_str(" · modificato");
+                        row.time.push_str(&format!(" · {}", crate::i18n::t("edited")));
                     }
                 }
             }
@@ -427,7 +423,7 @@ impl DemoHistory {
                     scope: self.scope.clone(),
                     id: TimelineId::Server(event.event_id),
                 },
-                text: event.body,
+                text: crate::row_text::engine_placeholder(&event.body).to_owned(),
                 outgoing: event.outgoing,
                 time: crate::time_fmt::clock_time(event.timestamp_ms),
                 send_state: None,
@@ -544,7 +540,7 @@ impl DemoHistory {
                 .iter_mut()
                 .find(|row| row.id.id == TimelineId::Server(operation.request.target.clone()))
             {
-                row.text = "[Messaggio eliminato]".into();
+                row.text = crate::i18n::t("[Message deleted]").into();
                 row.styles.clear();
                 row.mentions.clear();
                 row.redacted = true;
@@ -585,7 +581,7 @@ impl DemoHistory {
                     },
                     text: body.clone(),
                     outgoing: true,
-                    time: "ACK server · Risposta".into(),
+                    time: crate::i18n::t("Server ack · Reply").into(),
                     send_state: None,
                     sender: None,
                     timestamp_ms: 0,
@@ -612,10 +608,8 @@ impl DemoHistory {
                 row.text = body.clone();
                 row.styles.clear();
                 row.mentions.clear();
-                row.time = format!(
-                    "{} · modificato",
-                    row.time.trim_end_matches(" · modificato")
-                );
+                let edited = format!(" · {}", crate::i18n::t("edited"));
+                row.time = format!("{}{edited}", row.time.trim_end_matches(edited.as_str()));
             }
         }
         self.sweep_hidden();
@@ -658,7 +652,7 @@ impl DemoHistory {
                 row.server_confirmed = state.is_none();
                 // Once the server timestamp is known the row already shows the local clock time.
                 if state.is_none() && row.timestamp_ms == 0 {
-                    row.time = "ACK server".into();
+                    row.time = crate::i18n::t("Server ack").into();
                 }
                 if let Some(local) = local.filter(|r| *r != index) {
                     self.events.remove(local);
@@ -673,9 +667,9 @@ impl DemoHistory {
                     text: item.body.clone(),
                     outgoing: true,
                     time: if state.is_some() {
-                        "locale".into()
+                        crate::i18n::t("local").into()
                     } else {
-                        "ACK server".into()
+                        crate::i18n::t("Server ack").into()
                     },
                     send_state: state,
                     sender: None,

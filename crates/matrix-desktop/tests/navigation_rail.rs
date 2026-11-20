@@ -40,7 +40,7 @@ fn rail_counts_direct_joined_rooms_once_without_search_bias() {
     let entries = sidebar.navigation_entries();
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].scope, None);
-    assert_eq!(entries[0].name, "Tutte");
+    assert_eq!(entries[0].name, "All");
     assert_eq!(entries[0].unread, 13);
     assert!(entries[0].selected);
     assert_eq!(entries[1].scope, Some(scope("!space:test")));

@@ -32,6 +32,18 @@ pub fn redacted_name(name: &str) -> String {
     format!("{}:", one_line(name))
 }
 
+/// The engine words a few whole-message placeholders in English; shown in the active language.
+// shortcut: matched by exact text, so a message that says exactly «Location» is translated too; upgrade with a flag on the event if that matters.
+pub fn engine_placeholder(text: &str) -> &str {
+    match text {
+        "Image" => i18n::t("Image"),
+        "Location" => i18n::t("Location"),
+        "Verification request" => i18n::t("Verification request"),
+        "Message without text" => i18n::t("Message without text"),
+        _ => text,
+    }
+}
+
 /// Replaces each `{name}` of `template` with its value, in one pass: a value that contains `{x}` stays as it is.
 fn fill(template: &str, args: &[(&str, &str)]) -> String {
     let mut out = String::with_capacity(template.len() + 32);

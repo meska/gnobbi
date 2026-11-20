@@ -1564,7 +1564,7 @@ impl Session {
 
     pub fn attach_image(&mut self, image: &egui::ColorImage, thread: bool) {
         match crate::composer::pasted_png(image).filter(|data| !data.is_empty() && data.len() as u64 <= self.upload_limit.unwrap_or(50 << 20)) {
-            Some(data) => self.set_attachment(thread, "Immagine.png".to_owned(), data, None),
+            Some(data) => self.set_attachment(thread, i18n::t("Image.png").to_owned(), data, None),
             None => self.notice = Some(i18n::t("Image cannot be attached").to_owned()),
         }
     }

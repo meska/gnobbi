@@ -1,4 +1,5 @@
 //! UI-only projection; SAS and device identities never enter diagnostics.
+use crate::i18n::{plural, t};
 use matrix_domain::AccountId;
 use matrix_engine::verification::{
     VerificationAction, VerificationCommand, VerificationEvent, VerificationSnapshot,
@@ -16,8 +17,8 @@ pub fn device_detail(
     d: &matrix_engine::verification::VerificationDevice,
     time: impl Fn(u64) -> String,
 ) -> String {
-    let mut parts = vec![if d.verified { "Verificato" } else { "Non verificato" }.to_owned()];
-    parts.extend(d.last_seen_ts.map(|t| format!("Ultima attività {}", time(t))));
+    let mut parts = vec![if d.verified { t("Verified") } else { t("Not verified") }.to_owned()];
+    parts.extend(d.last_seen_ts.map(|ms| t("Last activity {time}").replace("{time}", &time(ms))));
     parts.extend(d.last_seen_ip.clone());
     if d.display_name.is_some() {
         parts.push(d.device_id.clone());
@@ -51,17 +52,11 @@ impl DeleteDialog {
         !self.busy && !self.device_ids.is_empty()
     }
     pub fn counter(&self) -> String {
-        match self.device_ids.len() {
-            1 => "1 dispositivo da disconnettere".to_owned(),
-            n => format!("{n} dispositivi da disconnettere"),
-        }
+        plural(self.device_ids.len() as u64, "{n} device to sign out", "{n} devices to sign out")
     }
     pub fn unknown_note(&self) -> Option<String> {
-        match self.unknown_activity {
-            0 => None,
-            1 => Some("1 dispositivo senza ultima attività non incluso".to_owned()),
-            n => Some(format!("{n} dispositivi senza ultima attività non inclusi")),
-        }
+        let n = self.unknown_activity;
+        (n > 0).then(|| plural(n as u64, "{n} device without last activity not included", "{n} devices without last activity not included"))
     }
     pub fn take_refocus(&self) -> bool {
         self.refocus.replace(false)
@@ -101,15 +96,15 @@ impl PopupButton {
     ];
     pub fn label(self) -> &'static str {
         match self {
-            Self::Accept => "Accetta",
-            Self::Decline => "Rifiuta",
-            Self::Cancel => "Annulla",
-            Self::Match => "Corrispondono",
-            Self::NoMatch => "Non corrispondono",
-            Self::Yes => "Sì",
+            Self::Accept => t("Accept"),
+            Self::Decline => t("Decline"),
+            Self::Cancel => t("Cancel"),
+            Self::Match => t("They match"),
+            Self::NoMatch => t("They don't match"),
+            Self::Yes => t("Yes"),
             Self::No => "No",
             Self::Ok => "OK",
-            Self::Close => "Chiudi",
+            Self::Close => t("Close"),
         }
     }
     pub fn index(self) -> usize {
@@ -254,7 +249,7 @@ impl DeviceVerification {
         }
         self.delete = Some(DeleteDialog {
             device_ids: vec![],
-            name: "Disconnetti inattivi".to_owned(),
+            name: t("Sign out inactive").to_owned(),
             threshold: Some(Default::default()),
             unknown_activity: 0,
             busy: false,
@@ -392,7 +387,7 @@ impl DeviceVerification {
             Some(Ok(secret)) => Some(secret),
             Some(Err(_)) => {
                 page.busy = false;
-                page.line = Some((crate::key_export::WRONG_PHRASE.into(), true));
+                page.line = Some((crate::i18n::t("Wrong unlock passphrase").into(), true));
                 return false;
             }
             None => None,
@@ -415,7 +410,7 @@ impl DeviceVerification {
         };
         let phrase = match phrase.map(|p| Secret::new(p.to_string())) {
             Some(Err(_)) => {
-                page.line = Some((crate::key_export::WRONG_PHRASE.into(), true));
+                page.line = Some((crate::i18n::t("Wrong unlock passphrase").into(), true));
                 return false;
             }
             Some(Ok(p)) => Some(p),
@@ -569,9 +564,9 @@ impl DeviceVerification {
                     d.busy = false;
                     d.refocus.set(true);
                     d.error = Some(match error {
-                        Unavailable => "Non disponibile con questo account",
-                        WrongPassword => "Password non corretta",
-                        _ => "Non riuscito. Riprova.",
+                        Unavailable => t("Not available with this account"),
+                        WrongPassword => t("Incorrect password"),
+                        _ => t("Failed. Try again."),
                     });
                 }
             }
@@ -587,8 +582,8 @@ impl DeviceVerification {
                 let d = self.rename.as_mut().unwrap();
                 d.busy = false;
                 d.error = Some(match error {
-                    matrix_engine::verification::VerificationError::InvalidName => "Nome non valido",
-                    _ => "Non riuscito. Riprova.",
+                    matrix_engine::verification::VerificationError::InvalidName => t("Invalid name"),
+                    _ => t("Failed. Try again."),
                 });
             }
             VerificationEvent::KeysRecovery { account_id, state } if account_id == self.account => {
@@ -694,31 +689,31 @@ impl DeviceVerification {
         }
         let view = |title, body, buttons| Some(PopupView { title, body, buttons });
         if self.failed {
-            return view("Verifica", PopupBody::Outcome("Verifica non riuscita"), vec![Ok]);
+            return view(t("Verification"), PopupBody::Outcome(t("Verification failed")), vec![Ok]);
         }
         let Some(s) = self.snapshot.as_ref() else {
-            return view("Verifica", PopupBody::Waiting, vec![Cancel]);
+            return view(t("Verification"), PopupBody::Waiting, vec![Cancel]);
         };
         match s.state {
             Requested => view(
-                "Richiesta di verifica",
+                t("Verification request"),
                 PopupBody::Request(format!("{} · {}", s.user_id, s.device_id)),
                 vec![Accept, Decline],
             ),
-            Compare { .. } if self.confirming => view("Annullare la verifica?", PopupBody::Empty, vec![Yes, No]),
+            Compare { .. } if self.confirming => view(t("Cancel the verification?"), PopupBody::Empty, vec![Yes, No]),
             Compare { decimals } if !self.deciding => view(
-                "Verifica",
+                t("Verification"),
                 match s.sas_emoji.as_ref().filter(|e| !e.is_empty()) {
                     Some(emoji) => PopupBody::Emoji(emoji.clone()),
                     None => PopupBody::Decimals(decimals),
                 },
                 vec![Match, NoMatch],
             ),
-            Verified => view("Verifica", PopupBody::Outcome("Verificato"), vec![Ok]),
-            Cancelled => view("Verifica", PopupBody::Outcome("Verifica annullata"), vec![Ok]),
-            Mismatched => view("Verifica", PopupBody::Outcome("Gli emoji non corrispondono"), vec![Ok]),
-            Failed => view("Verifica", PopupBody::Outcome("Verifica non riuscita"), vec![Ok]),
-            _ => view("Verifica", PopupBody::Waiting, vec![Cancel]),
+            Verified => view(t("Verification"), PopupBody::Outcome(t("Verified")), vec![Ok]),
+            Cancelled => view(t("Verification"), PopupBody::Outcome(t("Verification cancelled")), vec![Ok]),
+            Mismatched => view(t("Verification"), PopupBody::Outcome(t("The emoji don't match")), vec![Ok]),
+            Failed => view(t("Verification"), PopupBody::Outcome(t("Verification failed")), vec![Ok]),
+            _ => view(t("Verification"), PopupBody::Waiting, vec![Cancel]),
         }
     }
     /// Tab order of the popup: its buttons, then the X.
@@ -930,18 +925,18 @@ mod profile_tests {
         let t = |ms: u64| format!("T{ms}");
         let full = dev(Some("Gnobbi (macOS)"), true, Some(7), Some("192.0.2.17"));
         assert_eq!(device_title(&full), "Gnobbi (macOS)");
-        assert_eq!(device_detail(&full, t), "Verificato · Ultima attività T7 · 192.0.2.17 · ABCDEF");
+        assert_eq!(device_detail(&full, t), "Verified · Last activity T7 · 192.0.2.17 · ABCDEF");
         let bare = dev(None, false, None, None);
         assert_eq!(device_title(&bare), "ABCDEF");
-        assert_eq!(device_detail(&bare, t), "Non verificato");
-        assert_eq!(device_detail(&dev(Some("N"), false, None, Some("::1")), t), "Non verificato · ::1 · ABCDEF");
+        assert_eq!(device_detail(&bare, t), "Not verified");
+        assert_eq!(device_detail(&dev(Some("N"), false, None, Some("::1")), t), "Not verified · ::1 · ABCDEF");
     }
 
     #[test]
     fn screen_reader_label_has_the_row_data() {
-        assert_eq!(device_label(&dev(None, true, None, None)), "ABCDEF · Verificato");
+        assert_eq!(device_label(&dev(None, true, None, None)), "ABCDEF · Verified");
         let l = device_label(&dev(Some("Mac"), false, Some(1), Some("203.0.113.1")));
-        assert!(l.starts_with("Mac · Non verificato · Ultima attività ") && l.ends_with(" · 203.0.113.1 · ABCDEF"), "{l}");
+        assert!(l.starts_with("Mac · Not verified · Last activity ") && l.ends_with(" · 203.0.113.1 · ABCDEF"), "{l}");
     }
 
     #[test]
@@ -965,9 +960,9 @@ mod profile_tests {
         v.pending = None;
         let fail = |error| VerificationEvent::DeviceDeleteFailed { account_id: a, device_ids: vec!["OLD".into()], error };
         v.apply(fail(DeviceDeleteError::WrongPassword));
-        assert_eq!(v.delete_dialog().unwrap().error, Some("Password non corretta"));
+        assert_eq!(v.delete_dialog().unwrap().error, Some("Incorrect password"));
         v.apply(fail(DeviceDeleteError::Unavailable));
-        assert_eq!(v.delete_dialog().unwrap().error, Some("Non disponibile con questo account"));
+        assert_eq!(v.delete_dialog().unwrap().error, Some("Not available with this account"));
         // success but the re-read failed: engine says DeviceDeleted; dialog closes, row goes, no failure
         assert!(v.submit_delete(pw()));
         v.pending = None;
@@ -1018,7 +1013,7 @@ mod profile_tests {
         assert!(v.has_inactive(NOW) && v.open_delete_inactive(NOW));
         let d = v.delete_dialog().unwrap();
         assert_eq!((d.threshold, d.device_ids.clone(), d.unknown_activity), (Some(SixMonths), vec!["M8".to_owned(), "Y2".to_owned()], 1));
-        assert_eq!((d.counter().as_str(), d.unknown_note().as_deref()), ("2 dispositivi da disconnettere", Some("1 dispositivo senza ultima attività non incluso")));
+        assert_eq!((d.counter().as_str(), d.unknown_note().as_deref()), ("2 devices to sign out", Some("1 device without last activity not included")));
         assert!(!v.open_delete_inactive(NOW) && !v.open_delete(1), "one dialog at a time");
         // threshold change refreshes the list: 1 anno → only Y2; 1 mese → three
         assert!(v.set_delete_threshold(OneYear, NOW));
@@ -1039,7 +1034,7 @@ mod profile_tests {
         // error: dialog stays, button active again, list kept
         v.apply(VerificationEvent::DeviceDeleteFailed { account_id: a, device_ids: vec!["M2".into()], error: DeviceDeleteError::WrongPassword });
         let d = v.delete_dialog().unwrap();
-        assert!(!d.busy && d.error == Some("Password non corretta") && d.take_refocus());
+        assert!(!d.busy && d.error == Some("Incorrect password") && d.take_refocus());
         assert!(v.can_submit_delete(true));
         // success: dialog closes, every row goes
         assert!(v.submit_delete(pw()));
@@ -1094,13 +1089,13 @@ mod profile_tests {
         assert!(!v.submit_rename("x"), "busy");
         v.pending = None;
         v.apply(VerificationEvent::Error { account_id: a, error: VerificationError::InvalidName });
-        assert_eq!(v.rename_dialog().unwrap().error, Some("Nome non valido"));
+        assert_eq!(v.rename_dialog().unwrap().error, Some("Invalid name"));
         assert!(!v.rename_dialog().unwrap().busy && !v.failed);
         // retry succeeds: the fresh own device closes the dialog and carries the new name
         assert!(v.submit_rename("Portatile"));
         v.pending = None;
         v.apply(VerificationEvent::Error { account_id: a, error: VerificationError::Transport });
-        assert_eq!(v.rename_dialog().unwrap().error, Some("Non riuscito. Riprova."));
+        assert_eq!(v.rename_dialog().unwrap().error, Some("Failed. Try again."));
         assert!(v.submit_rename("Portatile"));
         v.pending = None;
         v.apply(own("Portatile"));
@@ -1122,9 +1117,9 @@ mod profile_tests {
         let p = crate::time_fmt::Patterns::fallback();
         let at = |now| device_detail(&d, |t| crate::time_fmt::day_or_time_in(t, now, &cet, &p));
         // 23:30 UTC is already Friday 16 Jan 00:30 in CET: the local day decides, not UTC.
-        assert_eq!(at(THU_2330 + 60_000), "Verificato · Ultima attività 00:30 · ABCDEF");
-        assert_eq!(at(THU_2330 + 3 * DAY), "Verificato · Ultima attività Ven 00:30 · ABCDEF");
-        assert_eq!(at(THU_2330 + 30 * DAY), "Verificato · Ultima attività 16/01/26 00:30 · ABCDEF");
+        assert_eq!(at(THU_2330 + 60_000), "Verified · Last activity 00:30 · ABCDEF");
+        assert_eq!(at(THU_2330 + 3 * DAY), "Verified · Last activity Ven 00:30 · ABCDEF");
+        assert_eq!(at(THU_2330 + 30 * DAY), "Verified · Last activity 16/01/26 00:30 · ABCDEF");
     }
 
     #[test]
@@ -1237,7 +1232,7 @@ mod key_recovery_tests {
         let mut v = DeviceVerification::new(AccountId::new(1));
         assert!(!v.recover_keys(zeroize::Zeroizing::new(String::new())));
         assert_eq!(v.key_recovery(), Some(RecoveryState::Failed(RecoveryFailure::InvalidKey)));
-        assert_eq!(v.key_recovery_message(), Some("Chiave errata. Controlla e riprova."));
+        assert_eq!(v.key_recovery_message(), Some("Wrong key. Check it and try again."));
         assert!(v.recover_keys(zeroize::Zeroizing::new("EsTu key".into())));
         assert!(matches!(v.pending, Some(VerificationCommand::RecoverKeys { .. })));
         assert!(!v.recover_keys(zeroize::Zeroizing::new("again".into())), "one attempt at a time");
@@ -1245,7 +1240,7 @@ mod key_recovery_tests {
             account_id: AccountId::new(1),
             state: RecoveryState::Failed(RecoveryFailure::Network),
         });
-        assert!(v.key_recovery_message().is_some_and(|m| m.starts_with("Server non raggiungibile")));
+        assert!(v.key_recovery_message().is_some_and(|m| m.starts_with("Server unreachable")));
         v.apply(complete(1, true));
         assert_eq!(v.key_recovery(), None);
     }
@@ -1266,13 +1261,13 @@ mod key_recovery_tests {
         v.apply(VerificationEvent::KeysExported { account_id: a, result: Err(KeyExportError::NoKeys) });
         let page = v.keys.as_ref().unwrap();
         assert!(!page.busy && page.refill && page.held.is_some(), "the page stays open and retryable");
-        assert_eq!(page.line.as_ref().map(|l| (l.0.as_str(), l.1)), Some(("Nessuna chiave da esportare su questo dispositivo", true)));
+        assert_eq!(page.line.as_ref().map(|l| (l.0.as_str(), l.1)), Some(("No keys to export on this device", true)));
         assert!(v.export_keys("/tmp/k".into(), &z("long enough pass"), None));
         v.pending = None;
         v.apply(VerificationEvent::KeysExported { account_id: a, result: Ok(3) });
         let page = v.keys.as_ref().unwrap();
         assert!(page.held.is_none(), "success wipes the kept copy");
-        assert_eq!(page.line.as_ref().map(|l| l.0.as_str()), Some("Esportate 3 chiavi"));
+        assert_eq!(page.line.as_ref().map(|l| l.0.as_str()), Some("3 keys exported"));
     }
 
     #[test]

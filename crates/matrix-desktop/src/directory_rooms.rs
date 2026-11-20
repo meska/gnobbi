@@ -3,7 +3,7 @@ use crate::search_list::Hit;
 use matrix_engine::operations::DirectoryRoom;
 
 fn members(n: u64) -> String {
-    if n == 1 { "1 membro".into() } else { format!("{n} membri") }
+    crate::i18n::plural(n, "{n} member", "{n} members")
 }
 
 impl Hit for DirectoryRoom {
@@ -54,9 +54,9 @@ mod tests {
     #[test]
     fn detail_and_label_carry_name_alias_and_members() {
         let r = room(Some("#rust:a.org"), 42);
-        assert_eq!((r.detail(), r.label()), ("#rust:a.org · 42 membri".into(), "Rust, #rust:a.org, 42 membri".into()));
+        assert_eq!((r.detail(), r.label()), ("#rust:a.org · 42 members".into(), "Rust, #rust:a.org, 42 members".into()));
         let r = room(None, 1);
-        assert_eq!((r.detail(), r.label()), ("1 membro".into(), "Rust, 1 membro".into()));
+        assert_eq!((r.detail(), r.label()), ("1 member".into(), "Rust, 1 member".into()));
         assert_eq!(r.key(), "!r:a.org");
     }
 }

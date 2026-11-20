@@ -279,7 +279,6 @@ fn link_menu_offers_copy_and_open_and_open_still_needs_confirmation() {
     let targets = sources.targets(&id, "vai su https://example.invalid/a ora");
     let mut menu = LinkMenu::default();
     assert!(menu.target().is_none());
-    assert_eq!(LinkMenu::ITEMS, ["Copia link", "Apri"]);
     menu.open(targets[0].clone());
     assert_eq!(menu.copy().as_deref(), Some("https://example.invalid/a"));
     assert!(menu.target().is_none(), "choosing an item closes the menu");

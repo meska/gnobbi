@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(p.confirm_add(" x.org "), Some("x.org".into()));
         assert_eq!(p.confirm_add("x.org"), None, "probe in flight");
         assert!(!p.probed("x.org", Err(SearchError::Refused)));
-        assert_eq!(p.add_error(), Some("Il server non mostra le sue stanze"));
+        assert_eq!(p.add_error(), Some("The server does not show its rooms"));
         assert_eq!(p.store().for_account(1), &[] as &[String]);
         assert_eq!(p.confirm_add("x.org"), Some("x.org".into()));
         assert_eq!(p.add_error(), None);
@@ -464,7 +464,7 @@ mod tests {
         let mut p = picker(&[]);
         p.choose(3);
         assert_eq!(p.confirm_add("http://x.org"), None);
-        assert_eq!(p.add_error(), Some("Sono ammessi solo indirizzi https"));
+        assert_eq!(p.add_error(), Some("Only https addresses are allowed"));
         p.add_edited();
         assert_eq!(p.add_error(), None);
         assert_eq!(p.confirm_add(" HTTPS://X.org/ "), Some("x.org".into()));
@@ -479,7 +479,7 @@ mod tests {
         p.choose(4);
         assert_eq!(p.confirm_add("Z.org"), None);
         assert_eq!(p.value(), Some("z.org".into()));
-        assert_eq!(p.add_error(), Some("Già presente"));
+        assert_eq!(p.add_error(), Some("Already present"));
         assert!(!p.is_probing() && p.can_add("w.org"));
     }
 
@@ -520,7 +520,7 @@ mod tests {
         let add = p.rows().iter().position(|r| *r == Row::Add).unwrap();
         p.choose(add);
         assert_eq!(p.confirm_add("b.org"), None);
-        assert_eq!(p.add_error(), Some("Già presente"));
+        assert_eq!(p.add_error(), Some("Already present"));
         let remove = p.rows().iter().position(|r| *r == Row::Remove("b.org".into())).unwrap();
         assert_eq!(p.choose(remove), Choice::Removed);
         assert_eq!(p.add_error(), None);

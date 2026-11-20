@@ -58,7 +58,7 @@ impl Lock {
                 #[cfg(test)]
                 _no_spawn: no_spawn,
             }),
-            Err(std::fs::TryLockError::WouldBlock) => Err(failed("altra installazione in corso")),
+            Err(std::fs::TryLockError::WouldBlock) => Err(failed(crate::i18n::t("another installation in progress"))),
             Err(std::fs::TryLockError::Error(e)) => Err(message(&e)),
         }
     }
@@ -80,7 +80,7 @@ pub fn paths_for(channel: &Channel, ready: &Ready) -> Result<Paths, String> {
     let target = match channel {
         Channel::AppImage { target } => target.clone(),
         Channel::WindowsPortable { exe } => exe.clone(),
-        _ => return Err(failed("canale senza aggiornamento in-app")),
+        _ => return Err(failed(crate::i18n::t("channel without in-app update"))),
     };
     check_paths(target, ready.path.clone())
 }
@@ -88,24 +88,24 @@ pub fn paths_for(channel: &Channel, ready: &Ready) -> Result<Paths, String> {
 /// The path rules shared with the Windows helper, which re-runs them on its own argv.
 pub(super) fn check_paths(target: PathBuf, new: PathBuf) -> Result<Paths, String> {
     if !regular(&target)? {
-        return Err(failed("binario da aggiornare non trovato"));
+        return Err(failed(crate::i18n::t("binary to update not found")));
     }
     if !regular(&new)? {
-        return Err(failed("staging non trovato"));
+        return Err(failed(crate::i18n::t("staging not found")));
     }
     if new.parent() != target.parent() {
-        return Err(failed("staging fuori dalla cartella del target"));
+        return Err(failed(crate::i18n::t("staging outside the target folder")));
     }
     let prev = prev_of(&target);
     if new == target || new == prev {
-        return Err(failed("staging non valido"));
+        return Err(failed(crate::i18n::t("invalid staging")));
     }
     // An existing backup means an earlier transaction is still recoverable: stop without
     // overwriting or deleting anything. Unix only: a backup that is the target's own inode
     // is no copy at all; the installer drops it under the lock (see `install_with`).
     match std::fs::symlink_metadata(&prev) {
         Ok(_) if cfg!(unix) && same_file(&prev, &target) => {}
-        Ok(_) => return Err(failed(&format!("rimuovi {}", prev.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()))),
+        Ok(_) => return Err(failed(&crate::i18n::t(crate::i18n::t("remove {name}")).replace("{name}", &prev.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()))),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(message(&e)),
     }
@@ -191,7 +191,7 @@ where
             return Err(match undo {
                 Undo::Restored => cleanup(dirs, &paths, ready.build, &remove, message(&cause)),
                 // Nothing is deleted: `prev` is the copy to recover from, the marker stays.
-                Undo::Lost(e) => lost("posizione non riuscita e ripristino non riuscito", &e),
+                Undo::Lost(e) => lost(crate::i18n::t("placement failed and restore failed"), &e),
             });
         }
     }
@@ -208,7 +208,7 @@ where
         // The new binary did not start: put the old one back, and only then drop the marker.
         return Err(match rename(&paths.prev, &paths.target) {
             Ok(()) => cleanup(dirs, &paths, ready.build, &remove, message(&e)),
-            Err(e) => lost("avvio non riuscito e ripristino non riuscito", &e),
+            Err(e) => lost(crate::i18n::t("start failed and restore failed"), &e),
         });
     }
     Ok(())
@@ -218,7 +218,7 @@ where
 /// Call under the lock; an unreadable state also refuses.
 pub(super) fn refuse_pending(dirs: &AppDirs) -> Result<(), String> {
     match startup::marker_path(dirs).symlink_metadata() {
-        Ok(_) => Err(failed("aggiornamento precedente in sospeso")),
+        Ok(_) => Err(failed(crate::i18n::t("previous update pending"))),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(message(&e)),
     }
@@ -243,7 +243,7 @@ fn same_file(_: &Path, _: &Path) -> bool {
 pub(super) fn drop_backup(paths: &Paths, remove: impl Fn(&Path) -> io::Result<()>) -> io::Result<()> {
     match std::fs::symlink_metadata(&paths.prev) {
         Ok(_) if same_file(&paths.prev, &paths.target) => remove(&paths.prev),
-        Ok(_) => Err(io::Error::other("backup diverso dal binario, conservato")),
+        Ok(_) => Err(io::Error::other(crate::i18n::t("backup differs from the binary, kept"))),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e),
     }
@@ -305,10 +305,10 @@ pub(super) fn reverify(paths: &Paths, ready: &Ready) -> Result<(), String> {
 
 fn describe(e: UpdateError) -> String {
     failed(match e {
-        UpdateError::SizeMismatch { .. } => "staging di dimensione diversa",
-        UpdateError::Sha256Mismatch => "staging con hash diverso",
-        UpdateError::Io(std::io::ErrorKind::PermissionDenied) => "cartella non scrivibile",
-        _ => "staging non verificabile",
+        UpdateError::SizeMismatch { .. } => crate::i18n::t("staging has a different size"),
+        UpdateError::Sha256Mismatch => crate::i18n::t("staging has a different hash"),
+        UpdateError::Io(std::io::ErrorKind::PermissionDenied) => crate::i18n::t("folder not writable"),
+        _ => crate::i18n::t("staging cannot be verified"),
     })
 }
 
@@ -344,13 +344,13 @@ pub(super) fn lost(generic: &str, e: &io::Error) -> String {
 
 pub(super) fn failed(cause: &str) -> String {
     let cause = cause.lines().next().unwrap_or_default().trim();
-    format!("Aggiornamento non riuscito: {}", if cause.is_empty() { "errore" } else { cause })
+    crate::i18n::t(crate::i18n::t("Update failed: {cause}")).replace("{cause}", if cause.is_empty() { crate::i18n::t("error") } else { cause })
 }
 
 /// One line, per INSTALL_STAGED_CONTRACT.md §8.
 pub(super) fn message(e: &io::Error) -> String {
     if e.kind() == io::ErrorKind::PermissionDenied {
-        failed("cartella non scrivibile")
+        failed(crate::i18n::t("folder not writable"))
     } else {
         failed(&e.to_string())
     }

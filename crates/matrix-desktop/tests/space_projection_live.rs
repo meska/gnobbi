@@ -142,7 +142,7 @@ fn volta_softair_team_space_and_same_name_room_project_correctly() {
         let rail: Vec<_> = sidebar.navigation_entries().into_iter().map(|e| (e.name, e.avatar)).collect();
         let has = |n: &str| rail.iter().filter(|(x, _)| x == n).count();
         report(&mut failed, "rail_has_space_with_icon", rail.contains(&(name.to_owned(), Some(ICON.to_owned()))) && has(name) == 1, format!("{rail:?}"));
-        report(&mut failed, "rail_has_empty_space", has("Vuoto") == 1 && has("Tutte") == 1, format!("{rail:?}"));
+        report(&mut failed, "rail_has_empty_space", has("Vuoto") == 1 && has("All") == 1, format!("{rail:?}"));
         report(&mut failed, "invite_is_row_not_space_or_rail", has("Invito") == 0 && sidebar.spaces().all(|r| r.scope.room_id.as_str() != idi) && sidebar.rooms().iter().any(|r| r.scope.room_id.as_str() == idi && r.info.invited) && sidebar.visible_indices().iter().any(|&i| sidebar.rooms()[i].scope.room_id.as_str() == idi), format!("{rail:?}"));
         report(&mut failed, "no_orphan_space_rows", sidebar.spaces().count() == 2, format!("{}", sidebar.rooms().len()));
         report(&mut failed, "room_not_a_space", sidebar.rooms().iter().any(|r| r.scope.room_id.as_str() == idr && !r.info.is_space), String::new());

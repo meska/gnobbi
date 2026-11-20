@@ -189,8 +189,6 @@ pub struct LinkMenu {
 }
 
 impl LinkMenu {
-    pub const ITEMS: [&'static str; 2] = ["Copia link", "Apri"];
-
     pub fn open(&mut self, target: MessageLinkTarget) {
         self.target = Some(target);
     }

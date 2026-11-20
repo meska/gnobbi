@@ -82,7 +82,9 @@ pub struct AudioOutput {
     player: Arc<Mutex<Player>>,
 }
 
-const NO_OUT: &str = "Riproduzione audio non disponibile";
+fn no_out() -> &'static str {
+    crate::i18n::t("Audio playback not available")
+}
 
 impl AudioOutput {
     /// Open the default output at the note's own rate and start pulling. One line when there
@@ -91,8 +93,8 @@ impl AudioOutput {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
         let rate = player.rate();
         let player = Arc::new(Mutex::new(player));
-        let device = cpal::default_host().default_output_device().ok_or(NO_OUT)?;
-        let supported = device.default_output_config().map_err(|_| NO_OUT)?;
+        let device = cpal::default_host().default_output_device().ok_or(no_out())?;
+        let supported = device.default_output_config().map_err(|_| no_out())?;
         let channels = usize::from(supported.channels()).max(1);
         let format = supported.sample_format();
         let mut config: cpal::StreamConfig = supported.into();
@@ -102,9 +104,9 @@ impl AudioOutput {
             cpal::SampleFormat::F32 => build::<f32>(&device, config, channels, player.clone()),
             cpal::SampleFormat::I16 => build::<i16>(&device, config, channels, player.clone()),
             cpal::SampleFormat::I32 => build::<i32>(&device, config, channels, player.clone()),
-            _ => Err(NO_OUT),
+            _ => Err(no_out()),
         }?;
-        stream.play().map_err(|_| NO_OUT)?;
+        stream.play().map_err(|_| no_out())?;
         Ok(Self {
             _stream: stream,
             player,
@@ -141,7 +143,7 @@ fn build<T: cpal::SizedSample + cpal::FromSample<f32>>(
             |_| {},
             None,
         )
-        .map_err(|_| NO_OUT)
+        .map_err(|_| no_out())
 }
 
 #[cfg(test)]

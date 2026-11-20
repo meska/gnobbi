@@ -220,7 +220,7 @@ mod tests {
         let mut p = Picker::default();
         assert!(!p.key("down") && p.chosen().is_none() && p.status().is_none());
         p.set_state(SearchState::NoResults, false);
-        assert_eq!(p.status().unwrap().text(), "Nessun risultato");
+        assert_eq!(p.status().unwrap().text(), "No results");
         p.set_state(SearchState::Searching, false);
         assert_eq!(p.status(), Some(Status::Searching));
         p.set_state(SearchState::Error, false);

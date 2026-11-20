@@ -1917,7 +1917,7 @@ fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         let kept_id = egui::Id::new("sign-in-key-kept");
         let mut kept = ui.data(|d| d.get_temp::<bool>(kept_id)).unwrap_or(false);
         devices::key_view(ui, key, &mut kept);
-        ui.checkbox(&mut kept, matrix_desktop::key_export::KEPT_LABEL);
+        ui.checkbox(&mut kept, i18n::t("I kept it elsewhere"));
         ui.data_mut(|d| d.insert_temp(kept_id, kept));
         ui.add_space(8.);
         if ui.add_enabled(kept, egui::Button::new(egui::RichText::new(i18n::t("I saved the key: continue")).color(list::rgb(t.on_accent))).fill(list::rgb(t.accent)).min_size(egui::vec2(ui.available_width(), crate::metrics::button()))).clicked() {

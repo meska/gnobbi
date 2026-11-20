@@ -264,12 +264,12 @@ fn non_text_message_types_get_real_labels() {
         ),
         (
             serde_json::json!({"msgtype":"m.location","body":"qui","geo_uri":"geo:1,2"}),
-            "Posizione",
+            "Location",
         ),
         (serde_json::json!({"msgtype":"m.foo","body":"x"}), "m.foo"),
         (
             serde_json::json!({"msgtype":"m.text","body":""}),
-            "Messaggio senza testo",
+            "Message without text",
         ),
         (
             serde_json::json!({"msgtype":"m.text","body":"ciao"}),

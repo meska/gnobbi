@@ -76,7 +76,7 @@ impl Request {
 
     /// Strict: exact argument count, numbers and hash well-formed. Nothing here is trusted yet.
     pub fn parse(args: &[String]) -> Result<Self, String> {
-        let bad = || install::failed("parametri dell'helper non validi");
+        let bad = || install::failed(crate::i18n::t("invalid helper parameters"));
         let num = |s: &String| s.parse::<u64>().map_err(|_| bad());
         let (kind, target, parent) = match args {
             [flag, kind, target, parent, ..] if flag == FLAG => (kind.as_str(), PathBuf::from(target), parent.parse::<u32>().map_err(|_| bad())?),
@@ -125,23 +125,23 @@ pub fn validate(helper_exe: &Path, req: &Request) -> Result<Paths, String> {
     let bad = |c: &str| install::failed(c);
     let absolute_plain = |p: &Path| p.is_absolute() && !p.components().any(|c| matches!(c, std::path::Component::ParentDir));
     if !is_helper_name(name(helper_exe)) {
-        return Err(bad("helper fuori posto"));
+        return Err(bad(crate::i18n::t("helper out of place")));
     }
     if !absolute_plain(&req.target) || !is_exe(&req.target) || req.target == helper_exe || !same_dir(&req.target, helper_exe) {
-        return Err(bad("binario da aggiornare non valido"));
+        return Err(bad(crate::i18n::t("invalid binary to update")));
     }
     match &req.job {
         Job::Install { ready } => {
             let n = name(&ready.path);
             if !absolute_plain(&ready.path) || !(n.starts_with(".gnobbi.") && n.ends_with(".new")) {
-                return Err(bad("staging non valido"));
+                return Err(bad(crate::i18n::t("invalid staging")));
             }
             install::check_paths(req.target.clone(), ready.path.clone())
         }
         Job::Restore => {
             let prev = install::prev_of(&req.target);
             if !install::regular(&req.target)? || !install::regular(&prev)? {
-                return Err(bad("backup da ripristinare non trovato"));
+                return Err(bad(crate::i18n::t("backup to restore not found")));
             }
             Ok(Paths { target: req.target.clone(), new: PathBuf::new(), prev })
         }
@@ -192,14 +192,14 @@ fn install_job(dirs: &AppDirs, paths: &Paths, ready: &Ready, link: impl Fn(&Path
         if install::regular(&paths.target).unwrap_or(false) {
             return Err(install::cleanup(dirs, paths, to, &rm, install::message(&e)));
         }
-        return Err(install::failed("posizione non riuscita e ripristino non riuscito"));
+        return Err(install::failed(crate::i18n::t("placement failed and restore failed")));
     }
     install::sync_dir(&paths.target);
     if let Err(e) = spawn(&paths.target) {
         // New build did not start: `prev` moves back (and is consumed), then the marker goes.
         return Err(match mv(&paths.prev, &paths.target) {
             Ok(()) => install::cleanup(dirs, paths, to, &rm, install::message(&e)),
-            Err(_) => install::failed("avvio non riuscito e ripristino non riuscito"),
+            Err(_) => install::failed(crate::i18n::t("start failed and restore failed")),
         });
     }
     Ok(())
@@ -208,7 +208,7 @@ fn install_job(dirs: &AppDirs, paths: &Paths, ready: &Ready, link: impl Fn(&Path
 fn restore_job(dirs: &AppDirs, paths: &Paths, mv: impl Fn(&Path, &Path) -> io::Result<()>, spawn: impl Fn(&Path) -> io::Result<()>) -> Result<(), String> {
     // Same rule as the startup counter: only a transaction that already failed twice.
     let Some(pending) = startup::pending(dirs).filter(|p| p.attempts >= 2) else {
-        return Err(install::failed("nessun ripristino in sospeso"));
+        return Err(install::failed(crate::i18n::t("no pending restore")));
     };
     mv(&paths.prev, &paths.target).map_err(|e| install::message(&e))?;
     startup::finish_restore(dirs, &pending);
@@ -245,12 +245,12 @@ pub fn dispatch(args: &[String]) -> Option<i32> {
 
 #[cfg(not(windows))]
 fn run_helper(_: &[String]) -> Result<(), String> {
-    Err(install::failed("aggiornamento Windows non disponibile"))
+    Err(install::failed(crate::i18n::t("Windows update not available")))
 }
 
 #[cfg(not(windows))]
 pub fn start(_: &Request) -> Result<(), String> {
-    Err(install::failed("aggiornamento Windows non disponibile"))
+    Err(install::failed(crate::i18n::t("Windows update not available")))
 }
 
 #[cfg(windows)]
@@ -261,7 +261,7 @@ fn run_helper(args: &[String]) -> Result<(), String> {
     use std::io::Write;
     let req = Request::parse(args)?;
     let me = std::env::current_exe().map_err(|e| install::message(&e))?;
-    let dirs = crate::app_dirs(crate::Platform::CURRENT, |k| std::env::var(k).ok()).ok_or_else(|| install::failed("cartella dati non trovata"))?;
+    let dirs = crate::app_dirs(crate::Platform::CURRENT, |k| std::env::var(k).ok()).ok_or_else(|| install::failed(crate::i18n::t("data folder not found")))?;
     let early = validate(&me, &req)?;
     // Taken before READY and held to the end: a second instance fails the handshake and its app stays alive.
     let lock = install::Lock::acquire(&early.target)?;
@@ -325,7 +325,7 @@ mod win {
             if unsafe { WaitForSingleObject(self.0, ms) } == WAIT_OBJECT_0 {
                 Ok(())
             } else {
-                Err(io::Error::other("il programma non si è chiuso"))
+                Err(io::Error::other(crate::i18n::t("the program did not close")))
             }
         }
     }
@@ -351,7 +351,7 @@ mod win {
         let me = std::env::current_exe().map_err(|e| install::message(&e))?;
         let same = |a: &Path, b: &Path| Ok::<_, io::Error>(std::fs::canonicalize(a)? == std::fs::canonicalize(b)?);
         if !same(&req.target, &me).map_err(|e| install::message(&e))? {
-            return Err(install::failed("binario in esecuzione diverso dal target"));
+            return Err(install::failed(crate::i18n::t("running binary differs from the target")));
         }
         let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
         let copy = me.with_file_name(format!("{PREFIX}{}-{nonce}.exe", std::process::id()));
@@ -362,7 +362,7 @@ mod win {
             dst.sync_all()?;
             drop(dst);
             let mut child = std::process::Command::new(&copy).args(req.to_args()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
-            let out = child.stdout.take().ok_or_else(|| io::Error::other("helper senza canale"))?;
+            let out = child.stdout.take().ok_or_else(|| io::Error::other(crate::i18n::t("helper without channel")))?;
             let (tx, rx) = mpsc::channel();
             std::thread::spawn(move || {
                 let mut line = String::new();
@@ -374,7 +374,7 @@ mod win {
                 _ => {
                     let _ = child.kill();
                     let _ = child.wait();
-                    Err(io::Error::other("helper non pronto"))
+                    Err(io::Error::other(crate::i18n::t("helper not ready")))
                 }
             }
         })();

@@ -53,9 +53,9 @@ fn prepare_session(repaint: impl Fn() + Send + 'static) -> Result<(), &'static s
         let session = AVAudioSession::sharedInstance();
         match session.recordPermission() {
             P::Granted => {
-                let category = AVAudioSessionCategoryPlayAndRecord.ok_or(NO_MIC)?;
-                session.setCategory_error(category).map_err(|_| NO_MIC)?;
-                session.setActive_error(true).map_err(|_| NO_MIC)
+                let category = AVAudioSessionCategoryPlayAndRecord.ok_or(no_mic())?;
+                session.setCategory_error(category).map_err(|_| no_mic())?;
+                session.setActive_error(true).map_err(|_| no_mic())
             }
             P::Undetermined => {
                 session.requestRecordPermission(&block2::RcBlock::new(move |ok: objc2::runtime::Bool| {
@@ -64,20 +64,22 @@ fn prepare_session(repaint: impl Fn() + Send + 'static) -> Result<(), &'static s
                 }));
                 Err(PERMISSION_PENDING)
             }
-            _ => Err(NO_MIC),
+            _ => Err(no_mic()),
         }
     }
 }
 
-const NO_MIC: &str = "Microfono non disponibile";
+fn no_mic() -> &'static str {
+    crate::i18n::t("Microphone not available")
+}
 
 impl Recorder {
     /// Starts capturing from the default input device; the error is the one line shown to the user.
     pub fn start(upload_limit: u64, _repaint: impl Fn() + Send + 'static) -> Result<Self, &'static str> {
         #[cfg(target_os = "ios")]
         prepare_session(_repaint)?;
-        let device = cpal::default_host().default_input_device().ok_or(NO_MIC)?;
-        let config = device.default_input_config().map_err(|_| NO_MIC)?;
+        let device = cpal::default_host().default_input_device().ok_or(no_mic())?;
+        let config = device.default_input_config().map_err(|_| no_mic())?;
         let channels = usize::from(config.channels()).max(1);
         let rate = config.sample_rate();
         let samples = Arc::new(Mutex::new(Vec::new()));
@@ -106,10 +108,10 @@ impl Recorder {
                 err,
                 None,
             ),
-            _ => return Err(NO_MIC),
+            _ => return Err(no_mic()),
         }
-        .map_err(|_| NO_MIC)?;
-        stream.play().map_err(|_| NO_MIC)?;
+        .map_err(|_| no_mic())?;
+        stream.play().map_err(|_| no_mic())?;
         Ok(Self {
             _stream: stream,
             samples,

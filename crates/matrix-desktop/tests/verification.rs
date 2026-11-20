@@ -114,7 +114,7 @@ fn device_selection_retries_full_queue_and_ignores_foreign_account() {
         account_id: AccountId::new(7),
         error: VerificationError::Transport,
     });
-    assert_eq!(panel.popup_view().unwrap().body, PopupBody::Outcome("Verifica non riuscita"));
+    assert_eq!(panel.popup_view().unwrap().body, PopupBody::Outcome("Verification failed"));
     panel.popup_close();
     assert!(panel.begin(0), "explicit retry after closing the error");
 }
@@ -191,9 +191,9 @@ fn comparison_requires_explicit_confirmation_and_preserves_exact_target() {
 #[test]
 fn terminal_states_are_distinct_untrusted_and_the_comparison_is_removed() {
     for (state, label) in [
-        (State::Cancelled, "Verifica annullata"),
-        (State::Mismatched, "Gli emoji non corrispondono"),
-        (State::Failed, "Verifica non riuscita"),
+        (State::Cancelled, "Verification cancelled"),
+        (State::Mismatched, "The emoji don't match"),
+        (State::Failed, "Verification failed"),
     ] {
         let mut panel = compare_popup(true);
         assert!(panel.act(Action::Cancel));
@@ -265,7 +265,7 @@ fn received_request_opens_the_popup_and_accept_or_refuse_go_through_the_sdk_acti
     let mut panel = DeviceVerification::new(AccountId::new(7));
     panel.apply(Event::Snapshot(snapshot(State::Requested)));
     let view = panel.popup_view().expect("a request from outside opens the popup");
-    assert_eq!(view.title, "Richiesta di verifica");
+    assert_eq!(view.title, "Verification request");
     assert_eq!(view.body, PopupBody::Request("@alice:fixture.invalid · PEER".into()));
     assert_eq!(view.buttons, vec![PopupButton::Accept, PopupButton::Decline]);
     assert!(panel.popup_press(PopupButton::Accept));
@@ -320,7 +320,7 @@ fn leaving_a_comparison_asks_first_and_other_states_leave_at_once() {
         let mut panel = compare_popup(true);
         assert!(panel.popup_press(PopupButton::Close));
         let ask = panel.popup_view().unwrap();
-        assert_eq!((ask.title, ask.body, ask.buttons.clone()), ("Annullare la verifica?", PopupBody::Empty, vec![PopupButton::Yes, PopupButton::No]));
+        assert_eq!((ask.title, ask.body, ask.buttons.clone()), ("Cancel the verification?", PopupBody::Empty, vec![PopupButton::Yes, PopupButton::No]));
         assert!(drain(&mut panel).is_none(), "asking cancels nothing");
         panel.popup_close(); // Esc again = back to the comparison
         assert_eq!(panel.popup_view().unwrap().buttons, vec![PopupButton::Match, PopupButton::NoMatch]);
@@ -342,7 +342,7 @@ fn leaving_a_comparison_asks_first_and_other_states_leave_at_once() {
     // An outcome: leaving cancels nothing.
     let mut panel = compare_popup(true);
     panel.apply(Event::Snapshot(snapshot(State::Verified)));
-    assert_eq!(panel.popup_view().unwrap().body, PopupBody::Outcome("Verificato"));
+    assert_eq!(panel.popup_view().unwrap().body, PopupBody::Outcome("Verified"));
     panel.popup_close();
     assert!(!panel.popup_open());
     assert!(matches!(drain(&mut panel), Some(matrix_engine::verification::VerificationCommand::Release { target }) if target.flow_id == "flow-one"));

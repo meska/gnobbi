@@ -88,7 +88,7 @@ fn malformed_argv_is_refused() {
     extra.push("x".into());
     for a in [bad_sha, bad_pid, extra, good[..5].to_vec(), vec![helper::FLAG.into()], vec![]] {
         let e = Request::parse(&a).unwrap_err();
-        assert_eq!(e, "Aggiornamento non riuscito: parametri dell'helper non validi", "{a:?}");
+        assert_eq!(e, "Update failed: invalid helper parameters", "{a:?}");
     }
 }
 
@@ -114,10 +114,10 @@ fn validation_pins_every_path_to_the_helper_folder_and_our_names() {
     ];
     for (what, r) in cases {
         let e = r.expect_err(what);
-        assert!(e.starts_with("Aggiornamento non riuscito: ") && e.lines().count() == 1, "{what}: {e}");
+        assert!(e.starts_with("Update failed: ") && e.lines().count() == 1, "{what}: {e}");
     }
     std::fs::write(fx.prev(), b"older").unwrap();
-    assert!(helper::validate(&fx.helper, &fx.req).unwrap_err().contains("rimuovi"));
+    assert!(helper::validate(&fx.helper, &fx.req).unwrap_err().contains("remove"));
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn a_busy_target_fails_safely_without_a_second_rename() {
     let fx = fixture("busy");
     let moves = Cell::new(0);
     let e = fx.run(link, |_, _| { moves.set(moves.get() + 1); Err(io::Error::from(io::ErrorKind::PermissionDenied)) }, ok).unwrap_err();
-    assert_eq!(e, "Aggiornamento non riuscito: cartella non scrivibile");
+    assert_eq!(e, "Update failed: folder not writable");
     assert_eq!(moves.get(), 1, "no fallback move");
     assert_eq!(fx.text(fx.target()), "old");
     assert!(!fx.prev().exists() && !fx.marker().exists(), "our own backup and marker are withdrawn");
@@ -148,7 +148,7 @@ fn a_busy_target_fails_safely_without_a_second_rename() {
 fn a_move_that_loses_the_target_keeps_the_only_copy() {
     let fx = fixture("lost");
     let e = fx.run(link, |_, b| { std::fs::remove_file(b).unwrap(); Err(io::Error::other("boom")) }, ok).unwrap_err();
-    assert_eq!(e, "Aggiornamento non riuscito: posizione non riuscita e ripristino non riuscito");
+    assert_eq!(e, "Update failed: placement failed and restore failed");
     assert_eq!(fx.text(&fx.prev()), "old");
     assert!(fx.marker().exists());
 }
@@ -157,7 +157,7 @@ fn a_move_that_loses_the_target_keeps_the_only_copy() {
 fn a_filesystem_without_hard_links_stops_before_the_move() {
     let fx = fixture("nolink");
     let moves = Cell::new(0);
-    let e = fx.run(|_, _| Err(io::Error::other("hard link non supportato")), |a, b| { moves.set(1); mv(a, b) }, ok).unwrap_err();
+    let e = fx.run(|_, _| Err(io::Error::other("hard link not supported")), |a, b| { moves.set(1); mv(a, b) }, ok).unwrap_err();
     assert!(e.contains("hard link"), "{e}");
     assert_eq!(moves.get(), 0);
     assert_eq!(fx.text(fx.target()), "old");
@@ -169,7 +169,7 @@ fn a_tampered_staging_is_refused_before_anything_is_written() {
     let fx = fixture("tamper");
     std::fs::write(&fx.ready.path, b"evil").unwrap();
     let e = fx.run(link, mv, ok).unwrap_err();
-    assert!(e.starts_with("Aggiornamento non riuscito: staging"), "{e}");
+    assert!(e.starts_with("Update failed: staging"), "{e}");
     assert!(!fx.prev().exists() && !fx.marker().exists());
     assert_eq!(fx.text(fx.target()), "old");
 }
@@ -178,7 +178,7 @@ fn a_tampered_staging_is_refused_before_anything_is_written() {
 fn a_new_build_that_does_not_start_is_rolled_back() {
     let fx = fixture("spawnfail");
     let e = fx.run(link, mv, |_| Err(io::Error::other("no avvio"))).unwrap_err();
-    assert_eq!(e, "Aggiornamento non riuscito: no avvio");
+    assert_eq!(e, "Update failed: no avvio");
     assert_eq!(fx.text(fx.target()), "old");
     assert!(!fx.prev().exists() && !fx.marker().exists());
 }
@@ -188,7 +188,7 @@ fn a_failed_rollback_keeps_prev_and_marker() {
     let fx = fixture("rollbackfail");
     let n = Cell::new(0);
     let e = fx.run(link, |a, b| { n.set(n.get() + 1); if n.get() == 1 { mv(a, b) } else { Err(io::Error::other("busy")) } }, |_| Err(io::Error::other("no avvio"))).unwrap_err();
-    assert_eq!(e, "Aggiornamento non riuscito: avvio non riuscito e ripristino non riuscito");
+    assert_eq!(e, "Update failed: start failed and restore failed");
     assert_eq!(fx.text(&fx.prev()), "old");
     assert!(fx.marker().exists());
 }
@@ -209,7 +209,7 @@ fn restore_needs_the_marker_and_two_failed_starts() {
     let restore = Request { job: Job::Restore, ..fx.req.clone() };
     let run = |mvs: &Cell<u32>| helper::execute(&fx.dirs, &fx.helper, &restore, link, |a, b| { mvs.set(mvs.get() + 1); mv(a, b) }, ok);
     let mvs = Cell::new(0);
-    assert!(run(&mvs).unwrap_err().contains("nessun ripristino"));
+    assert!(run(&mvs).unwrap_err().contains("no pending restore"));
     startup::write_pending(&fx.dirs, &Pending { from_build: 8, to_build: 9, attempts: 1 }).unwrap();
     assert!(run(&mvs).is_err());
     assert_eq!(mvs.get(), 0, "no move without the authority of a twice-failed marker");
@@ -273,5 +273,5 @@ fn restore_reports_an_unreadable_target_instead_of_hiding_it_as_missing_backup()
     let target = dir.join("blocked.exe").join("gnobbi.exe");
     let req = Request { target: target.clone(), job: Job::Restore, parent: 4242 };
     let err = helper::validate(&dir.join("blocked.exe").join(".gnobbi-helper-4242-1.exe"), &req).unwrap_err();
-    assert!(err.starts_with("Aggiornamento non riuscito: ") && !err.contains("non trovato") && err.lines().count() == 1, "{err}");
+    assert!(err.starts_with("Update failed: ") && !err.contains("not found") && err.lines().count() == 1, "{err}");
 }

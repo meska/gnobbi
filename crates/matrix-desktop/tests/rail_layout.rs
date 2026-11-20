@@ -18,7 +18,7 @@ fn entries() -> Vec<NavigationEntry> {
             account_id: AccountId::new(1),
             room_id: RoomId::new(id),
         }),
-        name: id.unwrap_or("Tutte").into(),
+        name: id.unwrap_or("All").into(),
         unread: 0,
         mentions: 0,
         selected: false,
@@ -51,7 +51,7 @@ fn current(layout: &RailLayout) -> Vec<String> {
 fn default_keeps_server_order_and_tutte_first() {
     assert_eq!(
         shown(&RailLayout::default()),
-        names(&[("Tutte", false), ("a", false), ("b", false), ("c", false)])
+        names(&[("All", false), ("a", false), ("b", false), ("c", false)])
     );
 }
 
@@ -71,7 +71,7 @@ fn move_and_hide_survive_a_restart() {
     let again = RailLayouts::load(&d).get(7);
     assert_eq!(
         shown(&again),
-        names(&[("Tutte", false), ("c", false), ("a", false), ("b", true)])
+        names(&[("All", false), ("c", false), ("a", false), ("b", true)])
     );
     assert_eq!(RailLayouts::load(&d).get(8), RailLayout::default()); // other account untouched
 }
@@ -100,7 +100,7 @@ fn new_and_vanished_spaces_are_harmless() {
         .into_iter()
         .map(|(e, _)| e.name)
         .collect();
-    assert_eq!(out, ["Tutte", "c", "b"]);
+    assert_eq!(out, ["All", "c", "b"]);
 }
 
 fn load_raw(name: &str, raw: &[u8]) -> RailLayouts {
@@ -130,12 +130,12 @@ fn invalid_fields_reset_only_that_field() {
     );
     assert_eq!(
         shown(&l.get(1)),
-        names(&[("Tutte", false), ("a", true), ("b", false), ("c", false)])
+        names(&[("All", false), ("a", true), ("b", false), ("c", false)])
     ); // bad order only
     assert_eq!(shown(&l.get(2)), shown(&RailLayout::default())); // duplicate and wrong type
     assert_eq!(
         shown(&l.get(3)),
-        names(&[("Tutte", false), ("c", false), ("a", false), ("b", false)])
+        names(&[("All", false), ("c", false), ("a", false), ("b", false)])
     ); // bad hidden only
     assert_eq!(shown(&l.get(4)), shown(&RailLayout::default()));
 }
@@ -147,7 +147,7 @@ fn only_hidden_spaces_never_remove_tutte() {
         layout.toggle_hidden(id);
     }
     let out = shown(&layout);
-    assert_eq!(out[0], ("Tutte".to_string(), false));
+    assert_eq!(out[0], ("All".to_string(), false));
     assert!(out[1..].iter().all(|(_, h)| *h));
 }
 
@@ -177,12 +177,12 @@ fn move_to_counts_hidden_spaces_and_keeps_them_hidden() {
     assert!(l.move_to(&current(&l), "a", 2));
     assert_eq!(
         shown(&l),
-        names(&[("Tutte", false), ("b", true), ("c", false), ("a", false)])
+        names(&[("All", false), ("b", true), ("c", false), ("a", false)])
     );
     assert!(l.move_to(&current(&l), "a", 1));
     assert_eq!(
         shown(&l),
-        names(&[("Tutte", false), ("b", true), ("a", false), ("c", false)])
+        names(&[("All", false), ("b", true), ("a", false), ("c", false)])
     );
 }
 

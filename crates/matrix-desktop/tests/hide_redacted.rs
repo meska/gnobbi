@@ -18,7 +18,7 @@ fn ev(id: &str, sender: &str, ts: u64, redacted: bool) -> HistoryEvent {
         redacted,
         event_id: EventId::new(id),
         body: if redacted {
-            "[Messaggio eliminato]".into()
+            "[Message deleted]".into()
         } else {
             id.into()
         },
@@ -82,9 +82,9 @@ fn hiding_is_idempotent_and_showing_restores_order() {
         texts(&h),
         [
             "$1",
-            "[Messaggio eliminato]",
+            "[Message deleted]",
             "$3",
-            "[Messaggio eliminato]",
+            "[Message deleted]",
             "$5"
         ]
     );
@@ -171,7 +171,7 @@ fn pending_row_stays_last_when_a_deleted_row_returns() {
     h.set_hide_redacted(false);
     let t = texts(&h);
     assert_eq!(t.len(), 3, "{t:?}");
-    assert_eq!((t[0].as_str(), t[1].as_str(), t[2].as_str()), ("$1", "[Messaggio eliminato]", "ciao"));
+    assert_eq!((t[0].as_str(), t[1].as_str(), t[2].as_str()), ("$1", "[Message deleted]", "ciao"));
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn redacted_thread_root_stays_visible() {
     let mut h = DemoHistory::new(scope(), 0);
     h.prepend_server(vec![root, ev("$x", "@anna:test", 200, true), ev("$y", "@anna:test", 300, false)]);
     h.set_hide_redacted(true);
-    assert_eq!(texts(&h), ["[Messaggio eliminato]", "$y"], "root kept, plain deleted row hidden");
+    assert_eq!(texts(&h), ["[Message deleted]", "$y"], "root kept, plain deleted row hidden");
 }
 
 #[test]

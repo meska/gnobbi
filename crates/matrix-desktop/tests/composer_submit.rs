@@ -27,5 +27,5 @@ fn composer_submission_appends_exact_text_with_scoped_local_identity() {
         history.events()[14].id.id,
         TimelineId::Pending(TransactionId::new("demo-local-2"))
     );
-    assert_eq!(sent.time, "locale");
+    assert_eq!(sent.time, "local");
 }

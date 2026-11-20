@@ -71,7 +71,7 @@ fn external_staging_is_refused_before_anything_is_written() {
     std::fs::write(&outside, b"new").unwrap();
     let ready = Ready { path: outside.clone(), ..fx.ready.clone() };
     let err = install::install_staged(&fx.dirs, &fx.channel, &ready).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: staging fuori dalla cartella del target");
+    assert_eq!(err, "Update failed: staging outside the target folder");
     assert_eq!(fx.read(&outside), "new", "external input stays untouched");
     assert!(!fx.paths.prev.exists() && !fx.marker().exists());
 }
@@ -81,7 +81,7 @@ fn an_existing_backup_is_refused_untouched() {
     let fx = fixture("prev");
     std::fs::write(&fx.paths.prev, b"older").unwrap();
     let err = install::install_staged(&fx.dirs, &fx.channel, &fx.ready).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: rimuovi gnobbi.AppImage.prev");
+    assert_eq!(err, "Update failed: remove gnobbi.AppImage.prev");
     assert_eq!(fx.read(&fx.paths.prev), "older");
     assert_eq!(fx.read(&fx.paths.target), "old");
 }
@@ -93,7 +93,7 @@ fn windows_channel_is_refused_instead_of_running_the_linux_step() {
     let fx = fixture("windows");
     let channel = Channel::WindowsPortable { exe: fx.paths.target.clone() };
     let err = install::install_staged(&fx.dirs, &channel, &fx.ready).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: aggiornamento Windows non disponibile");
+    assert_eq!(err, "Update failed: Windows update not available");
     assert_eq!(fx.read(&fx.paths.target), "old");
 }
 
@@ -146,7 +146,7 @@ fn a_failed_staging_rename_aborts_cleanly() {
         if calls.get() == 1 { Err(std::io::Error::other("busy")) } else { std::fs::rename(a, b) }
     };
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Ok(()), |p| std::fs::remove_file(p)).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: busy");
+    assert_eq!(err, "Update failed: busy");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(!fx.paths.prev.exists(), "the aborted transaction left no orphan backup");
     assert!(!fx.marker().exists());
@@ -179,7 +179,7 @@ fn install_keeps_marker_and_backup_until_the_new_build_confirms() {
 fn install_rolls_back_when_the_new_binary_does_not_start() {
     let fx = fixture("install-spawn");
     let err = fx.run_with_spawn(|_| Err(std::io::Error::other("no start"))).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: no start");
+    assert_eq!(err, "Update failed: no start");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(!fx.paths.prev.exists(), "the rollback consumed the backup: no orphan left");
     assert!(!fx.marker().exists(), "the aborted transaction dropped its own marker");
@@ -194,7 +194,7 @@ fn install_keeps_backup_and_marker_when_that_rollback_also_fails() {
         if calls.get() >= 2 { Err(std::io::Error::other("busy")) } else { std::fs::rename(a, b) }
     };
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Err(std::io::Error::other("no start")), |p| std::fs::remove_file(p)).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: avvio non riuscito e ripristino non riuscito");
+    assert_eq!(err, "Update failed: start failed and restore failed");
     assert_eq!(fx.read(&fx.paths.prev), "old");
     assert!(fx.marker().exists(), "transaction data stays next to the only recoverable copy");
 }
@@ -215,7 +215,7 @@ fn a_second_install_is_refused_while_the_first_holds_the_lock() {
 fn permission_denied_is_the_exact_contract_line() {
     let fx = fixture("perm");
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, |_, _| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)), Fx::rename, |_| Ok(()), |p| std::fs::remove_file(p)).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: cartella non scrivibile");
+    assert_eq!(err, "Update failed: folder not writable");
     assert!(!fx.marker().exists() && !fx.paths.prev.exists());
 }
 
@@ -225,7 +225,7 @@ fn a_failing_marker_write_is_reported_before_the_swap() {
     // `dirs.data` is a file, so the marker cannot be written at all.
     std::fs::write(&fx.dirs.data, b"not a directory").unwrap();
     let err = fx.run_with_spawn(|_| Ok(())).unwrap_err();
-    assert!(err.starts_with("Aggiornamento non riuscito: "), "{err}");
+    assert!(err.starts_with("Update failed: "), "{err}");
     assert_eq!(err.lines().count(), 1, "{err}");
     assert_eq!(fx.read(&fx.paths.target), "old", "nothing was swapped");
     assert!(!fx.paths.prev.exists());
@@ -236,7 +236,7 @@ fn changed_staging_is_removed_after_reverification_fails() {
     let fx = fixture("changed-cleanup");
     std::fs::write(&fx.paths.new, b"bad").unwrap();
     let err = fx.run_with_spawn(|_| panic!("must not spawn")).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: staging con hash diverso");
+    assert_eq!(err, "Update failed: staging has a different hash");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(!fx.paths.new.exists(), "invalid staging must be removed");
     assert!(!fx.marker().exists());
@@ -266,7 +266,7 @@ fn permission_denied_during_recovery_is_exact() {
     }, |_| Err(std::io::Error::other("spawn")), |p| std::fs::remove_file(p)).unwrap_err();
     assert_eq!(fx.read(&fx.paths.prev), "old");
     assert!(fx.marker().exists());
-    assert_eq!(err, "Aggiornamento non riuscito: cartella non scrivibile");
+    assert_eq!(err, "Update failed: folder not writable");
 }
 
 #[test]
@@ -277,7 +277,7 @@ fn errors_are_always_one_line() {
         install::install_staged(&fx.dirs, &fx.channel, &stale).unwrap_err(),
         install::install_with(&fx.dirs, &fx.channel, &fx.ready, |_, _| Err(std::io::Error::other("a\nb")), Fx::rename, |_| Ok(()), |p| std::fs::remove_file(p)).unwrap_err(),
     ] {
-        assert!(err.starts_with("Aggiornamento non riuscito: "), "{err}");
+        assert!(err.starts_with("Update failed: "), "{err}");
         assert_eq!(err.lines().count(), 1, "{err}");
     }
 }
@@ -303,7 +303,7 @@ fn install_is_refused_while_another_process_holds_the_lock() {
     let fx = fixture("pending-under-lock");
     let _held = install::Lock::acquire(&fx.paths.target).unwrap();
     let err = fx.run_with_spawn(|_| panic!("must not spawn")).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: altra installazione in corso");
+    assert_eq!(err, "Update failed: another installation in progress");
     assert!(!fx.paths.prev.exists() && !fx.marker().exists());
     assert_eq!(fx.read(&fx.paths.target), "old");
 }
@@ -324,7 +324,7 @@ fn failed_cleanup_after_a_rollback_is_reported_and_keeps_the_marker_with_the_bac
         if calls.get() == 1 { Err(std::io::Error::other("busy")) } else { Fx::rename(a, b) }
     };
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Ok(()), deny).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: busy", "the failed cleanup goes to the log, not into the line");
+    assert_eq!(err, "Update failed: busy", "the failed cleanup goes to the log, not into the line");
     assert_eq!(err.lines().count(), 1);
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert_eq!(fx.read(&fx.paths.prev), "old", "backup not removed, still reported");
@@ -339,7 +339,7 @@ fn a_backup_that_is_not_the_target_is_never_deleted_by_cleanup() {
     std::fs::write(&fx.paths.prev, b"different").unwrap();
     let paths = fx.paths.clone();
     let err = install::drop_backup(&paths, |_| panic!("must not remove")).unwrap_err();
-    assert!(err.to_string().contains("conservato"), "{err}");
+    assert!(err.to_string().contains("kept"), "{err}");
     assert_eq!(fx.read(&paths.prev), "different");
 }
 
@@ -395,7 +395,7 @@ fn install_and_restart_returns_the_error_and_does_not_exit() {
     let out = run_child("fail");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert_eq!(out.status.code(), Some(42), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
-    assert!(stdout.contains("returned: Aggiornamento non riuscito: staging con hash diverso"), "{stdout}");
+    assert!(stdout.contains("returned: Update failed: staging has a different hash"), "{stdout}");
 }
 
 #[cfg(unix)]
@@ -413,7 +413,7 @@ fn missing_staging_is_refused_before_anything_is_written() {
     let fx = fixture("no-staging");
     std::fs::remove_file(&fx.paths.new).unwrap();
     let err = install::install_staged(&fx.dirs, &fx.channel, &fx.ready).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: staging non trovato");
+    assert_eq!(err, "Update failed: staging not found");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(!fx.paths.prev.exists() && !fx.marker().exists());
 }
@@ -453,7 +453,7 @@ fn permission_denied_on_the_staging_rename_is_the_exact_line_and_cleans_up() {
         if calls.get() == 1 { Err(std::io::ErrorKind::PermissionDenied.into()) } else { Fx::rename(a, b) }
     };
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| panic!("must not spawn"), |p| std::fs::remove_file(p)).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: cartella non scrivibile");
+    assert_eq!(err, "Update failed: folder not writable");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(!fx.paths.prev.exists() && !fx.marker().exists(), "no orphan backup or marker");
     assert!(fx.paths.new.exists(), "the staging is not consumed by a failed install");
@@ -463,7 +463,7 @@ fn permission_denied_on_the_staging_rename_is_the_exact_line_and_cleans_up() {
 fn a_failed_spawn_with_a_failed_cleanup_reports_it_and_keeps_the_marker() {
     let fx = fixture("spawn-cleanup");
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, Fx::rename, |_| Err(std::io::Error::other("no start")), deny).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: no start");
+    assert_eq!(err, "Update failed: no start");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(fx.marker().exists(), "the marker outlives a backup that could not be removed");
 }
@@ -474,7 +474,7 @@ fn a_dangling_symlink_as_backup_counts_as_a_preexisting_backup() {
     let fx = fixture("prev-dangling");
     std::os::unix::fs::symlink("/nonexistent/x", &fx.paths.prev).unwrap();
     let err = install::install_staged(&fx.dirs, &fx.channel, &fx.ready).unwrap_err();
-    assert!(err.contains("rimuovi"), "{err}");
+    assert!(err.contains("remove"), "{err}");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(fx.paths.prev.symlink_metadata().is_ok(), "the symlink is left alone");
 }
@@ -483,14 +483,14 @@ fn a_dangling_symlink_as_backup_counts_as_a_preexisting_backup() {
 fn windows_parent_refuses_a_pending_marker_or_altered_staging_before_starting_the_helper() {
     let fx = fixture("win-precheck");
     let channel = Channel::WindowsPortable { exe: fx.paths.target.clone() };
-    // Without the pre-check the answer would be the helper's "aggiornamento Windows non disponibile".
+    // Without the pre-check the answer would be the helper's "Windows update not available".
     super::startup::write_pending(&fx.dirs, &super::startup::Pending { from_build: 1, to_build: 9, attempts: 0 }).unwrap();
     let err = install::install_staged(&fx.dirs, &channel, &fx.ready).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: aggiornamento precedente in sospeso");
+    assert_eq!(err, "Update failed: previous update pending");
     std::fs::remove_file(fx.marker()).unwrap();
     std::fs::write(&fx.paths.new, b"bad").unwrap();
     let err = install::install_staged(&fx.dirs, &channel, &fx.ready).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: staging con hash diverso");
+    assert_eq!(err, "Update failed: staging has a different hash");
     assert!(!fx.paths.new.exists(), "altered staging is dropped");
     assert_eq!(fx.read(&fx.paths.target), "old");
 }
@@ -515,5 +515,5 @@ fn permission_denied_stays_the_exact_line_even_when_the_cleanup_fails_too() {
         if calls.get() == 1 { Err(std::io::ErrorKind::PermissionDenied.into()) } else { Fx::rename(a, b) }
     };
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Ok(()), deny).unwrap_err();
-    assert_eq!(err, "Aggiornamento non riuscito: cartella non scrivibile");
+    assert_eq!(err, "Update failed: folder not writable");
 }

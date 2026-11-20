@@ -53,19 +53,19 @@ impl Status {
     /// One line, no help text. Also the announcement made when the state changes.
     pub fn text(self) -> &'static str {
         match self {
-            Self::Searching => "Ricerca in corso",
-            Self::NoResults => "Nessun risultato",
-            Self::Failed => "Ricerca non riuscita",
-            Self::Partial => "Risultati parziali",
+            Self::Searching => crate::i18n::t("Searching"),
+            Self::NoResults => crate::i18n::t("No results"),
+            Self::Failed => crate::i18n::t("Search failed"),
+            Self::Partial => crate::i18n::t("Partial results"),
             Self::Error(e) => match e {
-                SearchError::InvalidServer => "Nome del server non valido",
-                SearchError::NotMatrix => "Non è un server Matrix",
-                SearchError::Refused => "Il server non mostra le sue stanze",
-                SearchError::Unreachable => "Il server non risponde",
-                SearchError::OurServerBlocked => "Il tuo server non raggiunge questo server",
-                SearchError::Tls => "Certificato del server non valido",
-                SearchError::Timeout => "Tempo scaduto",
-                SearchError::Network => "Connessione non riuscita",
+                SearchError::InvalidServer => crate::i18n::t("Invalid server name"),
+                SearchError::NotMatrix => crate::i18n::t("Not a Matrix server"),
+                SearchError::Refused => crate::i18n::t("The server does not show its rooms"),
+                SearchError::Unreachable => crate::i18n::t("The server does not respond"),
+                SearchError::OurServerBlocked => crate::i18n::t("Your server cannot reach this server"),
+                SearchError::Tls => crate::i18n::t("Invalid server certificate"),
+                SearchError::Timeout => crate::i18n::t("Timed out"),
+                SearchError::Network => crate::i18n::t("Connection failed"),
             },
         }
     }
@@ -74,9 +74,9 @@ impl Status {
 /// Text of the «Altri risultati» row.
 pub fn more_text(more: More) -> &'static str {
     match more {
-        More::None | More::Available => "Altri risultati",
-        More::Loading => "Caricamento",
-        More::Failed(_) => "Altri risultati non caricati",
+        More::None | More::Available => crate::i18n::t("More results"),
+        More::Loading => crate::i18n::t("Loading"),
+        More::Failed(_) => crate::i18n::t("More results not loaded"),
     }
 }
 
@@ -326,11 +326,11 @@ mod tests {
         let mut l = SearchList::<R>::default();
         l.set_term("ma");
         l.set_state(SearchState::NoResults { term: "ma".into() });
-        assert_eq!(l.status().unwrap().text(), "Nessun risultato");
+        assert_eq!(l.status().unwrap().text(), "No results");
         l.set_state(SearchState::Error {
             term: "ma".into(),
             error: SearchError::Timeout,
         });
-        assert_eq!(l.status().unwrap().text(), "Tempo scaduto");
+        assert_eq!(l.status().unwrap().text(), "Timed out");
     }
 }

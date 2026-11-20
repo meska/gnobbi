@@ -36,15 +36,15 @@ impl Category {
 
     pub fn label(self) -> &'static str {
         match self {
-            Category::Spaces => "Spazi pubblici",
-            Category::Rooms => "Stanze pubbliche",
-            Category::People => "Persone",
+            Category::Spaces => crate::i18n::t("Public spaces"),
+            Category::Rooms => crate::i18n::t("Public rooms"),
+            Category::People => crate::i18n::t("People"),
         }
     }
 
     /// Screen-reader name of the chip.
     pub fn chip_label(self) -> String {
-        format!("Filtro: {}", self.label())
+        crate::i18n::t("Filter: {label}").replace("{label}", self.label())
     }
 
     /// What the public directory is asked for; `None` for people.

@@ -237,7 +237,7 @@ fn live_rows_append_without_replacing_loaded_edited_or_redacted_content() {
     let mut edited = event("$edited");
     edited.body = "already edited caffè 🦀".into();
     let mut redacted = event("$redacted");
-    redacted.body = "[Messaggio eliminato]".into();
+    redacted.body = "[Message deleted]".into();
     history.prepend_server(vec![edited, redacted]);
     history.append_server(vec![
         event("$edited"),
@@ -247,7 +247,7 @@ fn live_rows_append_without_replacing_loaded_edited_or_redacted_content() {
     ]);
     assert_eq!(history.events().len(), 3);
     assert_eq!(history.events()[0].text, "already edited caffè 🦀");
-    assert_eq!(history.events()[1].text, "[Messaggio eliminato]");
+    assert_eq!(history.events()[1].text, "[Message deleted]");
     assert_eq!(
         history.events()[2].id.id,
         matrix_domain::TimelineId::Server(EventId::new("$new"))

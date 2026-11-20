@@ -489,3 +489,194 @@ menu	Bring All to Front	Porta tutto in primo piano
 	Encryption keys on this device not backed up are lost.	Le chiavi di cifratura non salvate in un backup andranno perse.
 	The server did not answer. Remove it from this device anyway?	Il server non risponde. Rimuoverlo comunque da questo dispositivo?
 	Remove from this device	Rimuovi da questo dispositivo
+
+# src/signin_form.rs
+	Wrong key. Check it and try again.	Chiave errata. Controlla e riprova.
+	Server unreachable. Try again later or continue without recovery.	Server non raggiungibile. Riprova più tardi o continua senza recupero.
+	Recovery took too long. Try again or continue without recovery.	Il recupero ha impiegato troppo tempo. Riprova o continua senza recupero.
+	No key backup on the server. Continue without recovery.	Nessun backup delle chiavi sul server. Continua senza recupero.
+	Recovery failed. Try again or continue without recovery.	Recupero non riuscito. Riprova o continua senza recupero.
+	This account has no Matrix secret storage: no recovery key to enter.	Questo account non ha un archivio segreto Matrix: nessuna chiave di recupero da inserire.
+	The server offers no key backup: no recovery to create. Continue without recovery.	Il server non offre il backup delle chiavi: nessun recupero da creare. Continua senza recupero.
+	This account already has a recovery: enter the existing recovery key.	Questo account ha già un recupero: inserisci la chiave di recupero esistente.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Il recupero di questo account è configurato solo a metà: Gnobbi non lo modifica. Continua senza recupero.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	Questo account ha già un’identità crittografica che questo dispositivo non possiede: Gnobbi non la sostituisce. Continua senza recupero.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	Il server chiede una conferma aggiuntiva che Gnobbi non supporta. Continua senza recupero.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	Server non raggiungibile: il recupero non è stato creato. Riprova o continua senza recupero.
+	Creation took too long. Try again or continue without recovery.	La creazione ha impiegato troppo tempo. Riprova o continua senza recupero.
+	Creating the recovery failed. Try again or continue without recovery.	Creazione del recupero non riuscita. Riprova o continua senza recupero.
+	Enter a server name or a valid HTTPS address.	Inserisci un nome server o un indirizzo HTTPS valido.
+	Enter the full Matrix ID: @name:server.	Inserisci l’ID Matrix completo: @nome:server.
+	Enter the profile's local passphrase.	Inserisci la frase locale del profilo.
+	Password required; local passphrase of at least 16 characters.	Password richiesta; frase locale di almeno 16 caratteri.
+	This server offers no password login. SSO/OIDC are not supported.	Questo server non offre login password. SSO/OIDC non supportati.
+	This server does not support sliding sync	Questo server non supporta lo sliding sync
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	Il server ha risposto con un errore: controlla l’indirizzo (es. https://matrix.esempio.it).
+	Server unreachable or invalid TLS certificate.	Server non raggiungibile o certificato TLS non valido.
+	Credentials not accepted. Try again.	Credenziali non accettate. Riprova.
+	Too many attempts: try again in a moment.	Troppi tentativi: riprova tra qualche istante.
+	Sign-in/unlock failed. Check the credentials and try again.	Accesso/sblocco non riuscito. Controlla le credenziali e riprova.
+	System keychain unavailable or locked. Unlock it and try again.	Portachiavi di sistema non disponibile o bloccato. Sbloccalo e riprova.
+	The profile key is not in the system keychain. The profile was not changed.	La chiave del profilo non è nel portachiavi di sistema. Il profilo non è stato modificato.
+	Profile already open in another instance. Close it and restart.	Profilo già aperto in un’altra istanza. Chiudila e riavvia.
+	Local profile unavailable. Close and check the profile path.	Profilo locale non disponibile. Chiudi e verifica il percorso del profilo.
+	Enter the Matrix password.	Inserisci la password Matrix.
+
+# signin
+	Creating the recovery and backup…	Creazione del recupero e del backup in corso…
+
+# devices
+@plural	{n} device to sign out	{n} dispositivo da disconnettere|{n} dispositivi da disconnettere
+@plural	{n} device without last activity not included	{n} dispositivo senza ultima attività non incluso|{n} dispositivi senza ultima attività non inclusi
+
+# devices
+	Last activity {time}	Ultima attività {time}
+	They match	Corrispondono
+	They don't match	Non corrispondono
+	Yes	Sì
+	Not available with this account	Non disponibile con questo account
+	Incorrect password	Password non corretta
+	Failed. Try again.	Non riuscito. Riprova.
+	Verification failed	Verifica non riuscita
+	Verification request	Richiesta di verifica
+	Cancel the verification?	Annullare la verifica?
+	Verification cancelled	Verifica annullata
+	The emoji don't match	Gli emoji non corrispondono
+	Verification	Verifica
+
+# key export
+@plural	{n} key exported	Esportata {n} chiave|Esportate {n} chiavi
+
+# key export
+	Gnobbi recovery key	Chiave di recupero Gnobbi
+	Wrong unlock passphrase	Frase di sblocco errata
+	Password too short: at least 12 characters	Password troppo corta: almeno 12 caratteri
+	Password too long: at most 4096 bytes	Password troppo lunga: al massimo 4096 byte
+	The passwords don't match	Le password non coincidono
+	No keys to export on this device	Nessuna chiave da esportare su questo dispositivo
+	Can't write to this location	Impossibile scrivere in questa posizione
+	Export failed: try again	Esportazione non riuscita: riprova
+	Recover the keys on this device first	Recupera prima le chiavi su questo dispositivo
+	The server asks for a confirmation that is not supported here	Il server chiede una conferma non supportata qui
+	Server unreachable: try again	Server non raggiungibile: riprova
+	Regeneration failed: try again	Rigenerazione non riuscita: riprova
+
+# key export
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	Questo dispositivo non ha le chiavi di recupero dell'account: inserisci la chiave per leggere i messaggi cifrati vecchi
+	This account has no recovery key: without one, encrypted messages are lost with the devices	Questo account non ha una chiave di recupero: senza, i messaggi cifrati si perdono con i dispositivi
+	Restoring…	Ripristino…
+	Restore	Ripristina
+	Not now	Non ora
+	Don't ask again for this account	Non chiedere più per questo account
+	Copy recovery key	Copia chiave di recupero
+	Save it now: it will not be shown again	Salvala ora: non verrà più mostrata
+	Save to file	Salva su file
+	gnobbi-recovery-key.txt	gnobbi-chiave-di-recupero.txt
+	Regenerating…	Rigenerazione…
+	I kept it elsewhere	L'ho conservata altrove
+
+# search list and add server
+	The server does not respond	Il server non risponde
+	Not a Matrix server	Non è un server Matrix
+	The server does not show its rooms	Il server non mostra le sue stanze
+	Your server cannot reach this server	Il tuo server non raggiunge questo server
+	Invalid server certificate	Certificato del server non valido
+	Searching	Ricerca in corso
+	Partial results	Risultati parziali
+	Invalid server name	Nome del server non valido
+	Timed out	Tempo scaduto
+	Loading	Caricamento
+	More results not loaded	Altri risultati non caricati
+
+# search list and add server
+	The server name is needed, for example matrix.org	Serve il nome del server, ad esempio matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Questo è un ID utente: serve il nome del server, ad esempio matrix.org
+	Only https addresses are allowed	Sono ammessi solo indirizzi https
+	Write only the server name, without a path	Scrivi solo il nome del server, senza percorso
+	The server name is needed, without user or password	Serve il nome del server, senza utente o password
+	Invalid port	Porta non valida
+	Invalid IP address	Indirizzo IP non valido
+	Already present	Già presente
+
+# sidebar
+	Favorites	Preferiti
+	All	Tutte
+	Demo room {n}	Stanza demo {n}
+
+# history
+@plural	{n} unread	{n} non letta|{n} non lette
+
+# history
+	edited	modificato
+	[Message deleted]	[Messaggio eliminato]
+	Server ack · Reply	ACK server · Risposta
+	Server ack	ACK server
+	local	locale
+
+# audio
+	Microphone not available	Microfono non disponibile
+
+# audio
+	Audio playback not available	Riproduzione audio non disponibile
+
+# search
+	Public spaces	Spazi pubblici
+	People	Persone
+
+# engine placeholders
+	Location	Posizione
+	Message without text	Messaggio senza testo
+	Image.png	Immagine.png
+
+# update
+	invalid staging	staging non valido
+	placement failed and restore failed	posizione non riuscita e ripristino non riuscito
+	start failed and restore failed	avvio non riuscito e ripristino non riuscito
+	another installation in progress	altra installazione in corso
+	channel without in-app update	canale senza aggiornamento in-app
+	binary to update not found	binario da aggiornare non trovato
+	staging not found	staging non trovato
+	staging outside the target folder	staging fuori dalla cartella del target
+	previous update pending	aggiornamento precedente in sospeso
+	staging has a different size	staging di dimensione diversa
+	staging has a different hash	staging con hash diverso
+	folder not writable	cartella non scrivibile
+	staging cannot be verified	staging non verificabile
+	Update failed: {cause}	Aggiornamento non riuscito: {cause}
+	remove {name}	rimuovi {name}
+	error	errore
+
+# update
+	invalid helper parameters	parametri dell'helper non validi
+	invalid binary to update	binario da aggiornare non valido
+	backup to restore not found	backup da ripristinare non trovato
+	no pending restore	nessun ripristino in sospeso
+	Windows update not available	aggiornamento Windows non disponibile
+	data folder not found	cartella dati non trovata
+	the program did not close	il programma non si è chiuso
+	running binary differs from the target	binario in esecuzione diverso dal target
+	helper without channel	helper senza canale
+	helper not ready	helper non pronto
+
+# update
+	Update available · {version}	Aggiornamento disponibile · {version}
+	Update available, version {version}	Aggiornamento disponibile, versione {version}
+	Updated to {version}	Aggiornato a {version}
+	Update failed: restored {version}	Aggiornamento non riuscito: ripristinata la {version}
+	Update failed: error	Aggiornamento non riuscito: errore
+	Update postponed: message not sent	Aggiornamento rinviato: messaggio non inviato
+
+# update
+	backup differs from the binary, kept	backup diverso dal binario, conservato
+
+# key export
+	gnobbi-keys.txt	gnobbi-chiavi.txt
+
+# search
+	Filter: {label}	Filtro: {label}
+
+# devices
+	Sign out inactive	Disconnetti inattivi
+
+# update
+	helper out of place	helper fuori posto

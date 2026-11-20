@@ -241,9 +241,9 @@ fn add_bad_build_does_not_read_settings_while_the_lock_is_busy() {
 #[test]
 fn every_outcome_line_is_shown_once() {
     for (result, line) in [
-        (OUTCOME_UPDATED, "Aggiornato a 1.2.3"),
-        (OUTCOME_RESTORED, "Aggiornamento non riuscito: ripristinata la 1.2.3"),
-        (OUTCOME_FAILED, "Aggiornamento non riuscito: errore"),
+        (OUTCOME_UPDATED, "Updated to 1.2.3"),
+        (OUTCOME_RESTORED, "Update failed: restored 1.2.3"),
+        (OUTCOME_FAILED, "Update failed: error"),
     ] {
         let e = env(&format!("once-{result}"));
         save_outcome(&e.dirs, result, 11).unwrap();
