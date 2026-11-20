@@ -20,6 +20,8 @@ pub enum RecoveryError {
     NoSecretStorage,
     /// The local unlock phrase of a legacy profile is wrong.
     WrongPhrase,
+    /// The server asks for interactive authentication, which is not answered here.
+    AuthRequired,
 }
 
 fn classify(error: &matrix_sdk::encryption::recovery::RecoveryError) -> RecoveryError {
@@ -74,6 +76,16 @@ fn classify_setup(error: &matrix_sdk::encryption::recovery::RecoveryError) -> Se
         SetupError::Unsupported
     } else {
         SetupError::Transport
+    }
+}
+
+/// `Some(true)` only when the account has no secret storage at all (SDK `Disabled`); `None` while the SDK
+/// has not looked yet. Incomplete (keys exist, this device lacks them) is never an offer to create.
+pub fn recovery_disabled(client: &matrix_sdk::Client) -> Option<bool> {
+    use matrix_sdk::encryption::recovery::RecoveryState as State;
+    match client.encryption().recovery().state() {
+        State::Unknown => None,
+        state => Some(state == State::Disabled),
     }
 }
 
@@ -281,10 +293,19 @@ impl AccountSession {
     pub async fn reset_recovery_key(&mut self) -> Result<RecoverySecret, RecoveryError> {
         use matrix_sdk::encryption::recovery::RecoveryState as State;
         let client = self.client.clone().ok_or(RecoveryError::LoggedOut)?;
-        if !client.encryption().cross_signing_status().await.is_some_and(|s| s.is_complete()) {
-            return Err(RecoveryError::IdentityRequired);
-        }
+        let complete = client.encryption().cross_signing_status().await.is_some_and(|s| s.is_complete());
         match client.encryption().recovery().state() {
+            // Brand-new account without identity: the SDK bootstrap creates it (refused if one is published elsewhere).
+            State::Disabled if !complete => self.setup_recovery().await.map_err(|e| match e {
+                SetupError::LoggedOut => RecoveryError::LoggedOut,
+                SetupError::AlreadyExists | SetupError::Partial => RecoveryError::AlreadyConfigured,
+                SetupError::IdentityRequired => RecoveryError::IdentityRequired,
+                SetupError::AuthRequired => RecoveryError::AuthRequired,
+                SetupError::Transport => RecoveryError::Transport,
+                SetupError::Deadline => RecoveryError::Deadline,
+                SetupError::Unsupported | SetupError::Failed => RecoveryError::Failed,
+            }),
+            _ if !complete => Err(RecoveryError::IdentityRequired),
             State::Enabled => tokio::time::timeout(Duration::from_secs(30), client.encryption().recovery().reset_key())
                 .await
                 .map_err(|_| RecoveryError::Deadline)?
@@ -334,6 +355,13 @@ impl AccountSession {
                     .is_some()
             {
                 return Err(SetupError::IdentityRequired);
+            }
+            // Secret storage only keeps the cross-signing keys that exist: create them first (no identity is
+            // published, checked above), otherwise the new key would protect a backup and no identity.
+            if !complete {
+                encryption.bootstrap_cross_signing_if_needed(None).await.map_err(|e| {
+                    if e.as_uiaa_response().is_some() { SetupError::AuthRequired } else { SetupError::Transport }
+                })?;
             }
             encryption
                 .recovery()

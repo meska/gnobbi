@@ -34,6 +34,7 @@ mod rows;
 mod roomedit;
 mod space;
 mod stickers;
+mod secret_clip;
 mod session;
 mod settings;
 mod timeline;
@@ -1337,6 +1338,7 @@ impl App {
             space::delete_window(ui.ctx(), s, t);
             members::windows(ui.ctx(), s, t);
         }
+        secret_clip::tick(ui.ctx());
         let account = self.session.as_ref().and_then(|s| s.account);
         if let Some(s) = &mut self.session
             && let Some(v) = &mut s.verification
@@ -1374,6 +1376,20 @@ impl App {
             devices::dialogs(ui.ctx(), v, &mut self.device_fields);
             devices::popup(ui.ctx(), v);
             devices::new_key(ui.ctx(), v);
+            let suppressed = account.is_some_and(|a| self.prefs.no_recovery_offer_accounts.contains(&a.as_u64()));
+            match devices::offer(ui.ctx(), v, suppressed) {
+                Some(devices::Offer::Create) => v.accept_offer(),
+                Some(devices::Offer::NotNow) => v.decline_offer(),
+                Some(devices::Offer::Never) => {
+                    v.decline_offer();
+                    if let (Some(d), Some(a)) = (&self.dirs, account)
+                        && let Ok(p) = matrix_desktop::Preferences::suppress_recovery_offer(d, a.as_u64())
+                    {
+                        self.prefs.no_recovery_offer_accounts = p.no_recovery_offer_accounts;
+                    }
+                }
+                None => {}
+            }
         }
         if let Some(s) = &mut self.session
             && s.poll_open
@@ -1737,15 +1753,14 @@ fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     let accent = |text: &str| egui::Button::new(egui::RichText::new(text).color(list::rgb(t.on_accent))).fill(list::rgb(t.accent));
     if let Some(key) = s.form.recovery_key() {
         ui.label("Chiave di recupero Matrix");
-        ui.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let copy = icons::button(ui, icons::Icon::Copy, false, i18n::t("Copy key"));
-                if copy.clicked() { ui.ctx().copy_text(key.to_owned()); }
-                ui.add(egui::Label::new(egui::RichText::new(key).monospace()).selectable(true));
-            });
-        });
+        let kept_id = egui::Id::new("sign-in-key-kept");
+        let mut kept = ui.data(|d| d.get_temp::<bool>(kept_id)).unwrap_or(false);
+        devices::key_view(ui, key, &mut kept);
+        ui.checkbox(&mut kept, matrix_desktop::key_export::KEPT_LABEL);
+        ui.data_mut(|d| d.insert_temp(kept_id, kept));
         ui.add_space(8.);
-        if ui.add_sized([ui.available_width(), crate::metrics::button()], accent("Ho salvato la chiave: continua")).clicked() {
+        if ui.add_enabled(kept, egui::Button::new(egui::RichText::new("Ho salvato la chiave: continua").color(list::rgb(t.on_accent))).fill(list::rgb(t.accent)).min_size(egui::vec2(ui.available_width(), crate::metrics::button()))).clicked() {
+            ui.data_mut(|d| d.remove::<bool>(kept_id));
             s.defer_recovery();
         }
         return;

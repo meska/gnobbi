@@ -170,6 +170,10 @@ pub struct DeviceVerification {
     key_recovery: Option<matrix_engine::signin::RecoveryState>,
     /// «Esporta chiavi…» / «Rigenera chiave di recupero…» sub-page of «Privacy e sicurezza».
     pub keys: Option<crate::key_export::KeysPage>,
+    /// The engine's view of the account's recovery key: Some(true) = none exists; None until known.
+    recovery_disabled: Option<bool>,
+    /// The offer was answered or accepted in this session.
+    offer_asked: bool,
 }
 impl DeviceVerification {
     pub fn new(account: AccountId) -> Self {
@@ -196,6 +200,8 @@ impl DeviceVerification {
             keys_complete: None,
             key_recovery: None,
             keys: None,
+            recovery_disabled: None,
+            offer_asked: false,
         }
     }
     /// (user id, display name) from the SDK; None until the first sync starts.
@@ -423,6 +429,22 @@ impl DeviceVerification {
         self.pending = Some(VerificationCommand::ResetRecoveryKey { account_id: self.account, phrase });
         true
     }
+    /// Whether the «Crea chiave di recupero» dialog is due now.
+    pub fn offers_recovery_key(&self, suppressed: bool) -> bool {
+        crate::key_export::should_offer(self.recovery_disabled, suppressed, self.offer_asked, self.keys.is_some())
+    }
+    /// «Non ora» / «Non chiedere più»: nothing more this session.
+    pub fn decline_offer(&mut self) {
+        self.offer_asked = true;
+    }
+    /// «Crea chiave di recupero»: the same command and key page as «Rigenera chiave di recupero…».
+    pub fn accept_offer(&mut self) {
+        self.offer_asked = true;
+        if self.recovery_disabled == Some(true) {
+            self.keys = Some(crate::key_export::KeysPage::new(crate::key_export::KeysKind::Reset));
+            self.reset_recovery(None);
+        }
+    }
     /// «L'ho salvata»: the key is dropped (wiped) and the page closes.
     pub fn confirm_key_saved(&mut self) {
         self.keys = None;
@@ -590,6 +612,9 @@ impl DeviceVerification {
                         Err(error) => page.line = Some((crate::key_export::reset_error_text(error).into(), true)),
                     }
                 }
+            }
+            VerificationEvent::RecoveryDisabled { account_id, disabled } if account_id == self.account => {
+                self.recovery_disabled = Some(disabled);
             }
             VerificationEvent::KeysComplete { account_id, complete } if account_id == self.account => {
                 self.keys_complete = Some(complete);
@@ -1148,6 +1173,26 @@ mod key_recovery_tests {
 
     fn complete(account: u64, complete: bool) -> VerificationEvent {
         VerificationEvent::KeysComplete { account_id: AccountId::new(account), complete }
+    }
+
+    #[test]
+    fn accepting_the_offer_queues_one_create_and_never_when_enabled() {
+        let disabled = |account: u64, disabled| VerificationEvent::RecoveryDisabled { account_id: AccountId::new(account), disabled };
+        let mut v = DeviceVerification::new(AccountId::new(1));
+        assert!(!v.offers_recovery_key(false), "unknown: no offer");
+        v.apply(disabled(2, true));
+        assert!(!v.offers_recovery_key(false), "another account is ignored");
+        v.apply(disabled(1, true));
+        assert!(v.offers_recovery_key(false) && !v.offers_recovery_key(true));
+        v.apply(disabled(1, false));
+        assert!(!v.offers_recovery_key(false), "a key appeared meanwhile");
+        v.accept_offer();
+        assert!(v.pending.is_none() && v.keys.is_none(), "nothing is written when the account has a key");
+        v.apply(disabled(1, true));
+        v.offer_asked = false;
+        v.accept_offer();
+        assert!(matches!(v.pending, Some(VerificationCommand::ResetRecoveryKey { .. })));
+        assert!(!v.offers_recovery_key(false), "asked once per session");
     }
 
     #[test]

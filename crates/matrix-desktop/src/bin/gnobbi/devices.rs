@@ -300,22 +300,88 @@ pub fn start_export(v: &mut DeviceVerification, path: std::path::PathBuf, pass: 
     }
 }
 
-/// The new recovery key, shown once: readable, selectable and with the small copy icon; closing wipes it.
+pub enum Offer {
+    Create,
+    NotNow,
+    Never,
+}
+
+/// The first-sign-in question when the account has no recovery key; nothing is written until «Crea chiave di recupero».
+pub fn offer(ctx: &egui::Context, v: &DeviceVerification, suppressed: bool) -> Option<Offer> {
+    use matrix_desktop::key_export::*;
+    if !v.offers_recovery_key(suppressed) {
+        return None;
+    }
+    let mut answer = None;
+    egui::Window::new(OFFER_TITLE).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        ui.set_max_width(380.);
+        ui.label(OFFER_TEXT);
+        ui.add_space(8.);
+        ui.horizontal_wrapped(|ui| {
+            if ui.button(CREATE_KEY_LABEL).clicked() {
+                answer = Some(Offer::Create);
+            }
+            if ui.button(NOT_NOW_LABEL).clicked() {
+                answer = Some(Offer::NotNow);
+            }
+            if ui.button(NEVER_ASK_LABEL).clicked() {
+                answer = Some(Offer::Never);
+            }
+        });
+    });
+    answer
+}
+
+/// The one view of a freshly created recovery key (here and in the sign-in step): readable, selectable,
+/// «Copia» (clipboard wiped after `CLIPBOARD_SECONDS`) and «Salva su file»; either one sets `kept`.
+pub fn key_view(ui: &mut egui::Ui, key: &str, kept: &mut bool) {
+    use matrix_desktop::key_export::*;
+    ui.horizontal_wrapped(|ui| {
+        ui.add(egui::Label::new(RichText::new(key).monospace().size(15.)).selectable(true));
+        if crate::info::copy_icon(ui).on_hover_text(COPY_KEY_LABEL).clicked() {
+            crate::secret_clip::copy(ui.ctx(), key);
+            *kept = true;
+        }
+    });
+    ui.label(SAVE_WARNING);
+    if ui.button(SAVE_FILE_LABEL).clicked()
+        && let Some(path) = crate::pick::save_as(KEY_FILE_NAME)
+        && write_key_file(&path, key).is_ok()
+    {
+        *kept = true;
+        crate::pick::share(&path);
+    }
+}
+
+/// The new recovery key, shown once: readable, selectable, with «Copia» and «Salva su file»; «Fatto» wipes it.
+/// Also the progress and error of the creation while the Devices drawer may be closed.
 pub fn new_key(ctx: &egui::Context, v: &mut DeviceVerification) {
-    let Some(key) = v.keys.as_ref().and_then(|p| p.secret.as_ref()).map(|s| s.expose().to_owned()) else { return };
+    use matrix_desktop::key_export::*;
+    let Some(page) = v.keys.as_mut().filter(|p| p.kind == KeysKind::Reset) else { return };
+    let key = page.secret.as_ref().map(|s| s.expose().to_owned());
+    if key.is_none() && !page.busy && page.line.is_none() {
+        return;
+    }
     let mut close = false;
     egui::Window::new("Nuova chiave di recupero").order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_max_width(380.);
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(&key).monospace().size(15.));
-            if crate::info::copy_icon(ui).clicked() {
-                ctx.copy_text(key.clone());
+        let Some(key) = &key else {
+            if page.busy {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(RESET_RUNNING);
+                });
+            } else if let Some((text, _)) = &page.line {
+                ui.colored_label(ui.visuals().error_fg_color, text.as_str());
+                close = ui.button("Chiudi").clicked();
             }
+            return;
+        };
+        key_view(ui, key, &mut page.kept);
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut page.kept, KEPT_LABEL);
+            close = ui.add_enabled(page.kept, egui::Button::new("Fatto")).clicked();
         });
-        ui.add_space(8.);
-        if ui.button("Fatto").clicked() {
-            close = true;
-        }
     });
     if close {
         v.confirm_key_saved();

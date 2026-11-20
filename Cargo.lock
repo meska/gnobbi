@@ -3541,6 +3541,7 @@ dependencies = [
 name = "matrix-desktop"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "block2 0.6.2",
  "chrono",
  "cocoa",

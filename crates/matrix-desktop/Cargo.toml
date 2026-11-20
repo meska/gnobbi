@@ -31,6 +31,7 @@ eframe = { version = "0.37", default-features = false, features = ["accesskit", 
 # Desktop only: file dialogs and Wayland/X11. iOS has none of them.
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+arboard = { version = "=3.7.0", default-features = false }
 eframe = { version = "0.37", default-features = false, features = ["wayland", "x11"] }
 
 # iOS: stderr goes nowhere, so main() sends `log` and stderr to os_log.

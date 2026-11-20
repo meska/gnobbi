@@ -238,6 +238,11 @@ pub enum VerificationEvent {
         account_id: AccountId,
         complete: bool,
     },
+    /// The account has no recovery key (`true`) or has one (`false`); sent on change, never while unknown.
+    RecoveryDisabled {
+        account_id: AccountId,
+        disabled: bool,
+    },
     Error {
         account_id: AccountId,
         error: VerificationError,

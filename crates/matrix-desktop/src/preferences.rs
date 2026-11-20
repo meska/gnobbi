@@ -363,6 +363,9 @@ pub struct Preferences {
     /// «Conteggio» per account: catalog IDs with it on. Stored as `notification_accounts`, which
     /// `encode` never writes, so only `set_count_preview` touches it.
     pub count_preview_accounts: BTreeSet<u64>,
+    /// Accounts for which «Non chiedere più» was chosen on the recovery-key offer; written only by
+    /// `suppress_recovery_offer` (`encode` leaves the key alone).
+    pub no_recovery_offer_accounts: BTreeSet<u64>,
     /// Interface language; `Auto` follows the system.
     pub language: crate::i18n::Preference,
     /// «Dimensione testo» and «Dimensione pulsanti e icone»: absent from older files, then the default.
@@ -394,6 +397,7 @@ impl Default for Preferences {
             message_preview: true,
             thread_width: None,
             count_preview_accounts: BTreeSet::new(),
+            no_recovery_offer_accounts: BTreeSet::new(),
             language: Default::default(),
             text_size: TextSize::System,
             density: Density::System,
@@ -550,6 +554,11 @@ impl Preferences {
             thread_width: map.get("thread_width").and_then(Value::as_u64).and_then(|w| u32::try_from(w).ok()),
             text_size: map.get("text_size").and_then(Value::as_str).and_then(TextSize::parse).unwrap_or_default(),
             density: map.get("density").and_then(Value::as_str).and_then(Density::parse).unwrap_or_default(),
+            no_recovery_offer_accounts: map
+                .get("no_recovery_offer")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                .unwrap_or_default(),
             count_preview_accounts: map
                 .get("notification_accounts")
                 .and_then(Value::as_object)
@@ -577,6 +586,18 @@ impl Preferences {
                 *entry = json!({});
             }
             entry["count_preview"] = json!(on);
+            saved = Some(Self::from_map(map));
+        })?;
+        Ok(saved.expect("transaction closure executed"))
+    }
+
+    /// «Non chiedere più per questo account»: local to this device, never sent to the server.
+    pub fn suppress_recovery_offer(dirs: &AppDirs, account: u64) -> std::io::Result<Preferences> {
+        let mut saved = None;
+        update_settings(dirs, |map| {
+            let mut ids = Self::from_map(map).no_recovery_offer_accounts;
+            ids.insert(account);
+            map.insert("no_recovery_offer".into(), json!(ids));
             saved = Some(Self::from_map(map));
         })?;
         Ok(saved.expect("transaction closure executed"))

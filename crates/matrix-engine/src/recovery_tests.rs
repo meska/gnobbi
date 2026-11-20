@@ -110,6 +110,35 @@ fn disposable_recovery_rejects_wrong_local_account_before_import() {
         recovery_assert_message(&client, &room, &event, false).await;
     });
 }
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_new_account_recovery_key_is_valid_and_backup_is_on() {
+    use matrix_sdk::encryption::recovery::RecoveryState;
+    runtime().block_on(async {
+        let config = fixture();
+        // Fresh account: no identity, no secret storage, no backup (what «Crea chiave di recupero» meets).
+        let mut session = login(&config, "alice", 25).await;
+        let client = session.client.as_ref().unwrap().clone();
+        client.encryption().wait_for_e2ee_initialization_tasks().await;
+        assert_eq!(crate::recovery::recovery_disabled(&client), Some(true));
+        let secret = session.reset_recovery_key().await.expect("create from Disabled");
+        for _ in 0..20 {
+            if client.encryption().recovery().state() == RecoveryState::Enabled { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        assert_eq!(client.encryption().recovery().state(), RecoveryState::Enabled);
+        assert!(client.encryption().backups().fetch_exists_on_server().await.unwrap(), "backup active");
+        assert_eq!(crate::recovery::recovery_disabled(&client), Some(false));
+        // The key opens the secret storage from a second device.
+        let other = login(&config, "alice", 26).await;
+        let other_client = other.client.as_ref().unwrap().clone();
+        other_client.encryption().wait_for_e2ee_initialization_tasks().await;
+        other_client.encryption().recovery().recover(secret.expose()).await.expect("recover() with the new key");
+        assert_eq!(other_client.encryption().recovery().state(), RecoveryState::Enabled);
+        // A second «create» on the same account must not rotate the key.
+        assert!(session.enable_new_recovery().await.is_err());
+    });
+}
 #[cfg(unix)]
 #[test]
 #[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]

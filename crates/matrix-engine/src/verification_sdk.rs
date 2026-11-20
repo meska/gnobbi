@@ -384,6 +384,7 @@ pub(crate) async fn run_service(
     // Profile name and picture are re-read every minute: a change made elsewhere shows up without restart.
     let mut shown = None;
     let mut shown_complete = None;
+    let mut shown_disabled: Option<bool> = None;
     let mut profile_ticks = tokio::time::interval(PROFILE_REFRESH);
     loop {
         let result = tokio::select! {
@@ -524,6 +525,12 @@ pub(crate) async fn run_service(
                 }
             }
             _ = profile_ticks.tick() => {
+                if let Some(disabled) = crate::recovery::recovery_disabled(&client)
+                    && shown_disabled != Some(disabled)
+                {
+                    shown_disabled = Some(disabled);
+                    if events.send(VerificationEvent::RecoveryDisabled { account_id, disabled }).await.is_err() { break; }
+                }
                 let complete = crate::recovery::keys_recovered(&client).await;
                 if shown_complete != Some(complete) {
                     shown_complete = Some(complete);

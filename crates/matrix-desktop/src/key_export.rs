@@ -14,6 +14,37 @@ pub const RESET_WARNING: &str = "La chiave di recupero attuale smetterà di funz
 pub const RESET_RUNNING: &str = "Rigenerazione…";
 pub const SAVE_WARNING: &str = "Salvala ora: non verrà più mostrata";
 pub const COPY_KEY_LABEL: &str = "Copia chiave di recupero";
+pub const SAVE_FILE_LABEL: &str = "Salva su file";
+pub const KEPT_LABEL: &str = "L'ho conservata altrove";
+pub const OFFER_TITLE: &str = "Chiave di recupero";
+pub const OFFER_TEXT: &str = "Questo account non ha una chiave di recupero: senza, i messaggi cifrati si perdono con i dispositivi";
+pub const CREATE_KEY_LABEL: &str = "Crea chiave di recupero";
+pub const NOT_NOW_LABEL: &str = "Non ora";
+pub const NEVER_ASK_LABEL: &str = "Non chiedere più per questo account";
+pub const KEY_FILE_NAME: &str = "gnobbi-chiave-di-recupero.txt";
+
+/// The offer is shown only when the account has no recovery key at all (never for «incomplete»,
+/// where the existing key must be entered), once per session, unless suppressed for the account
+/// or another key page is already open.
+pub fn should_offer(disabled: Option<bool>, suppressed: bool, asked: bool, page_open: bool) -> bool {
+    disabled == Some(true) && !suppressed && !asked && !page_open
+}
+
+/// Plain text of the key file: the key alone on its own line under a title.
+pub fn key_file_text(key: &str) -> String {
+    format!("Chiave di recupero Gnobbi\n{key}\n")
+}
+
+/// Writes the key file readable by the owner only; an existing file is replaced.
+pub fn write_key_file(path: &std::path::Path, key: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    file.write_all(key_file_text(key).as_bytes())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasswordError {
@@ -66,6 +97,7 @@ pub fn reset_error_text(error: matrix_engine::recovery::RecoveryError) -> &'stat
     match error {
         WrongPhrase => WRONG_PHRASE,
         IdentityRequired => "Recupera prima le chiavi su questo dispositivo",
+        AuthRequired => "Il server chiede una conferma non supportata qui",
         Transport | Deadline => "Server non raggiungibile: riprova",
         _ => "Rigenerazione non riuscita: riprova",
     }
@@ -94,6 +126,8 @@ pub struct KeysPage {
     pub refill: bool,
     /// The new recovery key while it is shown; never read from anywhere else.
     pub secret: Option<matrix_engine::recovery::RecoverySecret>,
+    /// The shown key was copied or saved once (or the user said it is kept elsewhere): «Fatto» unlocks.
+    pub kept: bool,
 }
 
 impl KeysPage {
@@ -105,6 +139,7 @@ impl KeysPage {
             held: None,
             refill: false,
             secret: None,
+            kept: false,
         }
     }
     /// The new key is on screen: the only way out is «L'ho salvata».
@@ -166,6 +201,27 @@ mod tests {
         let mut export = KeysPage::new(KeysKind::Export);
         export.busy = true;
         assert!(export.closable());
+    }
+
+    #[test]
+    fn offer_only_when_disabled_not_suppressed_once() {
+        assert!(should_offer(Some(true), false, false, false));
+        assert!(!should_offer(None, false, false, false), "unknown: wait");
+        assert!(!should_offer(Some(false), false, false, false), "enabled or incomplete: never create");
+        assert!(!should_offer(Some(true), true, false, false), "suppressed for the account");
+        assert!(!should_offer(Some(true), false, true, false), "once per session");
+        assert!(!should_offer(Some(true), false, false, true), "another key page is open");
+    }
+
+    #[test]
+    fn key_file_holds_the_key_and_is_private() {
+        let path = std::env::temp_dir().join(format!("gnobbi-keyfile-{}.txt", std::process::id()));
+        write_key_file(&path, "EsTx abcd").unwrap();
+        write_key_file(&path, "EsTx abcd").unwrap(); // replaced, not appended
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "Chiave di recupero Gnobbi\nEsTx abcd\n");
+        #[cfg(unix)]
+        assert_eq!(std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&path).unwrap().permissions()) & 0o777, 0o600);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
