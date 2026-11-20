@@ -93,6 +93,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                     section(ui, tr("Chat"), t);
                     changed |= switch(ui, tr("Read receipts"), &mut p.read_receipts, t);
                     changed |= switch(ui, tr("Hide deleted messages"), &mut p.hide_redacted, t);
+                    changed |= switch(ui, tr("Show status messages"), &mut p.show_status, t);
                     changed |= switch(ui, tr("Message preview"), &mut p.message_preview, t);
                     section(ui, tr("Notifications"), t);
                     changed |= switch(ui, tr("Notifications"), &mut p.notifications, t);
@@ -149,6 +150,7 @@ pub fn persist(dirs: Option<&AppDirs>, p: &Preferences) {
             saved.icon = new.icon;
             saved.read_receipts = new.read_receipts;
             saved.hide_redacted = new.hide_redacted;
+            saved.show_status = new.show_status;
             saved.message_preview = new.message_preview;
             saved.notifications = new.notifications;
             saved.close_to_tray = new.close_to_tray;

@@ -2193,6 +2193,8 @@ async fn status_row(
         .filter_map(|(range, who)| Some(crate::rich_text::MentionSpan { range: range?, kind: crate::rich_text::MentionKind::User { sender: who.clone(), me: false } }))
         .collect();
     mentions.sort_by_key(|m| m.range.start);
+    // An invitation for you needs attention: `highlighted` keeps it out of the «hide status rows» filter.
+    let for_me = matches!(status, Status::Invited) && shown.id == room.own_user_id().as_str();
     Some(crate::history::HistoryEvent {
         poll: None,
         event_id: matrix_domain::EventId::new(id.as_str()),
@@ -2206,7 +2208,7 @@ async fn status_row(
         media: None,
         styles: Vec::new(),
         mentions,
-        highlighted: false,
+        highlighted: for_me,
         thread: None,
         thread_root: None,
         reply_to: None,

@@ -98,6 +98,8 @@ pub struct Session {
     pending: Option<matrix_engine::history::HistoryRequest>,
     route: Option<(matrix_engine::Sender<matrix_engine::history::HistoryRequest>, Receiver<matrix_engine::history::HistoryResult>)>,
     pub messages: Option<DemoHistory>,
+    /// «Messaggi di stato» per room, saved in the profile folder.
+    pub status_choices: matrix_desktop::RoomStatusChoices,
     send: Option<(matrix_engine::Sender<matrix_engine::sending::SendRequest>, Receiver<matrix_engine::sending::SendEvent>)>,
     drafts: std::collections::HashMap<matrix_domain::RoomScope, String>,
     pub draft: String,
@@ -229,6 +231,7 @@ impl Session {
     /// Opens the default profile under the app data directory; a saved account unlocks by itself through the OS vault.
     pub fn start(dirs: &AppDirs, root: std::path::PathBuf, trust: Option<Vec<u8>>) -> Result<Session, String> {
         matrix_desktop::create_private_dir(&root).map_err(|e| e.to_string())?;
+        let status_dir = root.clone();
         let last_file = root.join("last_room");
         let scroll_file = root.join("scroll_pos.json");
         let last_room = std::fs::read_to_string(&last_file).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
@@ -265,6 +268,7 @@ impl Session {
             route,
             send,
             drafts: Default::default(),
+            status_choices: matrix_desktop::RoomStatusChoices::load(&status_dir),
             draft: String::new(),
             ops: LiveOperations::default(),
             members: None,

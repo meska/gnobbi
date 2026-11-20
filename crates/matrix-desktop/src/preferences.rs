@@ -336,6 +336,8 @@ pub struct Preferences {
     pub icon: IconChoice,
     /// «Nascondi messaggi eliminati»: on by default, also when the saved value is missing or not a boolean.
     pub hide_redacted: bool,
+    /// «Mostra messaggi di stato»: on by default (the old behaviour), also when the saved value is missing or not a boolean.
+    pub show_status: bool,
     /// «Riduci nel tray alla chiusura»: off by default, so closing the window keeps quitting.
     pub close_to_tray: bool,
     /// «Notifiche» (tray and panel): one choice for all accounts; off by default.
@@ -379,6 +381,7 @@ impl Default for Preferences {
             font: FontChoice::Sans,
             icon: IconChoice::MinimalMark,
             hide_redacted: true,
+            show_status: true,
             close_to_tray: false,
             notifications: false,
             desktop_entry_dont_ask: false,
@@ -510,6 +513,7 @@ impl Preferences {
                 .get("hide_deleted")
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
+            show_status: map.get("show_status").and_then(Value::as_bool).unwrap_or(true),
             close_to_tray: map
                 .get("close_to_tray")
                 .and_then(Value::as_bool)
@@ -595,7 +599,7 @@ impl Preferences {
     }
 
     fn encode(&self, map: &mut serde_json::Map<String, Value>) {
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "thread_width": self.thread_width, "language": self.language.code(), "text_size": self.text_size.name(), "density": self.density.name() });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "show_status": self.show_status, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "thread_width": self.thread_width, "language": self.language.code(), "text_size": self.text_size.name(), "density": self.density.name() });
         if let Value::Object(own) = body {
             map.extend(own);
         }

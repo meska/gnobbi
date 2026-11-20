@@ -15,7 +15,7 @@ pub struct Out {
     pub edit: bool,
 }
 
-pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, t: &DesignTokens) -> Out {
+pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, (status, hidden_status): (&mut matrix_desktop::StatusChoice, usize), t: &DesignTokens) -> Out {
     let mut out = Out::default();
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.add_space(16.);
@@ -41,6 +41,21 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
         ui.add_space(12.);
         ui.separator();
         addresses(ui, aliases, t);
+        ui.add_space(8.);
+        ui.horizontal(|ui| {
+            ui.add_space(16.);
+            ui.vertical(|ui| {
+                ui.set_max_width(ui.available_width() - 16.);
+                crate::settings::choice(ui, i18n::t("Status messages"), status.label(), |ui| {
+                    for c in matrix_desktop::StatusChoice::ALL {
+                        ui.selectable_value(status, c, c.label());
+                    }
+                });
+                if hidden_status > 0 {
+                    ui.label(RichText::new(i18n::plural(hidden_status as u64, "{n} status message hidden", "{n} status messages hidden")).size(11.).color(rgb(t.secondary)));
+                }
+            });
+        });
         let Some(members) = members else {
             ui.add_space(12.);
             ui.vertical_centered(|ui| ui.spinner());

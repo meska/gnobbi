@@ -79,6 +79,7 @@ fn roundtrip_keeps_values() {
         font: FontChoice::Serif,
         icon: matrix_desktop::IconChoice::Monster,
         hide_redacted: false,
+        show_status: false,
         close_to_tray: true,
         notifications: true,
         desktop_entry_dont_ask: true,
@@ -610,4 +611,18 @@ fn message_preview_is_on_by_default_also_for_files_saved_before_it_existed() {
     assert!(Preferences::load(&d).message_preview, "missing or non-boolean value means on");
     let saved = Preferences::update(&d, |p| p.message_preview = false).unwrap();
     assert!(!saved.message_preview && !Preferences::load(&d).message_preview, "off survives a reload");
+}
+
+#[test]
+fn show_status_is_on_by_default_also_for_files_saved_before_it_existed() {
+    let _gate = no_spawn();
+    let d = dirs(&tmp("show-status"));
+    assert!(Preferences::default().show_status);
+    std::fs::create_dir_all(&d.config).unwrap();
+    for body in [r#"{"read_receipts": false}"#, r#"{"show_status": "x"}"#, r#"{"show_status": null}"#] {
+        std::fs::write(d.config.join("settings.json"), body).unwrap();
+        assert!(Preferences::load(&d).show_status, "{body}");
+    }
+    let saved = Preferences::update(&d, |p| p.show_status = false).unwrap();
+    assert!(!saved.show_status && !Preferences::load(&d).show_status, "off survives a reload");
 }

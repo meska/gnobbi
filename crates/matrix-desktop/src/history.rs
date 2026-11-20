@@ -462,7 +462,7 @@ impl DemoHistory {
     }
 
     fn hides(&self, row: &DemoEvent) -> bool {
-        (self.hide_redacted && row.redacted && row.thread.is_none()) || (self.hide_status && row.status)
+        (self.hide_redacted && row.redacted && row.thread.is_none()) || (self.hide_status && row.status && !row.highlighted)
     }
 
     /// «Nascondi messaggi eliminati»: shows or hides the redacted rows already loaded.
@@ -476,7 +476,12 @@ impl DemoHistory {
         true
     }
 
-    /// Per-room «Nascondi messaggi di stato»: same projection, for status rows (all of them, room creation included).
+    /// Status rows kept out of the timeline right now, for the room panel.
+    pub fn hidden_status_count(&self) -> usize {
+        self.hidden.iter().filter(|r| r.status).count()
+    }
+
+    /// «Messaggi di stato» (global setting resolved with the room's choice); a status row marked `highlighted` (an invitation for you) always stays.
     pub fn set_hide_status(&mut self, hide: bool) -> bool {
         if self.hide_status == hide {
             return false;

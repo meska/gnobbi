@@ -84,6 +84,11 @@ banner	Reply	Risposta
 
 # info
 	Encrypted	Cifrata
+	Status messages	Messaggi di stato
+	Same as settings	Come nelle impostazioni
+	Show	Mostra
+	Hide	Nascondi
+@plural	{n} status message hidden	{n} messaggio di stato nascosto|{n} messaggi di stato nascosti
 	Search in room	Cerca nella stanza
 	No results	Nessun risultato
 	Search failed	Ricerca non riuscita
@@ -168,6 +173,7 @@ banner	Reply	Risposta
 	Chat	Chat
 	Read receipts	Conferme di lettura
 	Hide deleted messages	Nascondi messaggi eliminati
+	Show status messages	Mostra messaggi di stato
 	Message preview	Anteprima dei messaggi
 	Notifications	Notifiche
 	Close to tray	Chiudi nella tray

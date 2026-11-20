@@ -435,7 +435,11 @@ impl eframe::App for App {
                 }
             }
             if let Some(messages) = &mut session.messages
-                && messages.set_hide_redacted(self.prefs.hide_redacted)
+                && {
+                    let hide = session.status_choices.get(messages.scope().room_id.as_str()).hides(self.prefs.show_status);
+                    // Not `||`: both projections must run.
+                    messages.set_hide_redacted(self.prefs.hide_redacted) | messages.set_hide_status(hide)
+                }
             {
                 // A room opened just now is projected for the first time here (the default is «show»): its saved reading position must survive.
                 let restore = session.heights.restore.take();
@@ -1111,10 +1115,16 @@ impl App {
             let mut out = info::Out::default();
             let mut alias_input = std::mem::take(&mut self.alias_input);
             let mut alias_action = None;
+            let room_id = room.scope.room_id.as_str().to_owned();
+            let mut status = s.status_choices.get(&room_id);
+            let (status_was, hidden_status) = (status, s.messages.as_ref().filter(|m| m.scope() == &room.scope).map_or(0, |m| m.hidden_status_count()));
             let mut view = info::AliasView { data: s.aliases.as_ref(), error: s.alias_error, input: &mut alias_input, action: None };
-            egui::Panel::right("info").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, t));
+            egui::Panel::right("info").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, (&mut status, hidden_status), t));
             alias_action = view.action.take();
             self.alias_input = alias_input;
+            if status != status_was && let Some(s) = &mut self.session {
+                s.status_choices.set(&room_id, status);
+            }
             if out.open_link.is_some() {
                 self.pending_web = out.open_link.take();
             }
