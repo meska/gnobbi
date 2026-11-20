@@ -126,6 +126,8 @@ struct App {
     shot: Option<(std::path::PathBuf, std::time::Instant)>,
     /// Test hook: GNOBBI_EGUI_LOGIN=<json {homeserver,user,password,phrase?}> signs in by itself (disposable servers only).
     auto_login: Option<serde_json::Value>,
+    /// The login hook submits once per account, not on every frame (an error leaves the form on its prompt).
+    login_sent: bool,
     shot_sent: bool,
     pending_link: Option<(matrix_domain::MatrixLink, std::time::Instant)>,
     pending_web: Option<matrix_desktop::SafeWebUrl>,
@@ -172,7 +174,7 @@ impl App {
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
         let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
-            auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error };
+            auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false };
         if let Some(i) = last {
             app.switch_to(i);
         }
@@ -504,6 +506,7 @@ impl App {
             && let Some(d) = &self.dirs
         {
             self.hook_added = true;
+            self.login_sent = false;
             let next = matrix_desktop::AccountCatalog::load(d).next_root(d);
             self.open_account(next);
         }
@@ -541,6 +544,7 @@ impl App {
         if let Some(login) = if self.hook_added { &self.auto_login2 } else { &self.auto_login }
             && s.account.is_none()
             && matches!(s.status(), FormStatus::Prompt(_))
+            && take_once(&mut self.login_sent)
         {
             let get = |k: &str| login.get(k).and_then(|v| v.as_str()).unwrap_or("").to_owned();
             s.homeserver = get("homeserver");
@@ -1761,25 +1765,26 @@ fn mac_app(hide: bool) {
     }
 }
 
+fn take_once(done: &mut bool) -> bool {
+    !std::mem::replace(done, true)
+}
+
 fn main() -> eframe::Result {
-    // iOS: stderr goes nowhere; spike diagnostics, replace with os_log before a store build.
+    // iOS: stderr goes nowhere, so `log` goes to os_log (Console / `log stream`) and stderr is piped into it line by line.
     #[cfg(target_os = "ios")]
-    if let Some(home) = std::env::var_os("HOME") {
-        use std::os::fd::AsRawFd;
-        let _ = std::fs::create_dir_all(std::path::Path::new(&home).join("Documents"));
-        if let Ok(f) = std::fs::File::create(std::path::Path::new(&home).join("Documents/gnobbi.log")) {
-            unsafe { libc::dup2(f.as_raw_fd(), 2); libc::dup2(f.as_raw_fd(), 1); }
-        }
-        struct Stderr;
-        impl log::Log for Stderr {
-            fn enabled(&self, m: &log::Metadata) -> bool { m.level() <= log::Level::Warn }
-            fn log(&self, r: &log::Record) { if self.enabled(r.metadata()) { eprintln!("[{}] {}: {}", r.level(), r.target(), r.args()); } }
-            fn flush(&self) {}
+    {
+        use std::io::BufRead;
+        use std::os::fd::FromRawFd;
+        let _ = oslog::OsLogger::new("app.gnobbi").level_filter(log::LevelFilter::Info).init();
+        let mut fds = [0; 2];
+        if unsafe { libc::pipe(fds.as_mut_ptr()) } == 0 {
+            unsafe { libc::dup2(fds[1], 2); libc::dup2(fds[1], 1); }
+            let rd = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+            std::thread::spawn(move || std::io::BufReader::new(rd).lines().map_while(Result::ok).for_each(|l| log::info!("{l}")));
         }
         if std::env::var_os("RUST_LOG").is_some() {
             let _ = tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).with_writer(std::io::stderr).try_init();
         }
-        let _ = log::set_logger(&Stderr).map(|()| log::set_max_level(log::LevelFilter::Warn));
     }
     matrix_desktop::notifications::init();
     // A `matrix:` link is not an option: taken out first, validated by the engine, carried out once the rooms are there.
@@ -1855,6 +1860,12 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn login_hook_fires_once_over_many_frames() {
+        let mut sent = false;
+        assert_eq!((0..50).filter(|_| take_once(&mut sent)).count(), 1);
+    }
 
     #[test]
     fn one_column_shows_one_side_panel_at_a_time() {

@@ -32,10 +32,11 @@ eframe = { version = "0.37", default-features = false, features = ["accesskit", 
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 eframe = { version = "0.37", default-features = false, features = ["wayland", "x11"] }
 
-# iOS: stderr goes nowhere, so main() points it at a file in the app container (spike diagnostics).
+# iOS: stderr goes nowhere, so main() sends `log` and stderr to os_log.
 [target.'cfg(target_os = "ios")'.dependencies]
 libc = "=0.2.183"
 log = "0.4"
+oslog = "0.2"
 # File/photo pickers (UIDocumentPicker, PHPicker); the share sheet is a few lines of objc2 in pick.rs.
 robius-file-picker = "=0.3.1"
 objc2 = "0.6"
