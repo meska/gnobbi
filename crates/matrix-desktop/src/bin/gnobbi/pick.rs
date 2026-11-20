@@ -118,4 +118,12 @@ mod tests {
         assert_eq!(safe_name(""), "file");
         assert_eq!(safe_name("foto 1.jpg"), "foto 1.jpg");
     }
+
+    #[test]
+    fn sender_names_with_trailing_slashes_dots_or_unicode_stay_one_safe_component() {
+        assert_eq!(safe_name("dir/"), "dir");
+        assert_eq!(safe_name("..."), "file");
+        assert_eq!(safe_name("a/b/c.txt"), "c.txt");
+        assert_eq!(safe_name("résumé 日本語.pdf"), "résumé 日本語.pdf");
+    }
 }

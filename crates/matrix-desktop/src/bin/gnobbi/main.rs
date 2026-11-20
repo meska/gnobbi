@@ -1870,6 +1870,16 @@ mod tests {
     }
 
     #[test]
+    fn login_hook_fires_again_only_after_the_second_account_resets_it() {
+        let mut sent = false;
+        assert!(take_once(&mut sent));
+        assert!(!take_once(&mut sent), "an error leaves the form on its prompt: no retry");
+        sent = false; // what GNOBBI_EGUI_ADD does when it opens the second account
+        assert!(take_once(&mut sent));
+        assert!(!take_once(&mut sent));
+    }
+
+    #[test]
     fn one_column_shows_one_side_panel_at_a_time() {
         assert_eq!(side_on_top(true, true, false, true), Some(Side::Member));
         assert_eq!(side_on_top(true, false, false, true), Some(Side::Info));
