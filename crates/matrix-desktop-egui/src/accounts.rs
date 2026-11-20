@@ -242,7 +242,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool, dirs: &AppDirs, current: &std:
 
 /// One row of the account switcher in the rail: small round picture, name, the account id in grey under it, a check on the shown one, the unread badge on the others.
 pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: Option<&egui::TextureHandle>, shown: bool, unread: u64, t: &DesignTokens) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(ui.available_width().max(260.), 44.), egui::Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(264., 44.), egui::Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{name} {id}")));
     let p = ui.painter();
     if resp.hovered() || resp.has_focus() {
@@ -258,14 +258,18 @@ pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: Option<&egui
     let x = c.x + 20.;
     let right = rect.right() - 12.;
     let (name_pos, id_pos) = if id.is_empty() { (egui::Pos2::new(x, rect.center().y - 8.), None) } else { (egui::Pos2::new(x, rect.top() + 6.), Some(egui::Pos2::new(x, rect.top() + 24.))) };
-    ui.painter().text(name_pos, egui::Align2::LEFT_TOP, name, egui::FontId::proportional(14.), rgb(t.text));
+    ui.painter().galley(name_pos, crate::list::one_line(ui, name, 13., rgb(t.text), right - x - 32.), rgb(t.text));
     if let Some(pos) = id_pos {
-        ui.painter().text(pos, egui::Align2::LEFT_TOP, id, egui::FontId::proportional(11.), rgb(t.secondary));
+        ui.painter().galley(pos, crate::list::one_line(ui, id, 11., rgb(t.secondary), right - x - 32.), rgb(t.secondary));
     }
     if shown {
-        ui.painter().text(egui::Pos2::new(right, rect.center().y), egui::Align2::RIGHT_CENTER, "✓", egui::FontId::proportional(15.), rgb(t.accent));
+        ui.painter().text(egui::Pos2::new(right, rect.center().y), egui::Align2::RIGHT_CENTER, "✓", egui::FontId::proportional(14.), rgb(t.accent));
     } else if unread > 0 {
-        crate::list::badge(ui, egui::Pos2::new(right - 10., rect.center().y), unread, t);
+        let count = if unread > 99 { "99+".to_owned() } else { unread.to_string() };
+        let g = p.layout_no_wrap(count, egui::FontId::proportional(9.), rgb(t.on_accent));
+        let badge = egui::Rect::from_center_size(egui::Pos2::new(right - 7., rect.center().y), egui::Vec2::new((g.size().x + 6.).max(14.), 14.));
+        p.rect_filled(badge, 7., rgb(t.accent));
+        p.galley(badge.center() - g.size() / 2., g, rgb(t.on_accent));
     }
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }

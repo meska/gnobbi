@@ -891,8 +891,8 @@ impl App {
                         if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
                             egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
                         }
-                        egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).frame(egui::Frame::popup(ui.style()).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| {
-                            ui.set_min_width(260.);
+                        egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| {
+                            ui.spacing_mut().item_spacing.y = 0.;
                             // The id line tells apart accounts with the same name; a migrated one without id shows its homeserver.
                             let catalog = self.dirs.as_ref().map(matrix_desktop::AccountCatalog::load);
                             let line = |root: &std::path::Path| -> String {
