@@ -80,7 +80,9 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
     let mut p = prefs.clone();
     let mut changed = false;
     let (mut devices, mut accounts, mut customize) = (false, false, false);
-    let closed = crate::rail::drawer(ctx, rail.panel, "settings-drawer", tr("Settings"), rail.settings, t, |ui, rect| {
+    // One column: the pages that return here («‹») slide over this one, which stays under them.
+    let under = ctx.content_rect().width() < crate::SINGLE_WIDTH && (rail.accounts || rail.devices || rail.customize);
+    let closed = crate::rail::drawer(ctx, rail.panel, "settings-drawer", tr("Settings"), rail.settings || under, t, |ui, rect| {
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 egui::Frame::NONE.inner_margin(egui::Margin { left: 20, right: 20, top: 0, bottom: 20 }).show(ui, |ui| {

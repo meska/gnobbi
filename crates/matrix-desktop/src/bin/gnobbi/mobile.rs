@@ -218,32 +218,178 @@ pub fn safe_ui(ui: &mut egui::Ui, fill: egui::Color32) -> egui::Ui {
     ui.new_child(egui::UiBuilder::new().max_rect(safe))
 }
 
+/// Share of the way to the list for a finger `dx` points right of where it went down.
+pub fn nav_drag_progress(dx: f32, width: f32) -> f32 {
+    if width > 0. { (dx / width).clamp(0., 1.) } else { 0. }
+}
+
+/// Ease-out cubic from `from` to `target`; with Reduce Motion the target at once.
+pub fn nav_ease(from: f32, target: f32, elapsed: f32, duration: f32, reduce_motion: bool) -> f32 {
+    let t = if reduce_motion || duration <= 0. { 1. } else { (elapsed / duration).clamp(0., 1.) };
+    from + (target - from) * (1. - (1. - t).powi(3))
+}
+
+/// Horizontal shift of (list, chat) at `progress`: the chat slides off by the full width, the list trails at 30 % under it.
+pub fn nav_offsets(progress: f32, width: f32, rtl: bool) -> (f32, f32) {
+    let sign = if rtl { -1. } else { 1. };
+    (sign * -0.3 * (1. - progress) * width, sign * progress * width)
+}
+
+/// iOS «Reduce Motion» (Settings > Accessibility); false elsewhere.
+pub fn reduce_motion() -> bool {
+    #[cfg(target_os = "ios")]
+    {
+        unsafe extern "C" {
+            fn UIAccessibilityIsReduceMotionEnabled() -> bool;
+        }
+        unsafe { UIAccessibilityIsReduceMotionEnabled() }
+    }
+    #[cfg(not(target_os = "ios"))]
+    false
+}
+
+/// Test hook: GNOBBI_EGUI_NAV_PROGRESS=<0..1> holds the one-column navigation (chat over list, or the drawer on top) at that point, the page under it drawn too.
+pub fn nav_forced() -> Option<f32> {
+    static FORCED: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *FORCED.get_or_init(|| std::env::var("GNOBBI_EGUI_NAV_PROGRESS").ok().and_then(|v| v.parse::<f32>().ok()).map(|p| p.clamp(0., 1.)))
+}
+
+/// A page over the one under it in the one-column layout: progress 0 = the page fully shown, 1 = slid off to the side.
+/// The chat over the list, a drawer over the list or over the drawer it came from.
+#[derive(Default, Clone, Copy)]
+pub struct Nav {
+    pub progress: f32,
+    from: f32,
+    /// None until the first frame, which shows its page without a move.
+    target: Option<f32>,
+    /// Start and length in seconds of the running move.
+    started: Option<(std::time::Instant, f32)>,
+    /// The page is under the finger.
+    pub dragging: bool,
+    forced: Option<f32>,
+}
+
+impl Nav {
+    const COMPLETE: f32 = 0.25;
+    const CANCEL: f32 = 0.18;
+
+    /// With the test hook `nav_forced`.
+    pub fn from_env() -> Self {
+        Self { forced: nav_forced(), ..Default::default() }
+    }
+
+    /// Once a frame. `animate` = one column with a room; `drag` = where the finger holds the page. True when both pages are to be drawn.
+    pub fn step(&mut self, animate: bool, list_open: bool, drag: Option<f32>, now: std::time::Instant, reduce_motion: bool) -> bool {
+        let target = if list_open { 1. } else { 0. };
+        if let (Some(p), true) = (self.forced, animate) {
+            self.progress = p;
+            return true;
+        }
+        self.dragging = animate && !reduce_motion && drag.is_some();
+        if !animate || self.target.is_none() {
+            (self.progress, self.target, self.started) = (target, Some(target), None);
+        } else if let Some(p) = drag.filter(|_| self.dragging) {
+            (self.progress, self.started) = (p, None);
+        } else if self.target != Some(target) || (self.started.is_none() && self.progress != target) {
+            // A page let go short of the threshold goes back quicker than a completed move.
+            let secs = if self.target == Some(target) { Self::CANCEL } else { Self::COMPLETE };
+            (self.from, self.target, self.started) = (self.progress, Some(target), Some((now, secs)));
+        }
+        if let Some((at, secs)) = self.started {
+            let elapsed = now.saturating_duration_since(at).as_secs_f32();
+            self.progress = nav_ease(self.from, target, elapsed, secs, reduce_motion);
+            if reduce_motion || elapsed >= secs {
+                self.started = None;
+            }
+        }
+        // The first frame of a move is still at its start: both pages, or the destination would flash.
+        self.dragging || self.started.is_some() || (self.progress > 0. && self.progress < 1.)
+    }
+
+    /// A move is running, or `list_open` changed after this frame's `step`: the next frame is due now.
+    pub fn wants_repaint(&self, list_open: bool) -> bool {
+        self.started.is_some() || self.target.is_some_and(|t| (t == 1.) != list_open)
+    }
+}
+
+/// A page of the one-column navigation shifted sideways by `dx`.
+pub fn nav_layer(ui: &mut egui::Ui, dx: f32) -> egui::Ui {
+    // The scope id of the page at rest: scroll positions and panel state are keyed by it and must not reset during the move.
+    let mut layer = ui.new_child(egui::UiBuilder::new().scope_id(ui.scope_id()).max_rect(ui.available_rect_before_wrap().translate(egui::vec2(dx, 0.))));
+    // Clipped to the whole shifted page, not to its visible part: the timeline lays out in its clip width; the screen cuts the rest.
+    layer.set_clip_rect(ui.ctx().viewport_rect().translate(egui::vec2(dx, 0.)));
+    layer
+}
+
+/// Between the two pages: the list dimmed (less as it is uncovered), the shadow of the chat's edge and the chat's opaque base, safe-area bands included.
+pub fn nav_cover(ui: &egui::Ui, progress: f32, chat_dx: f32, fill: egui::Color32) {
+    const SHADOW: f32 = 10.;
+    let screen = ui.ctx().viewport_rect();
+    let painter = egui::Painter::new(ui.ctx().clone(), ui.layer_id(), screen);
+    painter.rect_filled(screen, 0., egui::Color32::from_black_alpha((0.25 * (1. - progress) * 255.) as u8));
+    let page = screen.translate(egui::vec2(chat_dx, 0.));
+    let (edge, out) = if crate::dir::rtl() { (page.right(), SHADOW) } else { (page.left(), -SHADOW) };
+    let mut mesh = egui::Mesh::default();
+    for (x, color) in [(edge, egui::Color32::from_black_alpha(46)), (edge + out, egui::Color32::TRANSPARENT)] {
+        mesh.colored_vertex(egui::pos2(x, screen.top()), color);
+        mesh.colored_vertex(egui::pos2(x, screen.bottom()), color);
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 2, 3);
+    painter.add(egui::Shape::mesh(mesh));
+    painter.rect_filled(page, 0., fill);
+}
+
 /// A drag that began at the left edge ends as «back»: mostly horizontal and past a third of the width, or a quick flick of at least 40 pt.
 fn is_back_swipe(dx: f32, dy: f32, secs: f32, width: f32) -> bool {
     dx > 2. * dy.abs() && (dx > width / 3. || (dx > 40. && dx > 500. * secs))
 }
 
-/// True on the frame a left-edge swipe to the right is released (the iOS back gesture).
-/// shortcut: acts on release, the page does not follow the finger; add a translate if the feel asks for it.
-pub fn back_swipe(ctx: &egui::Context) -> bool {
+#[derive(Debug, PartialEq)]
+pub enum BackDrag {
+    /// The finger holds the page this far towards the list (0..1).
+    Moving(f32),
+    /// Let go: true = back to the list.
+    Released(bool),
+}
+
+/// The iOS back gesture, frame by frame: a touch that went down at the left edge and moves right.
+pub fn back_drag(ctx: &egui::Context) -> Option<BackDrag> {
     const EDGE: f32 = 24.;
     let id = egui::Id::new("back-swipe");
     // RTL: the list is on the right, so the gesture starts at the right edge and goes left.
     let (content, rtl) = (ctx.content_rect(), crate::dir::rtl());
     let side = |x: f32| if rtl { content.right() - x } else { x - content.left() };
-    let (pressed, released, time) = ctx.input(|i| (i.pointer.any_pressed().then(|| i.pointer.press_origin()).flatten(), i.pointer.any_released().then(|| i.pointer.interact_pos().or(i.pointer.latest_pos())).flatten(), i.time));
+    let (pressed, released, down, pos, time) = ctx.input(|i| (i.pointer.any_pressed().then(|| i.pointer.press_origin()).flatten(), i.pointer.any_released(), i.pointer.any_down(), i.pointer.interact_pos().or(i.pointer.latest_pos()), i.time));
     if let Some(p) = pressed {
-        ctx.data_mut(|d| d.insert_temp(id, (side(p.x) < EDGE).then_some((p, time))));
+        ctx.data_mut(|d| d.insert_temp(id, (side(p.x) < EDGE).then_some((p, time, false))));
     }
-    let start = if released.is_some() { ctx.data_mut(|d| d.remove_temp::<Option<(egui::Pos2, f64)>>(id)).flatten() } else { None };
-    matches!((start, released), (Some((s, t0)), Some(e)) if is_back_swipe(side(e.x) - side(s.x), e.y - s.y, (time - t0) as f32, content.width()))
+    let (start, t0, mut moving) = ctx.data(|d| d.get_temp::<Option<(egui::Pos2, f64, bool)>>(id)).flatten()?;
+    let Some(pos) = pos.filter(|_| released || down) else {
+        ctx.data_mut(|d| d.remove_temp::<Option<(egui::Pos2, f64, bool)>>(id));
+        return None;
+    };
+    let (dx, dy) = (side(pos.x) - side(start.x), pos.y - start.y);
+    if released {
+        ctx.data_mut(|d| d.remove_temp::<Option<(egui::Pos2, f64, bool)>>(id));
+        let back = is_back_swipe(dx, dy, (time - t0) as f32, content.width());
+        return (moving || back).then_some(BackDrag::Released(back));
+    }
+    if !moving && dx > 8. && dx > 2. * dy.abs() {
+        moving = true;
+        ctx.data_mut(|d| d.insert_temp(id, Some((start, t0, true))));
+        // The page is under the finger now: the keyboard goes away and what was pressed (a scroll, a row) lets go.
+        ctx.memory_mut(|m| if let Some(f) = m.focused() { m.surrender_focus(f) });
+        ctx.stop_dragging();
+    }
+    moving.then(|| BackDrag::Moving(nav_drag_progress(dx, content.width())))
 }
 
-/// Paint the rail behind the unsafe bands, without moving or unclipping its contents.
-pub fn rail_background(ui: &egui::Ui, fill: egui::Color32) {
+/// Paint the rail behind the unsafe bands, without moving or unclipping its contents; `dx` = the list page's shift during a navigation move.
+pub fn rail_background(ui: &egui::Ui, fill: egui::Color32, dx: f32) {
     let (all, safe) = (ui.ctx().viewport_rect(), ui.ctx().content_rect());
     if all != safe {
-        let rect = crate::dir::flip(safe, egui::Rect::from_min_max(egui::pos2(safe.left(), all.top()), egui::pos2((safe.left() + crate::rail::WIDTH).min(safe.right()), all.bottom())));
+        let rect = crate::dir::flip(safe, egui::Rect::from_min_max(egui::pos2(safe.left(), all.top()), egui::pos2((safe.left() + crate::rail::WIDTH).min(safe.right()), all.bottom()))).translate(egui::vec2(dx, 0.));
         egui::Painter::new(ui.ctx().clone(), ui.layer_id(), all).rect_filled(rect, 0., fill);
     }
 }
@@ -292,6 +438,127 @@ mod tests {
     }
 
     #[test]
+    fn navigation_pages_shift_by_progress() {
+        let near = |got: (f32, f32), want: (f32, f32)| assert!((got.0 - want.0).abs() < 1e-3 && (got.1 - want.1).abs() < 1e-3, "{got:?} != {want:?}");
+        near(nav_offsets(0., 400., false), (-120., 0.));
+        near(nav_offsets(0.5, 400., false), (-60., 200.));
+        near(nav_offsets(1., 400., false), (0., 400.));
+        near(nav_offsets(0.5, 400., true), (60., -200.));
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(393., 852.));
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(screen), safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 59., bottom: 34., ..Default::default() })), ..Default::default() };
+        let mut out = ctx.run_ui(raw, |ui| {
+            let mut ui = safe_ui(ui, egui::Color32::BLACK);
+            for p in [0., 0.25, 0.5, 0.75, 1.] {
+                let (list_dx, chat_dx) = nav_offsets(p, screen.width(), false);
+                let (list, chat) = (nav_layer(&mut ui, list_dx), nav_layer(&mut ui, chat_dx));
+                assert_eq!(chat.max_rect().min.x, p * 393.);
+                assert_eq!(list.max_rect().min.x, -0.3 * (1. - p) * 393.);
+                assert_eq!((chat.max_rect().width(), chat.max_rect().top(), chat.max_rect().bottom()), (393., 59., 818.), "a page keeps its size");
+                assert_eq!((chat.clip_rect(), list.clip_rect()), (screen.translate(egui::vec2(chat_dx, 0.)), screen.translate(egui::vec2(list_dx, 0.))), "full page width, safe-area bands included");
+                assert_eq!(chat.scope_id(), ui.scope_id(), "same ids as at rest: no scroll state lost");
+            }
+        });
+        out.textures_delta.clear();
+    }
+
+    #[test]
+    fn navigation_cover_dims_the_list_and_bases_the_chat_on_the_whole_screen() {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(393., 852.));
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(screen), safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 59., bottom: 34., ..Default::default() })), ..Default::default() };
+        let mut out = ctx.run_ui(raw, |ui| nav_cover(ui, 0.5, 196.5, egui::Color32::RED));
+        out.textures_delta.clear();
+        let rects: Vec<_> = out.shapes.iter().filter_map(|s| match &s.shape {
+            egui::Shape::Rect(r) => Some((s.clip_rect, r.rect, r.fill)),
+            _ => None,
+        }).collect();
+        assert_eq!(rects, [(screen, screen, egui::Color32::from_black_alpha(31)), (screen, screen.translate(egui::vec2(196.5, 0.)), egui::Color32::RED)]);
+        assert!(out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Mesh(m) if m.vertices[0].pos.x == 196.5 && m.vertices[2].pos.x == 186.5)), "shadow left of the chat edge");
+    }
+
+    #[test]
+    fn navigation_state_follows_drag_then_animates_to_the_released_side() {
+        let t0 = std::time::Instant::now();
+        let at = |ms: u64| t0 + std::time::Duration::from_millis(ms);
+        let mut nav = Nav::default();
+        assert!(!nav.step(true, true, None, t0, false), "first frame: the list, no move");
+        assert_eq!(nav.progress, 1.);
+        // A room is opened: push 1 -> 0 in 250 ms.
+        assert!(!nav.wants_repaint(true) && nav.wants_repaint(false));
+        assert!(nav.step(true, false, None, at(0), false), "both pages from the first frame of the move");
+        assert_eq!(nav.progress, 1.);
+        assert!(nav.step(true, false, None, at(125), false));
+        assert!((nav.progress - 0.125).abs() < 1e-4);
+        assert!(!nav.step(true, false, None, at(260), false));
+        assert_eq!((nav.progress, nav.wants_repaint(false)), (0., false));
+        // Dragged a quarter of the way and let go: back to the chat in 180 ms.
+        assert!(nav.step(true, false, Some(0.25), at(300), false));
+        assert_eq!((nav.progress, nav.dragging), (0.25, true));
+        assert!(nav.step(true, false, None, at(310), false));
+        assert!(!nav.dragging && nav.wants_repaint(false));
+        assert!(!nav.step(true, false, None, at(495), false));
+        assert_eq!(nav.progress, 0.);
+        // Dragged past the threshold: the release turns list_open on, the page completes from where it was.
+        nav.step(true, false, Some(0.5), at(600), false);
+        assert!(nav.step(true, true, None, at(610), false));
+        assert_eq!(nav.progress, 0.5);
+        assert!(!nav.step(true, true, None, at(870), false));
+        assert_eq!(nav.progress, 1.);
+        // Reduce Motion: no page follows the finger, the switch is immediate.
+        assert!(!nav.step(true, true, Some(0.5), at(800), true));
+        assert!(!nav.step(true, false, None, at(810), true));
+        assert_eq!(nav.progress, 0.);
+        // Two columns (or no room): never animated.
+        assert!(!nav.step(false, true, Some(0.5), at(900), false));
+        assert_eq!(nav.progress, 1.);
+        let mut forced = Nav { forced: Some(0.25), ..Default::default() };
+        assert!(forced.step(true, true, None, t0, false));
+        assert_eq!(forced.progress, 0.25);
+    }
+
+    #[test]
+    fn back_drag_reports_the_finger_then_the_release() {
+        let ctx = egui::Context::default();
+        let mut frame = |events: Vec<egui::Event>| {
+            let mut got = None;
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400., 800.))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| got = back_drag(ui.ctx()));
+            out.textures_delta.clear();
+            got
+        };
+        let button = |x: f32, pressed| egui::Event::PointerButton { pos: egui::pos2(x, 300.), button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        let moved = |x: f32| egui::Event::PointerMoved(egui::pos2(x, 300.));
+        assert_eq!(frame(vec![moved(5.), button(5., true)]), None);
+        assert_eq!(frame(vec![moved(9.)]), None, "not yet a drag");
+        assert_eq!(frame(vec![moved(105.)]), Some(BackDrag::Moving(0.25)));
+        assert_eq!(frame(vec![moved(205.)]), Some(BackDrag::Moving(0.5)));
+        assert_eq!(frame(vec![button(205., false)]), Some(BackDrag::Released(true)));
+        assert_eq!(frame(vec![moved(300.)]), None);
+        // From the middle of the screen: a scroll, not «back».
+        assert_eq!(frame(vec![moved(100.), button(100., true)]), None);
+        assert_eq!(frame(vec![moved(300.)]), None);
+        assert_eq!(frame(vec![button(300., false)]), None);
+    }
+
+    #[test]
+    fn navigation_drag_progress_is_bounded() {
+        assert_eq!(nav_drag_progress(-1., 400.), 0.);
+        assert_eq!(nav_drag_progress(100., 400.), 0.25);
+        assert_eq!(nav_drag_progress(500., 400.), 1.);
+        assert_eq!(nav_drag_progress(10., 0.), 0.);
+    }
+
+    #[test]
+    fn navigation_eases_to_target_or_skips_for_reduced_motion() {
+        assert_eq!(nav_ease(0.25, 1., 0., 0.25, false), 0.25);
+        assert_eq!(nav_ease(0.25, 1., 0.25, 0.25, false), 1.);
+        assert_eq!(nav_ease(0.25, 1., 0., 0.25, true), 1.);
+        assert_eq!(nav_ease(1., 0., 0.18, 0.18, false), 0.);
+        assert!((nav_ease(0., 1., 0.125, 0.25, false) - 0.875).abs() < 0.0001);
+    }
+
+    #[test]
     fn back_swipe_needs_a_horizontal_drag_far_or_fast() {
         assert!(is_back_swipe(150., 10., 0.6, 393.), "past a third");
         assert!(is_back_swipe(60., 5., 0.1, 393.), "short but fast");
@@ -325,7 +592,7 @@ mod tests {
                 let raw = egui::RawInput { screen_rect: Some(screen), safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top, bottom, ..Default::default() })), ..Default::default() };
                 let mut out = ctx.run_ui(raw, |ui| {
                     let ui = safe_ui(ui, crate::list_fill(&t));
-                    rail_background(&ui, crate::chat_background(&t));
+                    rail_background(&ui, crate::chat_background(&t), 0.);
                 });
                 out.textures_delta.clear();
                 let rects: Vec<_> = out.shapes.iter().filter_map(|s| match &s.shape {

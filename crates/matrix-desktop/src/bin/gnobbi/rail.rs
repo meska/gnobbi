@@ -396,7 +396,53 @@ enum Edit {
 
 /// How far the drawer `name` is out (0..1), sliding towards `shown`.
 fn slide(ctx: &egui::Context, name: &str, shown: bool) -> f32 {
+    if ctx.content_rect().width() < crate::SINGLE_WIDTH {
+        // One column: `page` moves it; here only «is it still on screen».
+        return if shown { 1. } else { 1. - ctx.data(|d| d.get_temp::<crate::mobile::Nav>(egui::Id::new((name, "page")))).map_or(1., |n| n.progress) };
+    }
     ctx.animate_bool_with_time(egui::Id::new((name, "open")), shown, 0.18)
+}
+
+/// How far out the one-column drawers are, as of this frame or the one before: (those with a «‹», any). Read by what lies under them.
+pub fn pages_open(ctx: &egui::Context) -> (f32, f32) {
+    let now = ctx.cumulative_frame_nr();
+    ctx.data(|d| d.get_temp::<(u64, f32, f32)>(egui::Id::new("pages-open"))).filter(|(at, ..)| at + 1 >= now).map_or((0., 0.), |(_, child, any)| (child, any))
+}
+
+fn publish_page(ctx: &egui::Context, child: bool, open: f32) {
+    let (now, id) = (ctx.cumulative_frame_nr(), egui::Id::new("pages-open"));
+    let (_, c, a) = ctx.data(|d| d.get_temp::<(u64, f32, f32)>(id)).filter(|(at, ..)| *at == now).unwrap_or_default();
+    ctx.data_mut(|d| d.insert_temp(id, (now, if child { c.max(open) } else { c }, a.max(open))));
+}
+
+/// Shift of a one-column drawer from its place: off to the side while it is not fully out, and back by 30 % of what the page above it shows.
+fn page_shift(open: f32, above: f32, width: f32) -> f32 {
+    (1. - open) * width - 0.3 * above * width
+}
+
+/// One column: the drawer `name` is a page that comes in from the side and follows the back swipe from the screen edge.
+/// (how far it is out 0..1, how far the page above it is out, the swipe was let go as «back»).
+fn page(ctx: &egui::Context, name: &str, shown: bool, child: bool) -> (f32, f32, bool) {
+    use crate::mobile::BackDrag;
+    let id = egui::Id::new((name, "page"));
+    let mut nav: crate::mobile::Nav = ctx.data(|d| d.get_temp(id)).unwrap_or_default();
+    // A drawer without «‹» stays under the ones that return to it; only the one on top takes the gesture.
+    let above = if child { 0. } else { pages_open(ctx).0 };
+    let drag = if shown && above == 0. { crate::mobile::back_drag(ctx) } else { None };
+    let swiped = drag == Some(BackDrag::Released(true));
+    let hidden = !shown || swiped;
+    nav.step(true, hidden, match drag { Some(BackDrag::Moving(p)) => Some(p), _ => None }, std::time::Instant::now(), crate::mobile::reduce_motion());
+    if let Some(p) = crate::mobile::nav_forced().filter(|_| shown) {
+        nav.progress = if above > 0. { 0. } else { p };
+    }
+    if nav.wants_repaint(hidden) {
+        ctx.request_repaint();
+    }
+    ctx.data_mut(|d| d.insert_temp(id, nav));
+    if nav.progress < 1. {
+        publish_page(ctx, child, 1. - nav.progress);
+    }
+    (1. - nav.progress, above, swiped)
 }
 
 /// Left edge and width of a drawer. In the single-column mobile layout the list fills the window, so the rail's right edge leaves
@@ -413,33 +459,44 @@ pub fn drawer(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str
 
 /// `drawer` with a «‹» left of the title when `back` is given; a click on it sets `*back`.
 pub fn drawer_back(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str, title: &str, shown: bool, t: &DesignTokens, back: Option<&mut bool>, body: impl FnOnce(&mut egui::Ui, egui::Rect)) -> bool {
-    let open = slide(ctx, name, shown);
+    let content = ctx.content_rect();
+    // One column (a phone): a page from the far side, over the list or over the drawer it came from, that follows the back swipe.
+    let phone = content.width() < crate::SINGLE_WIDTH;
+    let (open, above, swiped) = if phone { page(ctx, name, shown, back.is_some()) } else { (slide(ctx, name, shown), 0., false) };
     let Some(panel) = panel.filter(|_| open > 0.) else { return false };
     // Worked out as if the rail were on the left, then mirrored in the window: in RTL the drawer slides out of the rail's left edge.
-    let content = ctx.content_rect();
     let flip = |r| crate::dir::flip(content, r);
     let panel = flip(panel);
     let (left, width) = drawer_span(panel.right(), content);
     let clip = egui::Rect::from_min_max(egui::pos2(left, panel.top()), egui::pos2(content.right(), panel.bottom()));
-    let rect = flip(egui::Rect::from_min_size(clip.min - Vec2::new((1. - open) * width, 0.), Vec2::new(width, panel.height())));
+    let shift = if phone { page_shift(open, above, width) } else { -(1. - open) * width };
+    let rect = flip(egui::Rect::from_min_size(clip.min + Vec2::new(shift, 0.), Vec2::new(width, panel.height())));
     let clip = flip(clip);
     let mut closed = false;
+    let mut back = back;
+    // Under the page that returns to it: its own layer below, so the one on top stays on top whichever was opened first.
+    let under = above > 0.;
     // The rest of the window is dimmed: a click there closes the drawer and reaches nothing else. The rail stays usable.
     egui::Area::new(egui::Id::new((name, "scrim"))).order(egui::Order::Middle).fixed_pos(clip.min).show(ctx, |ui| {
         let (r, resp) = ui.allocate_exact_size(clip.size(), Sense::click());
-        ui.painter().rect_filled(r, 0., egui::Color32::from_black_alpha((open * 102.) as u8));
+        ui.painter().rect_filled(r, 0., egui::Color32::from_black_alpha(if phone { 0 } else { (open * 102.) as u8 }));
         closed |= resp.clicked();
     });
-    egui::Area::new(egui::Id::new(name)).order(egui::Order::Foreground).fixed_pos(rect.min).constrain(false).show(ctx, |ui| {
+    let area = if under { egui::Area::new(egui::Id::new((name, "under"))).order(egui::Order::Middle) } else { egui::Area::new(egui::Id::new(name)).order(egui::Order::Foreground) };
+    area.fixed_pos(rect.min).constrain(false).show(ctx, |ui| {
         ui.set_clip_rect(clip);
         ui.set_min_size(rect.size());
         ui.interact(rect, egui::Id::new((name, "back")), Sense::click());
         let p = ui.painter().clone();
+        if phone {
+            // Dim and shadow on what is under, and the page's base up into the safe-area bands.
+            crate::mobile::nav_cover(ui, 1. - open, rect.left() - content.left(), rgb(t.surface));
+        }
         p.rect_filled(rect, 0., rgb(t.surface));
         let head = egui::Rect::from_min_size(rect.min, Vec2::new(width, 56.));
         let flip = |r| crate::dir::flip(head, r);
         let mut title_x = 20.;
-        if let Some(back) = back {
+        if let Some(back) = back.as_deref_mut() {
             let b = flip(egui::Rect::from_center_size(egui::pos2(head.left() + 30., head.center().y), Vec2::splat(crate::metrics::button() + 4.)));
             let r = ui.interact(b, egui::Id::new((name, "return")), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
             lit(ui, &r, b, 18., t);
@@ -455,8 +512,21 @@ pub fn drawer_back(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'stati
         icons::paint(&p, x.center(), icons::Icon::X, false, crate::metrics::get().icon, rgb(t.secondary));
         close.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, matrix_desktop::i18n::t("Close")));
         closed |= close.clicked();
-        crate::dir::scope(ui, |ui| body(ui, egui::Rect::from_min_max(head.left_bottom(), rect.max)));
+        let body_rect = egui::Rect::from_min_max(head.left_bottom(), rect.max);
+        if phone {
+            // One scope for both layers of the page: its scroll position survives the change.
+            ui.scope_builder(egui::UiBuilder::new().scope_id(egui::Id::new((name, "body"))), |ui| crate::dir::scope(ui, |ui| body(ui, body_rect)));
+        } else {
+            crate::dir::scope(ui, |ui| body(ui, body_rect));
+        }
     });
+    // The swipe is the «‹» where there is one, else the X.
+    if swiped {
+        match back {
+            Some(back) => *back = true,
+            None => closed = true,
+        }
+    }
     closed
 }
 
@@ -670,6 +740,41 @@ mod tests {
         let r = |w| egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, 800.));
         assert_eq!(super::drawer_span(393., r(393.)), (0., 393.));
         assert_eq!(super::drawer_span(72., r(1000.)), (72., 380.));
+    }
+
+    #[test]
+    fn one_column_drawer_is_a_page_from_the_side_that_follows_the_back_swipe() {
+        assert_eq!(super::page_shift(1., 0., 400.), 0., "out: in place");
+        assert_eq!(super::page_shift(0.25, 0., 400.), 300., "coming in from the far side");
+        assert!((super::page_shift(1., 0.5, 400.) + 60.).abs() < 1e-3, "under a page half out: trails at 30 %");
+        let ctx = egui::Context::default();
+        let mut frame = |shown, child, events: Vec<egui::Event>| {
+            let mut got = (0., 0., false);
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(400., 800.))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| got = super::page(ui.ctx(), "t", shown, child));
+            out.textures_delta.clear();
+            got
+        };
+        let button = |x: f32, pressed| egui::Event::PointerButton { pos: egui::pos2(x, 300.), button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        let moved = |x: f32| egui::Event::PointerMoved(egui::pos2(x, 300.));
+        assert_eq!(frame(true, true, vec![]), (1., 0., false), "first frame: as it is, no move");
+        assert_eq!(super::pages_open(&ctx), (1., 1.), "what is under knows a page is out");
+        frame(true, true, vec![moved(5.), button(5., true)]);
+        assert_eq!(frame(true, true, vec![moved(105.)]), (0.75, 0., false), "the page follows the finger");
+        assert_eq!(frame(true, true, vec![moved(205.)]).0, 0.5);
+        assert_eq!(frame(true, true, vec![button(205., false)]), (0.5, 0., true), "let go past a third: back, from where it was");
+        // The drawer under it (no «‹») sees the page above and leaves the gesture to it.
+        let mut frame = |name, child, events: Vec<egui::Event>| {
+            let mut got = (0., 0., false);
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(400., 800.))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| got = super::page(ui.ctx(), name, true, child));
+            out.textures_delta.clear();
+            got
+        };
+        frame("t", true, vec![moved(5.), button(5., true)]);
+        frame("t", true, vec![]);
+        let root = frame("u", false, vec![moved(205.)]);
+        assert!(root.0 == 1. && root.1 > 0., "{root:?}");
     }
 
     use super::*;

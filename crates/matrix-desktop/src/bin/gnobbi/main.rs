@@ -108,6 +108,8 @@ struct App {
     dirs: Option<AppDirs>,
     /// Narrow window only: the room list replaces the chat while true.
     list_open: bool,
+    /// The slide between the chat and the list in one column.
+    nav: mobile::Nav,
     rail: rail::State,
     /// Catalog id of the shown account (the rail layout is stored under it), with the profile folder it was read for.
     rail_account: Option<(std::path::PathBuf, u64)>,
@@ -199,7 +201,7 @@ impl App {
         }
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, nav: mobile::Nav::from_env(), rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false };
         if let Some(i) = last {
@@ -621,6 +623,9 @@ impl eframe::App for App {
         });
         if self.session.as_ref().is_some_and(|s| s.account.is_some() && !s.recovering()) {
             self.shell(ui, &t);
+            if self.nav.wants_repaint(self.list_open) {
+                ctx.request_repaint();
+            }
         } else {
             self.sign_in(ui, &t);
         }
@@ -1082,9 +1087,10 @@ impl App {
         if narrow && std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("list") {
             self.list_open = true;
         }
-        // Left-edge swipe = the back button.
-        if single && !self.list_open && mobile::back_swipe(ui.ctx()) {
-            self.list_open = true;
+        // Left-edge swipe = the back button; the chat follows the finger.
+        let drag = if single && !self.list_open && !self.rail.any_drawer() { mobile::back_drag(ui.ctx()) } else { None };
+        if let Some(mobile::BackDrag::Released(back)) = drag {
+            self.list_open = back;
         }
         let mut side = None;
         if let Some(s) = &mut self.session {
@@ -1117,6 +1123,18 @@ impl App {
             }
         }
         let covered = side.is_some();
+        // One column with a room: the chat slides over the list; while it is on the way both pages are drawn, each in its shifted rect.
+        let sliding = single && !self.rail.any_drawer() && self.session.as_ref().is_some_and(|s| s.sidebar.selected().is_some());
+        // shortcut: a side panel (info, member, search, thread) is part of the chat page, so the page does not follow the finger while one is on top (the swipe closes it on release); give the panels their own page to animate them.
+        let held = match drag { Some(mobile::BackDrag::Moving(p)) if !covered => Some(p), _ => None };
+        let both = self.nav.step(sliding, self.list_open, held, std::time::Instant::now(), mobile::reduce_motion());
+        let screen_width = ui.ctx().viewport_rect().width();
+        let (mut list_dx, chat_dx) = if both { mobile::nav_offsets(self.nav.progress, screen_width, dir::rtl()) } else { (0., 0.) };
+        // A drawer page on its way over the list: the list trails under it like under the chat.
+        if single && self.list_open && !both {
+            list_dx = mobile::nav_offsets(1. - rail::pages_open(ui.ctx()).1, screen_width, dir::rtl()).0;
+        }
+        let show_list = self.list_open || both;
         let unread = |s: &Session| s.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
         let catalog = self.dirs.as_ref().map(matrix_desktop::AccountCatalog::load);
         let entry_for = |root: &std::path::Path| catalog.as_ref().zip(self.dirs.as_ref()).and_then(|(c, d)| c.accounts().iter().find(|e| c.data_dir(d, e.id).as_deref() == Some(root)));
@@ -1149,8 +1167,10 @@ impl App {
         let account = self.rail_account.as_ref().filter(|(root, _)| *root == self.root).map_or(0, |(_, id)| *id);
         if let Some(session) = &mut self.session {
             rail::edit_window(ui.ctx(), session, &mut self.new_form, &mut self.rail, account, self.dirs.as_ref(), t);
-            if !single || self.list_open {
-                if single { mobile::rail_background(ui, chat_background(t)); }
+            let mut under = (both || list_dx != 0.).then(|| mobile::nav_layer(ui, list_dx));
+            let ui: &mut egui::Ui = match &mut under { Some(layer) => layer, None => &mut *ui };
+            if !single || show_list {
+                if single { mobile::rail_background(ui, chat_background(t), list_dx); }
                 dir::panel_start("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
                     ui.add_space(8.);
                     // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
@@ -1195,7 +1215,7 @@ impl App {
                     rail::show(ui, &mut session.sidebar, &session.avatars, &mut self.rail, account, placed, t);
                 });
             }
-            if !narrow || self.list_open {
+            if !narrow || show_list {
                 // Narrow: the list takes the whole width left of the rail and the chat is not drawn; a tap on a row, the open one too, goes to the chat.
                 let list_fill = list_fill(t);
                 if narrow {
@@ -1251,7 +1271,7 @@ impl App {
                         }
                     }
                 }
-                if narrow {
+                if narrow && !both {
                     list_only = true;
                 }
             }
@@ -1264,6 +1284,11 @@ impl App {
             self.overlays(ui, t);
             return;
         }
+        let mut over = both.then(|| {
+            mobile::nav_cover(ui, self.nav.progress, chat_dx, list_fill(t));
+            mobile::nav_layer(ui, chat_dx)
+        });
+        let ui: &mut egui::Ui = match &mut over { Some(layer) => layer, None => ui };
         let has_room = self.session.as_ref().is_some_and(|s| s.messages.is_some());
         let (info_on, search_on) = self.session.as_ref().map_or((false, false), |s| (s.info_open, s.search_open));
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
@@ -1556,6 +1581,10 @@ impl App {
                 }
             }
         }));
+        // On the way the pages take no taps or scrolls: a shield on top of both swallows them (the finger that drags is already down).
+        if both && !self.nav.dragging {
+            ui.interact(ui.ctx().viewport_rect(), egui::Id::new("nav-shield"), egui::Sense::click_and_drag());
+        }
     }
 
     /// The windows and drawers of the session (settings, account, devices, new chat…). Drawn in every layout: the one-column list returns before the chat.
