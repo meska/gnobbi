@@ -182,9 +182,9 @@ pub(super) fn utf16_to_byte(text: &str, offset: usize) -> usize {
 }
 
 /// A scalar that joins a grapheme cluster: combining marks, joiner, variation selectors, regional
-/// indicators and skin tone modifiers.
+/// indicators, skin tone modifiers, keycap/enclosing marks (U+20E3) and emoji tags (flag sequences).
 fn is_cluster_part(c: char) -> bool {
-    matches!(c, '\u{300}'..='\u{36F}' | '\u{200D}' | '\u{FE00}'..='\u{FE0F}' | '\u{1F1E6}'..='\u{1F1FF}' | '\u{1F3FB}'..='\u{1F3FF}')
+    matches!(c, '\u{300}'..='\u{36F}' | '\u{200D}' | '\u{20D0}'..='\u{20FF}' | '\u{FE00}'..='\u{FE0F}' | '\u{1F1E6}'..='\u{1F1FF}' | '\u{1F3FB}'..='\u{1F3FF}' | '\u{E0020}'..='\u{E007F}')
 }
 
 #[cfg(test)]
@@ -304,5 +304,40 @@ mod tests {
         document.reset();
         assert_eq!((document.start(), document.caret(), document.end()), (3, 3, 3));
         assert_eq!(document.substring((0, 9)), None);
+    }
+    #[test]
+    fn backspace_after_keycap_tags_zwj_and_flags_forgets_the_text() {
+        // egui deletes the whole cluster; a single scalar here would put the document out of step.
+        for cluster in ["1\u{FE0F}\u{20E3}", "#\u{20E3}", "\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}", "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", "\u{1F1EE}\u{1F1F9}", "\u{1F44B}\u{1F3FD}"] {
+            let mut document = typed(&format!("a{cluster}"));
+            let caret = document.caret();
+            document.delete_backward();
+            assert_eq!(document.substring((0, 99)), None, "{cluster:?}");
+            assert_eq!(document.caret(), caret, "{cluster:?}");
+        }
+    }
+
+    #[test]
+    fn backspace_on_a_lone_emoji_next_to_cjk_and_rtl_text_removes_one_scalar() {
+        for text in ["\u{4F60}\u{597D}\u{1F44D}", "\u{5E9}\u{5DC}\u{5D5}\u{5DD}\u{1F44D}", "\u{645}\u{631}\u{62D}\u{628}\u{627}\u{1F44D}"] {
+            let mut document = typed(text);
+            document.delete_backward();
+            let kept = text.trim_end_matches('\u{1F44D}');
+            assert_eq!(document.substring((0, 99)).map(|(t, _)| t), Some(kept.to_owned()), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn utf16_offsets_over_zwj_family_next_to_cjk_and_rtl() {
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        for lead in ["\u{4F60}\u{597D}", "\u{5E9}\u{5DC}"] {
+            let mut document = typed(&format!("{lead}{family}"));
+            assert_eq!(document.caret(), 2 + 8); // 3 surrogate pairs + 2 joiners
+            // A range that starts inside the first surrogate pair takes the whole emoji.
+            assert_eq!(document.replace((3, 7)), Some(family.len()));
+            assert_eq!(document.substring((0, 99)).map(|(t, _)| t), Some(lead.to_owned()));
+        }
+        assert_eq!(utf16_to_byte(&format!("\u{4F60}{family}"), 1), 3);
+        assert_eq!(utf16_to_byte("1\u{FE0F}\u{20E3}", 2), 4);
     }
 }

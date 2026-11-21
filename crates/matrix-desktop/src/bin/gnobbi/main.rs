@@ -462,6 +462,20 @@ impl eframe::App for App {
             }
             ctx.request_repaint();
         }
+        // Test hook: GNOBBI_EGUI_EMOJI_PROBE=1 draws thumbs-up, ZWJ family, flag, keycap and toned hand (label + text field) over everything, for GNOBBI_EGUI_SHOT.
+        if std::env::var_os("GNOBBI_EGUI_EMOJI_PROBE").is_some() {
+            let mut samples = ["\u{1F44D}", "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", "\u{1F1EE}\u{1F1F9}", "1\u{FE0F}\u{20E3}", "\u{1F44B}\u{1F3FD}"].map(String::from);
+            egui::Area::new(egui::Id::new("emoji-probe")).fixed_pos(egui::pos2(0., 80.)).order(egui::Order::Debug).show(&ctx, |ui| {
+                egui::Frame::new().fill(egui::Color32::WHITE).show(ui, |ui| {
+                    for s in &mut samples {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(s.as_str()).size(48.).color(egui::Color32::BLACK));
+                            ui.add(egui::TextEdit::singleline(s).font(egui::FontId::proportional(48.)).desired_width(120.));
+                        });
+                    }
+                });
+            });
+        }
         let dropped: Vec<_> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
         if let Some(session) = &mut self.session {
             if let Some(path) = dropped.first() {

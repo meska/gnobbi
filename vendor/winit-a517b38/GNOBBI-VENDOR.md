@@ -12,6 +12,7 @@ Base: rust-windowing/winit PR #4592 (open, head e49d771a, Apache-2.0): `WinitVie
 - UTF-16 `NSRange` converted to UTF-8 offsets for `Preedit` (the PR used scalar counts).
 - `Window::set_ime_cursor_area` positions `firstRectForRange:`/`caretRectForPosition:`; `set_ime_purpose(Password)` sets `isSecureTextEntry`, no autocorrection, and the document stays empty; `reset_ime`/`reset_ime_with_request` and `set_ime_allowed` drop the composition without committing (field change) and notify the `UITextInputDelegate`.
 - Host test of the document model: `tests/ios_ime_document.rs`. egui-winit: `ime_delete_surrounding` has an iOS branch.
+- `ImeDocument::delete_backward` also treats U+20D0-20FF (keycap, enclosing marks) and U+E0020-E007F (emoji tags, subregional flags) as cluster parts: egui deletes the whole grapheme, so the document forgets instead of dropping one scalar. Tests with surrogate pairs, ZWJ, keycap, tags, CJK and RTL neighbours in `ime_document.rs`; run with `cd vendor/winit-a517b38 && cargo test --test ios_ime_document` (winit is not a workspace member: no `--locked`).
 Drop it when a winit release contains #4592 and an equivalent of the autocorrection link.
 
 ## Local patch: iOS edit menu, paste/copy/cut/select all, no secure flag towards UIKit
