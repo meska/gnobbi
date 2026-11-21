@@ -206,6 +206,8 @@ pub fn recovery_error(e: RecoveryError) -> CliError {
         RecoveryError::NoSecretStorage | RecoveryError::BackupUnavailable | RecoveryError::AlreadyConfigured | RecoveryError::Failed | RecoveryError::WrongPhrase => {
             fail(12, "keys_not_ready", "recovery keys not ready: run keys update first, or set up key backup")
         }
+        // First setup on a fresh account hit a UIAA challenge the CLI never answers.
+        RecoveryError::AuthRequired => fail(12, "keys_not_ready", "the homeserver requires interactive authentication: set up recovery in the app"),
         // Nothing to insert: this account has no complete identity yet (no `keys setup` command).
         RecoveryError::IdentityRequired => {
             fail(12, "keys_not_ready", "this account has no complete cross-signing identity or its keys are missing on this device: set up recovery in the app, or run keys update")

@@ -50,6 +50,10 @@ Il primo accesso chiede homeserver, ID Matrix e password; la chiave che protegge
 
 Avvio: `target/debug/gnobbi` (o `cargo run --locked -p matrix-desktop --features linux-vault`) apre il profilo predefinito nella cartella dati dell'app; i profili successivi si aggiungono dal pannello account dell'app. `gnobbi --signin <cartella-profilo-assoluta> [--ca-file <pem-assoluto>]` apre un profilo isolato, ad esempio per provare un homeserver di test.
 
+## Account da riga di comando
+
+Per login, logout, verifica della sessione e gestione della chiave di recupero, anche in script e CI, vedi la [guida alla CLI account](ACCOUNT_CLI.md).
+
 ## Come contribuire
 
 Vedi [CONTRIBUTING](CONTRIBUTING.md). Per segnalare vulnerabilità: [SECURITY](SECURITY.md).
