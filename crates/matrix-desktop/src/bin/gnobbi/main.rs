@@ -2128,14 +2128,22 @@ fn main() -> eframe::Result {
     let link = raw_link.clone().and_then(|raw| matrix_engine::matrix_link::parse_matrix_link(&raw).map_err(|_| eprintln!("Gnobbi: ignored matrix link")).ok());
     #[allow(unused_mut)]
     let mut dirs = matrix_desktop::app_dirs(Platform::CURRENT, |k| std::env::var(k).ok());
-    // iOS: the stores move to the App Group container; if that fails, keep working from where they were.
+    // iOS: an ambiguous migration must never fall back to a different store.
     #[cfg(all(target_os = "ios", not(target_abi = "sim")))]
     if let Some(d) = &mut dirs
         && d.data != d.config
-        && matrix_desktop::app_group::migrate(&d.config, &d.data).is_err()
     {
-        eprintln!("Gnobbi: store migration failed");
-        d.data = d.config.clone();
+        match matrix_desktop::app_group::migrate(&d.config, &d.data) {
+            Ok(()) => (),
+            Err(e @ matrix_desktop::app_group::MigrationError::Ambiguous { .. }) => {
+                eprintln!("Gnobbi: {e}");
+                std::process::exit(1);
+            }
+            Err(matrix_desktop::app_group::MigrationError::Io(e)) => {
+                eprintln!("Gnobbi: store migration failed: {e}");
+                d.data = d.config.clone();
+            }
+        }
     }
     let default_root = dirs.as_ref().map(|d| d.data.join("profile"));
     // `--signin <folder>` runs another account's profile; the default profile is the first install's.
