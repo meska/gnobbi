@@ -3,9 +3,17 @@
 #[cfg(target_os = "ios")]
 use crate::AppDirs;
 
-/// APNs gives raw bytes; the gateway wants lowercase hex.
+/// APNs gives raw bytes; the pushkey is lowercase hex. Sygnal must run with `convert_device_token_to_hex: false`
+/// (its default base64-decodes the pushkey, turns 64 hex chars into a 96-char token and APNs answers BadDeviceToken).
 pub fn token_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Log-safe description of a token (never the token): byte count and pushkey format.
+pub fn token_class(bytes: &[u8]) -> String {
+    let hex = token_hex(bytes);
+    let ok = hex.len() == 2 * bytes.len() && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    format!("{} bytes, {} chars, {}", bytes.len(), hex.len(), if ok { "lowercase hex" } else { "NOT lowercase hex" })
 }
 
 #[cfg(target_os = "ios")]
@@ -32,7 +40,9 @@ mod ios {
                 let (len, bytes): (usize, *const u8) = unsafe { (msg_send![token, length], msg_send![token, bytes]) };
                 if !bytes.is_null() {
                     // SAFETY: NSData owns `len` bytes at `bytes` for the duration of this call.
-                    received(super::token_hex(unsafe { std::slice::from_raw_parts(bytes, len) }));
+                    let raw = unsafe { std::slice::from_raw_parts(bytes, len) };
+                    eprintln!("Gnobbi: APNs token received ({})", super::token_class(raw));
+                    received(super::token_hex(raw));
                 }
             }
             #[unsafe(method(application:didFailToRegisterForRemoteNotificationsWithError:))]
@@ -91,5 +101,7 @@ mod tests {
     fn token_is_lowercase_hex() {
         assert_eq!(super::token_hex(&[0x00, 0xAB, 0x0f, 0xff]), "00ab0fff");
         assert_eq!(super::token_hex(&[]), "");
+        assert_eq!(super::token_class(&[0xAB; 32]), "32 bytes, 64 chars, lowercase hex");
+        assert_eq!(super::token_class(&[]), "0 bytes, 0 chars, lowercase hex");
     }
 }
