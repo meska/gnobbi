@@ -7,3 +7,681 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of ka in this order, separated by |: one|other.
 # See TRANSLATING.md.
+
+# list
+	Pinned	მიმაგრებული
+	Low priority	დაბალი პრიორიტეტი
+	New chat	ახალი ჩატი
+	Explore public rooms	საჯარო ოთახების დათვალიერება
+	Search conversations	საუბრებში ძებნა
+	Mark as read	წაკითხულად მონიშვნა
+	Mark as unread	წაუკითხავად მონიშვნა
+	Add to a space…	სივრცეში დამატება…
+	Leave?	გასვლა?
+	Leave	გასვლა
+	Add to a space	სივრცეში დამატება
+	Add	დამატება
+	Cancel	გაუქმება
+	Unpin	მოხსნა
+	Pin to top	ზემოთ მიმაგრება
+	Remove from low priority	დაბალი პრიორიტეტიდან მოხსნა
+	Mark as low priority	დაბალ პრიორიტეტად მონიშვნა
+	Remove from {name}	{name}-დან ამოშლა
+	All messages	ყველა შეტყობინება
+	Mentions only	მხოლოდ ხსენებები
+	Muted	დადუმებული
+
+# composer
+banner	Reply	პასუხი
+	Edit	რედაქტირება
+	Send note	ჩანაწერის გაგზავნა
+	Reply in thread	პასუხი თემაში
+	Write a message	დაწერეთ შეტყობინება
+	Emoji	ემოჯი
+	Sticker	სტიკერი
+	Poll	გამოკითხვა
+	Attach a file	ფაილის მიმაგრება
+	Voice note	ხმოვანი შეტყობინება
+	Send	გაგზავნა
+
+# composer (emoji names)
+	Grinning face	გაღიმებული სახე
+	Beaming face	მოცინარი სახე
+	Face with tears of joy	სახე სიხარულის ცრემლებით
+	Rolling on the floor laughing	ვგორავ სიცილით
+	Smiling face with smiling eyes	მომღიმარი სახე მომღიმარი თვალებით
+	Smiling face with heart eyes	მომღიმარი სახე გულისებრი თვალებით
+	Face blowing a kiss	ამბორის გამგზავნი სახე
+	Smiling face with sunglasses	მომღიმარი სახე მზის სათვალით
+	Thinking face	მოფიქრებული სახე
+	Grinning face with sweat	გაღიმებული სახე ოფლის წვეთით
+	Winking face	თვალის ჩამკრავი სახე
+	Upside-down face	თავდაყირა სახე
+	Crying face	მტირალი სახე
+	Loudly crying face	ხმამაღლა მტირალი სახე
+	Angry face	გაბრაზებული სახე
+	Screaming face	მოკივლე სახე
+	Thumbs up	ცერა თითი ზემოთ
+	Thumbs down	ცერა თითი ქვემოთ
+	Clapping hands	ტაში
+	Folded hands	შეკრული ხელები
+	Flexed biceps	დაჭიმული ბიცეფსი
+	Waving hand	მიმტევებელი ხელი
+	Handshake	ხელის ჩამორთმევა
+	Raising hands	აწეული ხელები
+	Party popper	სადღესასწაულო ფეიერვერკი
+	Fire	ცეცხლი
+	Sparkles	ნაპერწკლები
+	Hundred points	ას ქულა
+	Check mark	გამოსარჩევი ნიშანი
+	Cross mark	ჯვარი
+	Eyes	თვალები
+	Cup of coffee	ფინჯანი ყავა
+
+# timeline
+	Today	დღეს
+	Yesterday	გუშინ
+	Message deleted	შეტყობინება წაიშალა
+	Message unavailable	შეტყობინება მიუწვდომელია
+	Encrypted message	დაშიფრული შეტყობინება
+	Loading…	იტვირთება…
+	Go to bottom	ბოლოში გადასვლა
+	image	სურათი
+	video	ვიდეო
+@plural	{n} reply	{n} პასუხი|{n} პასუხი
+
+# info
+	Encrypted	დაშიფრული
+	Status messages	სისტემური შეტყობინებები
+	Same as settings	როგორც პარამეტრებშია
+	Show	ჩვენება
+	Hide	დამალვა
+@plural	{n} status message hidden	{n} სისტემური შეტყობინება დამალულია|{n} სისტემური შეტყობინება დამალულია
+	Search in room	ძებნა ოთახში
+	No results	შედეგები არ არის
+	Search failed	ძებნა ვერ შესრულდა
+	Retry	ხელახლა ცდა
+	More results	მეტი შედეგი
+	Profile link	პროფილის ბმული
+	Verified	დადასტურებული
+	Not verified	დაუდასტურებელი
+	Message	შეტყობინება
+	Mention	ხსენება
+	Verify	დადასტურება
+	Disconnect	გათიშვა
+	Last read	ბოლოს წაკითხული
+	Chat unavailable	ჩატი მიუწვდომელია
+	Ignore	იგნორირება
+	Confirm	დადასტურება
+	Kick	გაგდება
+	Ban	დაბლოკვა
+	Failed	ვერ შესრულდა
+	Thread unavailable	თემა მიუწვდომელია
+	Thread	თემა
+	Reply	პასუხი
+	Addresses	მისამართები
+	main	მთავარი
+	Main	მთავარი
+	name	სახელი
+@plural	{n} member	{n} წევრი|{n} წევრი
+@plural	Delete {n} message	{n} შეტყობინების წაშლა|{n} შეტყობინების წაშლა
+	Reply to {name}	პასუხი: {name}
+
+# members
+	Admin	ადმინისტრატორი
+	Moderator	მოდერატორი
+	Member	წევრი
+	Invite	მოწვევა
+	Banned	დაბლოკილები
+	Banned list unavailable	დაბლოკილთა სია მიუწვდომელია
+	Unban	განბლოკვა
+	Reason	მიზეზი
+	Actions for {name}	მოქმედებები: {name}
+
+# roomedit
+	Name	სახელი
+	Topic	თემა
+	Drop an image here for the photo	ფოტოსთვის ჩააგდეთ სურათი აქ
+	Choose photo…	ფოტოს არჩევა…
+	Room photo	ოთახის ფოტო
+	Save	შენახვა
+	Photo: {name}	ფოტო: {name}
+
+# poll
+	New poll	ახალი გამოკითხვა
+	Question	კითხვა
+	Add option	ვარიანტის დამატება
+	Multiple choice	რამდენიმე არჩევანი
+	Results visible right away	შედეგები მაშინვე ჩანს
+	Option {n}	ვარიანტი {n}
+
+# viewer
+	Video	ვიდეო
+	Image	სურათი
+	Save as	შენახვა როგორც
+	Open	გახსნა
+	Cannot open the content	შიგთავსის გახსნა ვერ ხერხდება
+
+# stickers
+	Stickers are not encrypted, like an unencrypted image	სტიკერები არ იშიფრება, დაუშიფრავი სურათის მსგავსად
+	No sticker packs	სტიკერების პაკეტები არ არის
+	Stickers unavailable	სტიკერები მიუწვდომელია
+
+# settings
+	Settings	პარამეტრები
+	Account and security	ანგარიში და უსაფრთხოება
+	Account	ანგარიში
+	Devices	მოწყობილობები
+	Appearance	იერსახე
+	Language	ენა
+	Theme	თემა
+	System	სისტემური
+	Accent	აქცენტი
+	Icon	ხატულა
+	Automatic night	ავტომატური ღამის რეჟიმი
+	Chat	ჩატი
+	Read receipts	წაკითხვის დადასტურებები
+	Hide deleted messages	წაშლილი შეტყობინებების დამალვა
+	Show status messages	სისტემური შეტყობინებების ჩვენება
+	Message preview	შეტყობინების გადახედვა
+	Notifications	შეტყობინებები
+	Close to tray	დახურვა სისტემურ პანელში
+	Add to menu	მენიუში დამატება
+	Added to menu	მენიუში დაემატა
+	Could not add to menu	მენიუში დამატება ვერ მოხერხდა
+	Classic	კლასიკური
+	Day	დღე
+	Dark	მუქი
+	Night	ღამე
+	No	არა
+	Schedule	განრიგი
+	Minimal mark	მინიმალური ნიშანი
+	Gnome	გნომი
+	Little monster	პატარა მონსტრი
+	Blue	ლურჯი
+	Teal	ფირუზისფერი
+	Green	მწვანე
+	Orange	ნარინჯისფერი
+	Red	წითელი
+	Pink	ვარდისფერი
+	Purple	იისფერი
+
+# notifications, tray, menu bar, errors
+	A save is already in progress	შენახვა უკვე მიმდინარეობს
+	Account no longer connected	ანგარიში აღარ არის დაკავშირებული
+	Actions not available for this event	ამ მოვლენისთვის მოქმედებები მიუწვდომელია
+	Address already in use	მისამართი უკვე გამოიყენება
+	Already joined	უკვე შეუერთდით
+	Checking permissions…	ნებართვების შემოწმება…
+	Choose a file that does not exist yet	აირჩიეთ ფაილი, რომელიც ჯერ არ არსებობს
+	Connected	დაკავშირებულია
+	Connecting…	დაკავშირება…
+	Connection failed	დაკავშირება ვერ მოხერხდა
+	Data folder not available	მონაცემთა საქაღალდე მიუწვდომელია
+	Delete the selected message? This cannot be undone.	წაიშალოს არჩეული შეტყობინება? ამის გაუქმება შეუძლებელია.
+	File cannot be attached	ფაილის მიმაგრება შეუძლებელია
+	Image cannot be attached	სურათის მიმაგრება შეუძლებელია
+	Invalid name	არასწორი სახელი
+	Joining…	უერთდება…
+	Message not available	შეტყობინება მიუწვდომელია
+	No audio recorded	ხმა არ ჩაწერილა
+	Not allowed	დაუშვებელია
+	Not allowed by the server	სერვერი არ იძლევა ნებას
+	Operation failed	ოპერაცია ვერ შესრულდა
+	Operation not confirmed · Retry uses the same ID (even if you change room)	ოპერაცია არ დადასტურდა · ხელახლა ცდისას იგივე ID გამოიყენება (ოთახის შეცვლის შემთხვევაშიც)
+	Operation pending · no server confirmation	ოპერაცია მოლოდინშია · სერვერის დადასტურება არ არის
+	Operation refused or unavailable	ოპერაცია უარყოფილია ან მიუწვდომელია
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	პასუხი/რედაქტირება: დაწერეთ მონახაზში, შემდეგ დააჭირეთ ღილაკს. Enter ჩვეულებრივ აგზავნის.
+	Room not found	ოთახი ვერ მოიძებნა
+	Saved	შენახულია
+	Saving failed	შენახვა ვერ მოხერხდა
+	Server unreachable	სერვერი მიუწვდომელია
+	Sign-in failed	შესვლა ვერ მოხერხდა
+	Sticker not sent	სტიკერი არ გაიგზავნა
+	Still joining…	ჯერ კიდევ უერთდება…
+	Sync interrupted	სინქრონიზაცია შეწყდა
+	Voice note cannot be played	ხმოვანი შეტყობინების დაკვრა შეუძლებელია
+	You are offline	ინტერნეტი არ გაქვთ
+	The name cannot be empty.	სახელი არ შეიძლება ცარიელი იყოს.
+	The name is too long (256 characters at most).	სახელი ძალიან გრძელია (მაქსიმუმ 256 სიმბოლო).
+	This server does not allow editing the profile.	ეს სერვერი პროფილის რედაქტირების ნებას არ იძლევა.
+	Cannot read the chosen file.	არჩეული ფაილის წაკითხვა ვერ ხერხდება.
+	The image is too large (25 MB at most).	სურათი ძალიან დიდია (მაქსიმუმ 25 მბ).
+	Choose a valid PNG, JPEG or WebP image.	აირჩიეთ სწორი PNG, JPEG ან WebP სურათი.
+	Connection failed: try again shortly.	დაკავშირება ვერ მოხერხდა: სცადეთ ცოტა ხანში.
+	The server rejected the change.	სერვერმა ცვლილება უარყო.
+	Space not found	სივრცე ვერ მოიძებნა
+	Operation failed, try again	ოპერაცია ვერ შესრულდა, სცადეთ ხელახლა
+	Minimize	ჩაკეცვა
+	Show Gnobbi	Gnobbi-ს ჩვენება
+	Quit Gnobbi	Gnobbi-დან გასვლა
+	{name}, active account	{name}, აქტიური ანგარიში
+	New messages	ახალი შეტყობინებები
+	1 new message	1 ახალი შეტყობინება
+	New message	ახალი შეტყობინება
+	📷 Photo	📷 ფოტო
+	🎥 Video	🎥 ვიდეო
+	🎤 Voice message	🎤 ხმოვანი შეტყობინება
+	🎵 Audio	🎵 აუდიო
+	📎 File	📎 ფაილი
+	📍 Location	📍 მდებარეობა
+menu	Quit Gnobbi	Gnobbi-დან გასვლა
+menu	About Gnobbi	Gnobbi-ს შესახებ
+menu	Settings…	პარამეტრები…
+menu	Services	სერვისები
+menu	Hide Gnobbi	Gnobbi-ს დამალვა
+menu	Hide Others	სხვების დამალვა
+menu	Show All	ყველას ჩვენება
+menu	Edit	რედაქტირება
+menu	Undo	დაბრუნება
+menu	Redo	გამეორება
+menu	Cut	ამოჭრა
+menu	Copy	კოპირება
+menu	Paste	ჩასმა
+menu	Select All	ყველას მონიშვნა
+menu	Start Dictation…	კარნახის დაწყება…
+menu	Emoji & Symbols	ემოჯი და სიმბოლოები
+menu	Window	ფანჯარა
+menu	Minimize	ჩაკეცვა
+menu	Zoom	მასშტაბი
+menu	Bring All to Front	ყველა წინ
+@plural	Gnobbi, {n} unread	Gnobbi, {n} წაუკითხავი|Gnobbi, {n} წაუკითხავი
+
+# Phosphor icons, sizes and Personalizza
+	Customize	მორგება
+	Sizes	ზომები
+	Text size	ტექსტის ზომა
+	Buttons and icons size	ღილაკებისა და ხატულების ზომა
+	Follow the system	სისტემის მიხედვით
+	Follow the text	ტექსტის მიხედვით
+	Small	პატარა
+	Normal	ჩვეულებრივი
+	Large	დიდი
+	Compact	კომპაქტური
+	Comfortable	თავისუფალი
+	Restore defaults	ნაგულისხმევის აღდგენა
+	Preview	გადახედვა
+	A sample message	შეტყობინების ნიმუში
+	Button	ღილაკი
+	Remove attachment	მიმაგრებულის მოხსნა
+	Cancel reply	პასუხის გაუქმება
+	Close card	ბარათის დახურვა
+	Close thread	თემის დახურვა
+	Remove address	მისამართის ამოშლა
+	Copy	კოპირება
+	Menu	მენიუ
+	Back	უკან
+	Chat list	ჩატების სია
+	Info	ინფო
+	Copy key	გასაღების კოპირება
+	Remove option	ვარიანტის ამოშლა
+	Pause	პაუზა
+	Play	დაკვრა
+	New	ახალი
+	New space	ახალი სივრცე
+	Close	დახურვა
+	Add account	ანგარიშის დამატება
+	Rename	გადარქმევა
+
+# avatar editor
+	Profile photo	პროფილის ფოტო
+	Edit photo	ფოტოს რედაქტირება
+	Apply	გამოყენება
+	Reset	დაბრუნება საწყისზე
+	Rotate left	მობრუნება მარცხნივ
+	Rotate right	მობრუნება მარჯვნივ
+	Mirror	ასახვა
+	Zoom	მასშტაბი
+	Rotation	მობრუნება
+	Brightness	სიკაშკაშე
+	Contrast	კონტრასტი
+	Saturation	გაჯერებულობა
+	Original	ორიგინალი
+	B&W	შავ-თეთრი
+	Sepia	სეპია
+	Vivid	ცოცხალი
+	Cool	ცივი
+	Warm	თბილი
+	Fade	გაცრეცილი
+	High contrast	მაღალი კონტრასტი
+	Preview: drag to move the photo	გადახედვა: ფოტოს გადასაადგილებლად გადაათრიეთ
+	Could not download the current photo.	მიმდინარე ფოტოს ჩამოტვირთვა ვერ მოხერხდა.
+	Could not prepare the photo.	ფოტოს მომზადება ვერ მოხერხდა.
+	Open link	ბმულის გახსნა
+	Could not open the link.	ბმულის გახსნა ვერ მოხერხდა.
+	Copy link	ბმულის კოპირება
+	Server	სერვერი
+	Matrix ID	Matrix ID
+	Password	პაროლი
+	Local passphrase	ლოკალური საკვანძო ფრაზა
+	Sign in	შესვლა
+	Unlock	განბლოკვა
+	Signing in…	შედის…
+	Unlocking…	იბლოკება…
+	Show password	პაროლის ჩვენება
+	Hide password	პაროლის დამალვა
+# main
+	Accept	მიღება
+	Decline	უარყოფა
+	Edit space	სივრცის რედაქტირება
+	Edit room	ოთახის რედაქტირება
+	Start failed	გაშვება ვერ მოხერხდა
+	Search	ძებნა
+	Conversations	საუბრები
+	Users	მომხმარებლები
+	Public rooms	საჯარო ოთახები
+	React	რეაქცია
+	Confirm closing	დახურვის დადასტურება
+	Close poll	გამოკითხვის დახურვა
+	Confirm deletion	წაშლის დადასტურება
+	Delete	წაშლა
+	Encrypted history	დაშიფრული ისტორია
+	Matrix recovery key	Matrix-ის აღდგენის გასაღები
+	I saved the key: continue	გასაღები შევინახე: გაგრძელება
+	Recover encrypted history	დაშიფრული ისტორიის აღდგენა
+	Try creating the key again	გასაღების ხელახლა შექმნის მცდელობა
+	Create recovery key	აღდგენის გასაღების შექმნა
+	Continue without recovery	გაგრძელება აღდგენის გარეშე
+# rail
+	A space cannot go inside itself	სივრცე საკუთარ თავში ვერ მოთავსდება
+	You do not have permission to edit «{name}»	«{name}»-ის რედაქტირების უფლება არ გაქვთ
+	{label}, {n} unread	{label}, {n} წაუკითხავი
+	Move {name}	{name}-ის გადაადგილება
+	Move {name} down	{name}-ის ქვემოთ გადაადგილება
+	Move {name} up	{name}-ის ზემოთ გადაადგილება
+	Organise spaces	სივრცეების მოწესრიგება
+	Unread	წაუკითხავი
+	All chats	ყველა ჩატი
+	Spaces	სივრცეები
+	No spaces	სივრცეები არ არის
+# space
+	Rooms unlinked: {n}	გაუქმებული კავშირის ოთახები: {n}
+	Rooms not unlinked: {n}	კავშირგაუუქმებელი ოთახები: {n}
+	Members removed: {n}	ამოშლილი წევრები: {n}
+	Not removed: {names}	ამოუშლელი: {names}
+	Members who will be removed: {n}	წევრები, რომლებიც ამოიშლება: {n}
+	Rooms unlinked (they stay existing): {n}	ოთახები, რომელთა კავშირიც გაუქმდება (ისინი კვლავ იარსებებს): {n}
+	Space menu	სივრცის მენიუ
+	Space info	სივრცის ინფო
+	Members	წევრები
+	Hand over the admin role…	ადმინისტრატორის როლის გადაცემა…
+	Leave space	სივრციდან გასვლა
+	Delete space	სივრცის წაშლა
+	Forget	დავიწყება
+	Failed, no change guaranteed: try again	ვერ შესრულდა, ცვლილებების არარსებობა გარანტირებული არ არის: სცადეთ ხელახლა
+	Member list not read	წევრთა სია არ წაკითხულა
+	Space left and forgotten	სივრცე დატოვეთ და დაივიწყეთ
+	Space not left: try again	სივრცე არ დატოვებულა: სცადეთ ხელახლა
+	Space not left: members remain	სივრცე არ დატოვებულა: წევრები რჩებიან
+	This cannot be undone	ამის გაუქმება შეუძლებელია
+	You still have rooms in this space.	ამ სივრცეში ჯერ კიდევ გაქვთ ოთახები.
+	You are the last admin of the space.	თქვენ ხართ სივრცის ბოლო ადმინისტრატორი.
+	Make admin	ადმინად დანიშვნა
+	Rooms not available	ოთახები მიუწვდომელია
+	Add existing room	არსებული ოთახის დამატება
+	No rooms	ოთახები არ არის
+	Rooms	ოთახები
+	Remove	ამოშლა
+# explore
+	Search public rooms	საჯარო ოთახების ძებნა
+	Your server	თქვენი სერვერი
+	Other server…	სხვა სერვერი…
+	server name	სერვერის სახელი
+	Already in	უკვე დამატებულია
+	Join	შეერთება
+# accounts
+	Remove photo	ფოტოს წაშლა
+	Active	აქტიური
+	Active account	აქტიური ანგარიში
+	Other accounts	სხვა ანგარიშები
+# devices
+	Last active {when}	ბოლო აქტივობა: {when}
+	{text} in {path}	{text} აქ: {path}
+	This device	ეს მოწყობილობა
+	Keys	გასაღებები
+	Export password	ექსპორტის პაროლი
+	Export keys	გასაღებების ექსპორტი
+	Regenerate recovery key	აღდგენის გასაღების ხელახლა შექმნა
+	Recover keys	გასაღებების აღდგენა
+	Recovery key	აღდგენის გასაღები
+	Recover	აღდგენა
+	Other devices	სხვა მოწყობილობები
+	Sign out	გასვლა
+	Device name	მოწყობილობის სახელი
+	New recovery key	აღდგენის ახალი გასაღები
+	Done	მზადაა
+# newchat
+	Direct chat	პირადი ჩატი
+	Room	ოთახი
+	Space	სივრცე
+	Join a room	ოთახში შესვლა
+	Public	საჯარო
+	Create	შექმნა
+	#room:server or !id:server	#ოთახი:სერვერი ან !id:სერვერი
+	Search people	ადამიანების ძებნა
+# pick
+	Images	სურათები
+# time_fmt
+	last message at {when}	ბოლო შეტყობინება {when}
+	last message on {when}	ბოლო შეტყობინება {when}
+	last message {when}	ბოლო შეტყობინება {when}
+# engine text (status rows, attachment labels)
+	A user	მომხმარებელი
+	{actor} created this room.	{actor}-მა შექმნა ეს ოთახი.
+	{actor} created this chat.	{actor}-მა შექმნა ეს ჩატი.
+	{actor} invited {subject}	{actor}-მა მოიწვია {subject}
+	{subject} joined the room	{subject} შემოვიდა ოთახში
+	{subject} left the room	{subject} გავიდა ოთახიდან
+	{actor} banned {subject}	{actor}-მა დაბლოკა {subject}
+	{actor} unbanned {subject}	{actor}-მა განბლოკა {subject}
+	{actor} removed {subject} from the room	{actor}-მა ოთახიდან ამოიშორა {subject}
+	{subject} declined the invitation	{subject}-მა მოწვევა უარყო
+	{actor} revoked the invitation for {subject}	{actor}-მა გააუქმა {subject}-ის მოწვევა
+	{actor} removed the room name	{actor}-მა ოთახის სახელი ამოშალა
+	{actor} changed the room name to «{name}»	{actor}-მა ოთახის სახელი შეცვალა: «{name}»
+	{actor} removed the room topic	{actor}-მა ოთახის თემა ამოშალა
+	{actor} changed the room topic to «{topic}»	{actor}-მა ოთახის თემა შეცვალა: «{topic}»
+	{actor} changed the room avatar	{actor}-მა ოთახის ავატარი შეცვალა
+	{old} changed their name to {new}	{old}-მა სახელი შეიცვალა: {new}
+	{subject} set their name to {new}	{subject}-მა სახელად დაირქვა {new}
+	{subject} removed their display name	{subject}-მა გამოსაჩენი სახელი ამოშალა
+	{subject} changed their avatar	{subject}-მა ავატარი შეცვალა
+	{text} (reason: {reason})	{text} (მიზეზი: {reason})
+	Audio	აუდიო
+	File	ფაილი
+	Photo	ფოტო
+	Log out	ანგარიშიდან გასვლა
+	Encryption keys on this device not backed up are lost.	ამ მოწყობილობაზე დაშიფვრის გასაღებები, რომლებიც სარეზერვო ასლში არ არის, დაიკარგება.
+	The server did not answer. Remove it from this device anyway?	სერვერმა არ უპასუხა. მაინც წაიშალოს ამ მოწყობილობიდან?
+	Remove from this device	ამ მოწყობილობიდან წაშლა
+
+# src/signin_form.rs
+	Wrong key. Check it and try again.	არასწორი გასაღები. შეამოწმეთ და სცადეთ ხელახლა.
+	Server unreachable. Try again later or continue without recovery.	სერვერი მიუწვდომელია. სცადეთ მოგვიანებით ან გააგრძელეთ აღდგენის გარეშე.
+	Recovery took too long. Try again or continue without recovery.	აღდგენას ძალიან დიდი დრო დასჭირდა. სცადეთ ხელახლა ან გააგრძელეთ აღდგენის გარეშე.
+	No key backup on the server. Continue without recovery.	სერვერზე გასაღებების სარეზერვო ასლი არ არის. გააგრძელეთ აღდგენის გარეშე.
+	Recovery failed. Try again or continue without recovery.	აღდგენა ვერ მოხერხდა. სცადეთ ხელახლა ან გააგრძელეთ აღდგენის გარეშე.
+	This account has no Matrix secret storage: no recovery key to enter.	ამ ანგარიშს არ აქვს Matrix-ის საიდუმლოების საცავი: შესაყვანი აღდგენის გასაღები არ არსებობს.
+	The server offers no key backup: no recovery to create. Continue without recovery.	სერვერი არ გვთავაზობს გასაღებების სარეზერვო ასლს: შესაქმნელი აღდგენა არ არსებობს. გააგრძელეთ აღდგენის გარეშე.
+	This account already has a recovery: enter the existing recovery key.	ამ ანგარიშს უკვე აქვს აღდგენა: შეიყვანეთ არსებული აღდგენის გასაღები.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	ამ ანგარიშის აღდგენა მხოლოდ ნახევრადაა მორგებული: Gnobbi მას არ ცვლის. გააგრძელეთ აღდგენის გარეშე.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	ამ ანგარიშს უკვე აქვს კრიპტოგრაფიული იდენტობა, რომელიც ამ მოწყობილობას არ აქვს: Gnobbi მას არ ანაცვლებს. გააგრძელეთ აღდგენის გარეშე.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	სერვერი ითხოვს დამატებით დადასტურებას, რომელსაც Gnobbi არ უჭერს მხარს. გააგრძელეთ აღდგენის გარეშე.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	სერვერი მიუწვდომელია: აღდგენა არ შექმნილა. სცადეთ ხელახლა ან გააგრძელეთ აღდგენის გარეშე.
+	Creation took too long. Try again or continue without recovery.	შექმნას ძალიან დიდი დრო დასჭირდა. სცადეთ ხელახლა ან გააგრძელეთ აღდგენის გარეშე.
+	Creating the recovery failed. Try again or continue without recovery.	აღდგენის შექმნა ვერ მოხერხდა. სცადეთ ხელახლა ან გააგრძელეთ აღდგენის გარეშე.
+	Enter a server name or a valid HTTPS address.	შეიყვანეთ სერვერის სახელი ან სწორი HTTPS მისამართი.
+	Enter the full Matrix ID: @name:server.	შეიყვანეთ სრული Matrix ID: @სახელი:სერვერი.
+	Enter the profile's local passphrase.	შეიყვანეთ პროფილის ლოკალური საკვანძო ფრაზა.
+	Password required; local passphrase of at least 16 characters.	საჭიროა პაროლი; ლოკალური საკვანძო ფრაზა მინიმუმ 16 სიმბოლოსგან.
+	This server offers no password login. SSO/OIDC are not supported.	ეს სერვერი პაროლით შესვლას არ გვთავაზობს. SSO/OIDC მხარდაჭერილი არ არის.
+	This server does not support sliding sync	ეს სერვერი sliding sync-ს არ უჭერს მხარს
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	სერვერმა შეცდომით უპასუხა: შეამოწმეთ მისამართი (მაგ., https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	სერვერი მიუწვდომელია ან TLS სერტიფიკატი არასწორია.
+	Credentials not accepted. Try again.	მონაცემები არ მიიღეს. სცადეთ ხელახლა.
+	Too many attempts: try again in a moment.	ძალიან ბევრი მცდელობა: სცადეთ ცოტა ხანში.
+	Sign-in/unlock failed. Check the credentials and try again.	შესვლა/განბლოკვა ვერ მოხერხდა. შეამოწმეთ მონაცემები და სცადეთ ხელახლა.
+	System keychain unavailable or locked. Unlock it and try again.	სისტემური Keychain მიუწვდომელია ან დაბლოკილია. განბლოკეთ და სცადეთ ხელახლა.
+	The profile key is not in the system keychain. The profile was not changed.	პროფილის გასაღები სისტემურ Keychain-ში არ არის. პროფილი არ შეცვლილა.
+	Profile already open in another instance. Close it and restart.	პროფილი უკვე გახსნილია სხვა ეგზემპლარში. დახურეთ და გადატვირთეთ.
+	Local profile unavailable. Close and check the profile path.	ლოკალური პროფილი მიუწვდომელია. დახურეთ და შეამოწმეთ პროფილის გზა.
+	Enter the Matrix password.	შეიყვანეთ Matrix-ის პაროლი.
+
+# signin
+	Creating the recovery and backup…	იქმნება აღდგენა და სარეზერვო ასლი…
+
+# devices
+@plural	{n} device to sign out	{n} მოწყობილობა გასასვლელად|{n} მოწყობილობა გასასვლელად
+@plural	{n} device without last activity not included	{n} მოწყობილობა ბოლო აქტივობის გარეშე არ შედის|{n} მოწყობილობა ბოლო აქტივობის გარეშე არ შედის
+
+# devices
+	Last activity {time}	ბოლო აქტივობა {time}
+	They match	ემთხვევა
+	They don't match	არ ემთხვევა
+	Yes	დიახ
+	Not available with this account	ამ ანგარიშით მიუწვდომელია
+	Incorrect password	არასწორი პაროლი
+	Failed. Try again.	ვერ შესრულდა. სცადეთ ხელახლა.
+	Verification failed	დადასტურება ვერ მოხერხდა
+	Verification request	დადასტურების მოთხოვნა
+	Cancel the verification?	გაუქმდეს დადასტურება?
+	Verification cancelled	დადასტურება გაუქმდა
+	The emoji don't match	ემოჯი არ ემთხვევა
+	Verification	დადასტურება
+
+# key export
+@plural	{n} key exported	{n} გასაღები ექსპორტირდა|{n} გასაღები ექსპორტირდა
+
+# key export
+	Gnobbi recovery key	Gnobbi-ს აღდგენის გასაღები
+	Wrong unlock passphrase	განბლოკვის არასწორი საკვანძო ფრაზა
+	Password too short: at least 12 characters	პაროლი ძალიან მოკლეა: მინიმუმ 12 სიმბოლო
+	Password too long: at most 4096 bytes	პაროლი ძალიან გრძელია: მაქსიმუმ 4096 ბაიტი
+	The passwords don't match	პაროლები არ ემთხვევა
+	No keys to export on this device	ამ მოწყობილობაზე ექსპორტისთვის გასაღებები არ არის
+	Can't write to this location	ამ ადგილას ჩაწერა შეუძლებელია
+	Export failed: try again	ექსპორტი ვერ მოხერხდა: სცადეთ ხელახლა
+	Recover the keys on this device first	ჯერ აღადგინეთ გასაღებები ამ მოწყობილობაზე
+	The server asks for a confirmation that is not supported here	სერვერი ითხოვს დადასტურებას, რომელიც აქ მხარდაჭერილი არ არის
+	Server unreachable: try again	სერვერი მიუწვდომელია: სცადეთ ხელახლა
+	Regeneration failed: try again	ხელახლა შექმნა ვერ მოხერხდა: სცადეთ ხელახლა
+
+# key export
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	ამ მოწყობილობას არ აქვს ანგარიშის აღდგენის გასაღებები: შეიყვანეთ გასაღები ძველი დაშიფრული შეტყობინებების წასაკითხად
+	This account has no recovery key: without one, encrypted messages are lost with the devices	ამ ანგარიშს არ აქვს აღდგენის გასაღები: მის გარეშე დაშიფრული შეტყობინებები მოწყობილობებთან ერთად იკარგება
+	Restoring…	აღდგება…
+	Restore	აღდგენა
+	Not now	ახლა არა
+	Don't ask again for this account	ამ ანგარიშისთვის აღარ მკითხო
+	Copy recovery key	აღდგენის გასაღების კოპირება
+	Save it now: it will not be shown again	შეინახეთ ახლავე: მეორედ აღარ გამოჩნდება
+	Save to file	ფაილში შენახვა
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	იქმნება ხელახლა…
+	I kept it elsewhere	სხვაგან შევინახე
+
+# search list and add server
+	The server does not respond	სერვერი არ პასუხობს
+	Not a Matrix server	ეს Matrix-ის სერვერი არ არის
+	The server does not show its rooms	სერვერი თავის ოთახებს არ აჩვენებს
+	Your server cannot reach this server	თქვენი სერვერი ამ სერვერს ვერ უკავშირდება
+	Invalid server certificate	სერვერის სერტიფიკატი არასწორია
+	Searching	ძებნა
+	Partial results	ნაწილობრივი შედეგები
+	Invalid server name	სერვერის სახელი არასწორია
+	Timed out	დრო ამოიწურა
+	Loading	იტვირთება
+	More results not loaded	დანარჩენი შედეგები არ ჩატვირთულა
+
+# search list and add server
+	The server name is needed, for example matrix.org	საჭიროა სერვერის სახელი, მაგალითად matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	ეს მომხმარებლის ID-ა: საჭიროა სერვერის სახელი, მაგალითად matrix.org
+	Only https addresses are allowed	დაშვებულია მხოლოდ https მისამართები
+	Write only the server name, without a path	დაწერეთ მხოლოდ სერვერის სახელი, გზის გარეშე
+	The server name is needed, without user or password	საჭიროა სერვერის სახელი, მომხმარებლისა და პაროლის გარეშე
+	Invalid port	არასწორი პორტი
+	Invalid IP address	არასწორი IP მისამართი
+	Already present	უკვე არსებობს
+
+# sidebar
+	Favorites	რჩეულები
+	All	ყველა
+	Demo room {n}	დემო ოთახი {n}
+
+# history
+@plural	{n} unread	{n} წაუკითხავი|{n} წაუკითხავი
+
+# history
+	edited	შეცვლილია
+	[Message deleted]	[შეტყობინება წაიშალა]
+	Server ack · Reply	სერვერის დადასტურება · პასუხი
+	Server ack	სერვერის დადასტურება
+	local	ლოკალური
+
+# audio
+	Microphone not available	მიკროფონი მიუწვდომელია
+
+# audio
+	Audio playback not available	აუდიოს დაკვრა მიუწვდომელია
+
+# search
+	Public spaces	საჯარო სივრცეები
+	People	ადამიანები
+
+# engine placeholders
+	Location	მდებარეობა
+	Message without text	შეტყობინება ტექსტის გარეშე
+	Image.png	Image.png
+
+# update
+	invalid staging	არასწორი შუალედური ფაილი
+	placement failed and restore failed	განთავსება და აღდგენა ვერ მოხერხდა
+	start failed and restore failed	გაშვება და აღდგენა ვერ მოხერხდა
+	another installation in progress	მიმდინარეობს სხვა ინსტალაცია
+	channel without in-app update	არხი აპში განახლების გარეშე
+	binary to update not found	განსაახლებელი ფაილი ვერ მოიძებნა
+	staging not found	შუალედური ფაილი ვერ მოიძებნა
+	staging outside the target folder	შუალედური ფაილი სამიზნე საქაღალდის გარეთაა
+	previous update pending	წინა განახლება მოლოდინშია
+	staging has a different size	შუალედურ ფაილს განსხვავებული ზომა აქვს
+	staging has a different hash	შუალედურ ფაილს განსხვავებული ჰეში აქვს
+	folder not writable	საქაღალდე ჩაწერადი არ არის
+	staging cannot be verified	შუალედური ფაილის შემოწმება შეუძლებელია
+	Update failed: {cause}	განახლება ვერ მოხერხდა: {cause}
+	remove {name}	წაშლა: {name}
+	error	შეცდომა
+
+# update
+	invalid helper parameters	დამხმარის არასწორი პარამეტრები
+	invalid binary to update	განსაახლებელი ფაილი არასწორია
+	backup to restore not found	აღსადგენი სარეზერვო ასლი ვერ მოიძებნა
+	no pending restore	მოლოდინში მყოფი აღდგენა არ არის
+	Windows update not available	Windows-ის განახლება მიუწვდომელია
+	data folder not found	მონაცემთა საქაღალდე ვერ მოიძებნა
+	the program did not close	პროგრამა არ დაიხურა
+	running binary differs from the target	გაშვებული ფაილი განსხვავდება სამიზნისგან
+	helper without channel	დამხმარე არხის გარეშე
+	helper not ready	დამხმარე მზად არ არის
+
+# update
+	Update available · {version}	ხელმისაწვდომია განახლება · {version}
+	Update available, version {version}	ხელმისაწვდომია განახლება, ვერსია {version}
+	Updated to {version}	განახლდა ვერსიამდე {version}
+	Update failed: restored {version}	განახლება ვერ მოხერხდა: აღდგა {version}
+	Update failed: error	განახლება ვერ მოხერხდა: შეცდომა
+	Update postponed: message not sent	განახლება გადაიდო: შეტყობინება არ გაიგზავნა
+
+# update
+	backup differs from the binary, kept	სარეზერვო ასლი განსხვავდება ფაილისგან, შენახულია
+
+# key export
+	gnobbi-keys.txt	gnobbi-keys.txt
+
+# search
+	Filter: {label}	ფილტრი: {label}
+
+# devices
+	Sign out inactive	არააქტიურებიდან გასვლა
+
+# update
+	helper out of place	დამხმარე არასწორ ადგილასაა
