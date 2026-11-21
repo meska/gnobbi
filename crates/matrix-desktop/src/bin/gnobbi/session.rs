@@ -213,6 +213,8 @@ pub struct Session {
     /// «Crea spazio» was sent and its answer is not in yet.
     pub new_busy: bool,
     pub pending_select: Option<matrix_domain::RoomScope>,
+    /// `pending_select` just landed on a room: the one-column shell leaves the list for it (also when the room was already listed).
+    pub opened: bool,
     /// The space just created, shown in the rail as soon as the sync lists it.
     pending_space: Option<matrix_domain::RoomScope>,
     /// `last_room` in the profile folder: the room on screen, written at every change and reopened at the next start.
@@ -373,6 +375,7 @@ impl Session {
             new_busy: false,
             pending_space: None,
             pending_select: None,
+            opened: false,
             last_file,
             restoring: last_room.is_some(),
             last_room,
@@ -813,6 +816,7 @@ impl Session {
             && self.sidebar.select(&scope)
         {
             self.pending_select = None;
+            self.opened = true;
             self.pending_click = None;
             self.profile = None;
             self.info_open = false;

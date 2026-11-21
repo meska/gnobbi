@@ -1055,17 +1055,16 @@ impl App {
         let mut side = None;
         if let Some(s) = &mut self.session {
             let room = s.sidebar.selected().map(|r| r.scope.clone());
-            // A room just created or joined is shown, not left behind the list (shortcut: a link or the quick search to a room already in the list leaves the list open; give `Session` an "opened" flag if that is ever met on a phone).
-            let (pending, started) = (egui::Id::new("pending-room"), egui::Id::new("shell-started"));
-            let waiting = s.pending_select.is_some();
-            if !waiting && ui.data(|d| d.get_temp(pending)) == Some(true) {
+            // A room just created, joined or opened from an alert is shown, not left behind the list.
+            let started = egui::Id::new("shell-started");
+            if std::mem::take(&mut s.opened) {
                 self.list_open = false;
             }
             // Started as one column (a phone): the list comes first, the room reopened from the last run stays behind it.
             if single && ui.data(|d| d.get_temp::<bool>(started)).is_none() {
                 self.list_open = true;
             }
-            ui.data_mut(|d| { d.insert_temp(pending, waiting); d.insert_temp(started, true); });
+            ui.data_mut(|d| d.insert_temp(started, true));
             if single {
                 side = side_on_top(s.info_open && room.is_some(), s.profile.is_some(), s.search_open, s.thread.is_some());
                 // «Back» closes the side panel on top before it shows the list.
