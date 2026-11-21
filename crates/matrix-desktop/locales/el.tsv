@@ -7,3 +7,681 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of el in this order, separated by |: one|other.
 # See TRANSLATING.md.
+
+# list
+	Pinned	Καρφιτσωμένα
+	Low priority	Χαμηλή προτεραιότητα
+	New chat	Νέα συνομιλία
+	Explore public rooms	Εξερεύνηση δημόσιων δωματίων
+	Search conversations	Αναζήτηση συνομιλιών
+	Mark as read	Σήμανση ως αναγνωσμένο
+	Mark as unread	Σήμανση ως μη αναγνωσμένο
+	Add to a space…	Προσθήκη σε χώρο…
+	Leave?	Αποχώρηση;
+	Leave	Αποχώρηση
+	Add to a space	Προσθήκη σε χώρο
+	Add	Προσθήκη
+	Cancel	Ακύρωση
+	Unpin	Ξεκαρφίτσωμα
+	Pin to top	Καρφίτσωμα στην κορυφή
+	Remove from low priority	Αφαίρεση από τη χαμηλή προτεραιότητα
+	Mark as low priority	Σήμανση ως χαμηλής προτεραιότητας
+	Remove from {name}	Αφαίρεση από {name}
+	All messages	Όλα τα μηνύματα
+	Mentions only	Μόνο αναφορές
+	Muted	Σε σίγαση
+
+# composer
+banner	Reply	Απάντηση
+	Edit	Επεξεργασία
+	Send note	Αποστολή σημείωσης
+	Reply in thread	Απάντηση στο νήμα
+	Write a message	Γράψτε ένα μήνυμα
+	Emoji	Emoji
+	Sticker	Αυτοκόλλητο
+	Poll	Δημοσκόπηση
+	Attach a file	Επισύναψη αρχείου
+	Voice note	Φωνητικό μήνυμα
+	Send	Αποστολή
+
+# composer (emoji names)
+	Grinning face	Πρόσωπο που χαμογελά πλατιά
+	Beaming face	Λαμπερό πρόσωπο
+	Face with tears of joy	Πρόσωπο με δάκρυα χαράς
+	Rolling on the floor laughing	Κυλιέμαι στο πάτωμα από τα γέλια
+	Smiling face with smiling eyes	Χαμογελαστό πρόσωπο με χαμογελαστά μάτια
+	Smiling face with heart eyes	Χαμογελαστό πρόσωπο με μάτια-καρδιές
+	Face blowing a kiss	Πρόσωπο που στέλνει φιλί
+	Smiling face with sunglasses	Χαμογελαστό πρόσωπο με γυαλιά ηλίου
+	Thinking face	Πρόσωπο που σκέφτεται
+	Grinning face with sweat	Χαμογελαστό πρόσωπο με ιδρώτα
+	Winking face	Πρόσωπο που κλείνει το μάτι
+	Upside-down face	Ανάποδο πρόσωπο
+	Crying face	Πρόσωπο που κλαίει
+	Loudly crying face	Πρόσωπο που κλαίει δυνατά
+	Angry face	Θυμωμένο πρόσωπο
+	Screaming face	Πρόσωπο που ουρλιάζει
+	Thumbs up	Μπράβο
+	Thumbs down	Αντίχειρας κάτω
+	Clapping hands	Χειροκρότημα
+	Folded hands	Ενωμένα χέρια
+	Flexed biceps	Λυγισμένος δικέφαλος
+	Waving hand	Χέρι που χαιρετά
+	Handshake	Χειραψία
+	Raising hands	Ψηλωμένα χέρια
+	Party popper	Κροτίδα γιορτής
+	Fire	Φωτιά
+	Sparkles	Αστράκια
+	Hundred points	Εκατό πόντοι
+	Check mark	Σημάδι επιλογής
+	Cross mark	Σταυρός
+	Eyes	Μάτια
+	Cup of coffee	Φλιτζάνι καφέ
+
+# timeline
+	Today	Σήμερα
+	Yesterday	Χθες
+	Message deleted	Το μήνυμα διαγράφηκε
+	Message unavailable	Το μήνυμα δεν είναι διαθέσιμο
+	Encrypted message	Κρυπτογραφημένο μήνυμα
+	Loading…	Φόρτωση…
+	Go to bottom	Μετάβαση στο τέλος
+	image	εικόνα
+	video	βίντεο
+@plural	{n} reply	{n} απάντηση|{n} απαντήσεις
+
+# info
+	Encrypted	Κρυπτογραφημένο
+	Status messages	Μηνύματα κατάστασης
+	Same as settings	Όπως στις ρυθμίσεις
+	Show	Εμφάνιση
+	Hide	Απόκρυψη
+@plural	{n} status message hidden	{n} μήνυμα κατάστασης κρυμμένο|{n} μηνύματα κατάστασης κρυμμένα
+	Search in room	Αναζήτηση στο δωμάτιο
+	No results	Κανένα αποτέλεσμα
+	Search failed	Η αναζήτηση απέτυχε
+	Retry	Επανάληψη
+	More results	Περισσότερα αποτελέσματα
+	Profile link	Σύνδεσμος προφίλ
+	Verified	Επαληθευμένο
+	Not verified	Μη επαληθευμένο
+	Message	Μήνυμα
+	Mention	Αναφορά
+	Verify	Επαλήθευση
+	Disconnect	Αποσύνδεση
+	Last read	Τελευταία ανάγνωση
+	Chat unavailable	Η συνομιλία δεν είναι διαθέσιμη
+	Ignore	Αγνόηση
+	Confirm	Επιβεβαίωση
+	Kick	Αποβολή
+	Ban	Αποκλεισμός
+	Failed	Απέτυχε
+	Thread unavailable	Το νήμα δεν είναι διαθέσιμο
+	Thread	Νήμα
+	Reply	Απάντηση
+	Addresses	Διευθύνσεις
+	main	κύρια
+	Main	Κύρια
+	name	όνομα
+@plural	{n} member	{n} μέλος|{n} μέλη
+@plural	Delete {n} message	Διαγραφή {n} μηνύματος|Διαγραφή {n} μηνυμάτων
+	Reply to {name}	Απάντηση στον/στην {name}
+
+# members
+	Admin	Διαχειριστής
+	Moderator	Συντονιστής
+	Member	Μέλος
+	Invite	Πρόσκληση
+	Banned	Αποκλεισμένοι
+	Banned list unavailable	Η λίστα αποκλεισμένων δεν είναι διαθέσιμη
+	Unban	Άρση αποκλεισμού
+	Reason	Λόγος
+	Actions for {name}	Ενέργειες για {name}
+
+# roomedit
+	Name	Όνομα
+	Topic	Θέμα
+	Drop an image here for the photo	Σύρετε εδώ μια εικόνα για τη φωτογραφία
+	Choose photo…	Επιλογή φωτογραφίας…
+	Room photo	Φωτογραφία δωματίου
+	Save	Αποθήκευση
+	Photo: {name}	Φωτογραφία: {name}
+
+# poll
+	New poll	Νέα δημοσκόπηση
+	Question	Ερώτηση
+	Add option	Προσθήκη επιλογής
+	Multiple choice	Πολλαπλή επιλογή
+	Results visible right away	Τα αποτελέσματα φαίνονται αμέσως
+	Option {n}	Επιλογή {n}
+
+# viewer
+	Video	Βίντεο
+	Image	Εικόνα
+	Save as	Αποθήκευση ως
+	Open	Άνοιγμα
+	Cannot open the content	Δεν είναι δυνατό το άνοιγμα του περιεχομένου
+
+# stickers
+	Stickers are not encrypted, like an unencrypted image	Τα αυτοκόλλητα δεν κρυπτογραφούνται, όπως μια μη κρυπτογραφημένη εικόνα
+	No sticker packs	Δεν υπάρχουν πακέτα αυτοκόλλητων
+	Stickers unavailable	Τα αυτοκόλλητα δεν είναι διαθέσιμα
+
+# settings
+	Settings	Ρυθμίσεις
+	Account and security	Λογαριασμός και ασφάλεια
+	Account	Λογαριασμός
+	Devices	Συσκευές
+	Appearance	Εμφάνιση
+	Language	Γλώσσα
+	Theme	Θέμα
+	System	Σύστημα
+	Accent	Χρώμα έμφασης
+	Icon	Εικονίδιο
+	Automatic night	Αυτόματη νυχτερινή λειτουργία
+	Chat	Συνομιλία
+	Read receipts	Αποδείξεις ανάγνωσης
+	Hide deleted messages	Απόκρυψη διαγραμμένων μηνυμάτων
+	Show status messages	Εμφάνιση μηνυμάτων κατάστασης
+	Message preview	Προεπισκόπηση μηνύματος
+	Notifications	Ειδοποιήσεις
+	Close to tray	Κλείσιμο στη γραμμή συστήματος
+	Add to menu	Προσθήκη στο μενού
+	Added to menu	Προστέθηκε στο μενού
+	Could not add to menu	Δεν ήταν δυνατή η προσθήκη στο μενού
+	Classic	Κλασικό
+	Day	Ημέρα
+	Dark	Σκούρο
+	Night	Νύχτα
+	No	Όχι
+	Schedule	Πρόγραμμα
+	Minimal mark	Ελάχιστο σήμα
+	Gnome	Γκνομ
+	Little monster	Τερατάκι
+	Blue	Μπλε
+	Teal	Τιρκουάζ
+	Green	Πράσινο
+	Orange	Πορτοκαλί
+	Red	Κόκκινο
+	Pink	Ροζ
+	Purple	Μωβ
+
+# notifications, tray, menu bar, errors
+	A save is already in progress	Μια αποθήκευση βρίσκεται ήδη σε εξέλιξη
+	Account no longer connected	Ο λογαριασμός δεν είναι πλέον συνδεδεμένος
+	Actions not available for this event	Δεν υπάρχουν ενέργειες για αυτό το συμβάν
+	Address already in use	Η διεύθυνση χρησιμοποιείται ήδη
+	Already joined	Έχετε ήδη συμμετάσχει
+	Checking permissions…	Έλεγχος αδειών…
+	Choose a file that does not exist yet	Επιλέξτε ένα αρχείο που δεν υπάρχει ακόμη
+	Connected	Συνδέθηκε
+	Connecting…	Σύνδεση…
+	Connection failed	Η σύνδεση απέτυχε
+	Data folder not available	Ο φάκελος δεδομένων δεν είναι διαθέσιμος
+	Delete the selected message? This cannot be undone.	Να διαγραφεί το επιλεγμένο μήνυμα; Αυτό δεν μπορεί να αναιρεθεί.
+	File cannot be attached	Το αρχείο δεν μπορεί να επισυναφθεί
+	Image cannot be attached	Η εικόνα δεν μπορεί να επισυναφθεί
+	Invalid name	Μη έγκυρο όνομα
+	Joining…	Συμμετοχή…
+	Message not available	Το μήνυμα δεν είναι διαθέσιμο
+	No audio recorded	Δεν ηχογραφήθηκε ήχος
+	Not allowed	Δεν επιτρέπεται
+	Not allowed by the server	Δεν επιτρέπεται από τον διακομιστή
+	Operation failed	Η λειτουργία απέτυχε
+	Operation not confirmed · Retry uses the same ID (even if you change room)	Η λειτουργία δεν επιβεβαιώθηκε · Η επανάληψη χρησιμοποιεί το ίδιο ID (ακόμη και αν αλλάξετε δωμάτιο)
+	Operation pending · no server confirmation	Η λειτουργία εκκρεμεί · χωρίς επιβεβαίωση από τον διακομιστή
+	Operation refused or unavailable	Η λειτουργία απορρίφθηκε ή δεν είναι διαθέσιμη
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Απάντηση/επεξεργασία: γράψτε στο πρόχειρο και μετά πατήστε το κουμπί. Το Enter στέλνει κανονικά.
+	Room not found	Το δωμάτιο δεν βρέθηκε
+	Saved	Αποθηκεύτηκε
+	Saving failed	Η αποθήκευση απέτυχε
+	Server unreachable	Ο διακομιστής δεν είναι προσβάσιμος
+	Sign-in failed	Η σύνδεση απέτυχε
+	Sticker not sent	Το αυτοκόλλητο δεν στάλθηκε
+	Still joining…	Συμμετοχή ακόμη σε εξέλιξη…
+	Sync interrupted	Ο συγχρονισμός διακόπηκε
+	Voice note cannot be played	Το φωνητικό μήνυμα δεν μπορεί να αναπαραχθεί
+	You are offline	Είστε εκτός σύνδεσης
+	The name cannot be empty.	Το όνομα δεν μπορεί να είναι κενό.
+	The name is too long (256 characters at most).	Το όνομα είναι πολύ μεγάλο (το πολύ 256 χαρακτήρες).
+	This server does not allow editing the profile.	Αυτός ο διακομιστής δεν επιτρέπει την επεξεργασία του προφίλ.
+	Cannot read the chosen file.	Δεν είναι δυνατή η ανάγνωση του επιλεγμένου αρχείου.
+	The image is too large (25 MB at most).	Η εικόνα είναι πολύ μεγάλη (το πολύ 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	Επιλέξτε μια έγκυρη εικόνα PNG, JPEG ή WebP.
+	Connection failed: try again shortly.	Η σύνδεση απέτυχε: δοκιμάστε ξανά σε λίγο.
+	The server rejected the change.	Ο διακομιστής απέρριψε την αλλαγή.
+	Space not found	Ο χώρος δεν βρέθηκε
+	Operation failed, try again	Η λειτουργία απέτυχε, δοκιμάστε ξανά
+	Minimize	Ελαχιστοποίηση
+	Show Gnobbi	Εμφάνιση του Gnobbi
+	Quit Gnobbi	Έξοδος από το Gnobbi
+	{name}, active account	{name}, ενεργός λογαριασμός
+	New messages	Νέα μηνύματα
+	1 new message	1 νέο μήνυμα
+	New message	Νέο μήνυμα
+	📷 Photo	📷 Φωτογραφία
+	🎥 Video	🎥 Βίντεο
+	🎤 Voice message	🎤 Φωνητικό μήνυμα
+	🎵 Audio	🎵 Ήχος
+	📎 File	📎 Αρχείο
+	📍 Location	📍 Τοποθεσία
+menu	Quit Gnobbi	Έξοδος από το Gnobbi
+menu	About Gnobbi	Σχετικά με το Gnobbi
+menu	Settings…	Ρυθμίσεις…
+menu	Services	Υπηρεσίες
+menu	Hide Gnobbi	Απόκρυψη του Gnobbi
+menu	Hide Others	Απόκρυψη των υπολοίπων
+menu	Show All	Εμφάνιση όλων
+menu	Edit	Επεξεργασία
+menu	Undo	Αναίρεση
+menu	Redo	Επανάληψη
+menu	Cut	Αποκοπή
+menu	Copy	Αντιγραφή
+menu	Paste	Επικόλληση
+menu	Select All	Επιλογή όλων
+menu	Start Dictation…	Έναρξη υπαγόρευσης…
+menu	Emoji & Symbols	Emoji και σύμβολα
+menu	Window	Παράθυρο
+menu	Minimize	Ελαχιστοποίηση
+menu	Zoom	Ζουμ
+menu	Bring All to Front	Όλα μπροστά
+@plural	Gnobbi, {n} unread	Gnobbi, {n} μη αναγνωσμένο|Gnobbi, {n} μη αναγνωσμένα
+
+# Phosphor icons, sizes and Personalizza
+	Customize	Προσαρμογή
+	Sizes	Μεγέθη
+	Text size	Μέγεθος κειμένου
+	Buttons and icons size	Μέγεθος κουμπιών και εικονιδίων
+	Follow the system	Ακολούθηση συστήματος
+	Follow the text	Ακολούθηση κειμένου
+	Small	Μικρό
+	Normal	Κανονικό
+	Large	Μεγάλο
+	Compact	Συμπαγές
+	Comfortable	Άνετο
+	Restore defaults	Επαναφορά προεπιλογών
+	Preview	Προεπισκόπηση
+	A sample message	Ένα δείγμα μηνύματος
+	Button	Κουμπί
+	Remove attachment	Αφαίρεση συνημμένου
+	Cancel reply	Ακύρωση απάντησης
+	Close card	Κλείσιμο κάρτας
+	Close thread	Κλείσιμο νήματος
+	Remove address	Αφαίρεση διεύθυνσης
+	Copy	Αντιγραφή
+	Menu	Μενού
+	Back	Πίσω
+	Chat list	Λίστα συνομιλιών
+	Info	Πληροφορίες
+	Copy key	Αντιγραφή κλειδιού
+	Remove option	Αφαίρεση επιλογής
+	Pause	Παύση
+	Play	Αναπαραγωγή
+	New	Νέο
+	New space	Νέος χώρος
+	Close	Κλείσιμο
+	Add account	Προσθήκη λογαριασμού
+	Rename	Μετονομασία
+
+# avatar editor
+	Profile photo	Φωτογραφία προφίλ
+	Edit photo	Επεξεργασία φωτογραφίας
+	Apply	Εφαρμογή
+	Reset	Επαναφορά
+	Rotate left	Περιστροφή αριστερά
+	Rotate right	Περιστροφή δεξιά
+	Mirror	Καθρέφτης
+	Zoom	Ζουμ
+	Rotation	Περιστροφή
+	Brightness	Φωτεινότητα
+	Contrast	Αντίθεση
+	Saturation	Κορεσμός
+	Original	Πρωτότυπο
+	B&W	Ασπρόμαυρο
+	Sepia	Σέπια
+	Vivid	Έντονο
+	Cool	Ψυχρό
+	Warm	Θερμό
+	Fade	Ξεθωριασμένο
+	High contrast	Υψηλή αντίθεση
+	Preview: drag to move the photo	Προεπισκόπηση: σύρετε για να μετακινήσετε τη φωτογραφία
+	Could not download the current photo.	Δεν ήταν δυνατή η λήψη της τρέχουσας φωτογραφίας.
+	Could not prepare the photo.	Δεν ήταν δυνατή η προετοιμασία της φωτογραφίας.
+	Open link	Άνοιγμα συνδέσμου
+	Could not open the link.	Δεν ήταν δυνατό το άνοιγμα του συνδέσμου.
+	Copy link	Αντιγραφή συνδέσμου
+	Server	Διακομιστής
+	Matrix ID	Matrix ID
+	Password	Κωδικός πρόσβασης
+	Local passphrase	Τοπική φράση πρόσβασης
+	Sign in	Σύνδεση
+	Unlock	Ξεκλείδωμα
+	Signing in…	Σύνδεση…
+	Unlocking…	Ξεκλείδωμα…
+	Show password	Εμφάνιση κωδικού
+	Hide password	Απόκρυψη κωδικού
+# main
+	Accept	Αποδοχή
+	Decline	Απόρριψη
+	Edit space	Επεξεργασία χώρου
+	Edit room	Επεξεργασία δωματίου
+	Start failed	Η εκκίνηση απέτυχε
+	Search	Αναζήτηση
+	Conversations	Συνομιλίες
+	Users	Χρήστες
+	Public rooms	Δημόσια δωμάτια
+	React	Αντίδραση
+	Confirm closing	Επιβεβαίωση κλεισίματος
+	Close poll	Κλείσιμο δημοσκόπησης
+	Confirm deletion	Επιβεβαίωση διαγραφής
+	Delete	Διαγραφή
+	Encrypted history	Κρυπτογραφημένο ιστορικό
+	Matrix recovery key	Κλειδί ανάκτησης Matrix
+	I saved the key: continue	Αποθήκευσα το κλειδί: συνέχεια
+	Recover encrypted history	Ανάκτηση κρυπτογραφημένου ιστορικού
+	Try creating the key again	Δοκιμή δημιουργίας κλειδιού ξανά
+	Create recovery key	Δημιουργία κλειδιού ανάκτησης
+	Continue without recovery	Συνέχεια χωρίς ανάκτηση
+# rail
+	A space cannot go inside itself	Ένας χώρος δεν μπορεί να μπει μέσα στον εαυτό του
+	You do not have permission to edit «{name}»	Δεν έχετε άδεια να επεξεργαστείτε το «{name}»
+	{label}, {n} unread	{label}, {n} μη αναγνωσμένα
+	Move {name}	Μετακίνηση του {name}
+	Move {name} down	Μετακίνηση του {name} κάτω
+	Move {name} up	Μετακίνηση του {name} πάνω
+	Organise spaces	Οργάνωση χώρων
+	Unread	Μη αναγνωσμένα
+	All chats	Όλες οι συνομιλίες
+	Spaces	Χώροι
+	No spaces	Κανένας χώρος
+# space
+	Rooms unlinked: {n}	Δωμάτια που αποσυνδέθηκαν: {n}
+	Rooms not unlinked: {n}	Δωμάτια που δεν αποσυνδέθηκαν: {n}
+	Members removed: {n}	Μέλη που αφαιρέθηκαν: {n}
+	Not removed: {names}	Δεν αφαιρέθηκαν: {names}
+	Members who will be removed: {n}	Μέλη που θα αφαιρεθούν: {n}
+	Rooms unlinked (they stay existing): {n}	Δωμάτια που θα αποσυνδεθούν (εξακολουθούν να υπάρχουν): {n}
+	Space menu	Μενού χώρου
+	Space info	Πληροφορίες χώρου
+	Members	Μέλη
+	Hand over the admin role…	Μεταβίβαση του ρόλου διαχειριστή…
+	Leave space	Αποχώρηση από τον χώρο
+	Delete space	Διαγραφή χώρου
+	Forget	Διαγραφή από τη μνήμη
+	Failed, no change guaranteed: try again	Απέτυχε, δεν εγγυάται ότι δεν άλλαξε κάτι: δοκιμάστε ξανά
+	Member list not read	Η λίστα μελών δεν διαβάστηκε
+	Space left and forgotten	Αποχωρήσατε από τον χώρο και διαγράφηκε από τη μνήμη
+	Space not left: try again	Δεν αποχωρήσατε από τον χώρο: δοκιμάστε ξανά
+	Space not left: members remain	Δεν αποχωρήσατε από τον χώρο: υπάρχουν ακόμη μέλη
+	This cannot be undone	Αυτό δεν μπορεί να αναιρεθεί
+	You still have rooms in this space.	Έχετε ακόμη δωμάτια σε αυτόν τον χώρο.
+	You are the last admin of the space.	Είστε ο τελευταίος διαχειριστής του χώρου.
+	Make admin	Ορισμός ως διαχειριστή
+	Rooms not available	Τα δωμάτια δεν είναι διαθέσιμα
+	Add existing room	Προσθήκη υπάρχοντος δωματίου
+	No rooms	Κανένα δωμάτιο
+	Rooms	Δωμάτια
+	Remove	Αφαίρεση
+# explore
+	Search public rooms	Αναζήτηση δημόσιων δωματίων
+	Your server	Ο διακομιστής σας
+	Other server…	Άλλος διακομιστής…
+	server name	όνομα διακομιστή
+	Already in	Ήδη μέλος
+	Join	Συμμετοχή
+# accounts
+	Remove photo	Αφαίρεση φωτογραφίας
+	Active	Ενεργός
+	Active account	Ενεργός λογαριασμός
+	Other accounts	Άλλοι λογαριασμοί
+# devices
+	Last active {when}	Τελευταία δραστηριότητα {when}
+	{text} in {path}	{text} στο {path}
+	This device	Αυτή η συσκευή
+	Keys	Κλειδιά
+	Export password	Κωδικός εξαγωγής
+	Export keys	Εξαγωγή κλειδιών
+	Regenerate recovery key	Αναδημιουργία κλειδιού ανάκτησης
+	Recover keys	Ανάκτηση κλειδιών
+	Recovery key	Κλειδί ανάκτησης
+	Recover	Ανάκτηση
+	Other devices	Άλλες συσκευές
+	Sign out	Αποσύνδεση
+	Device name	Όνομα συσκευής
+	New recovery key	Νέο κλειδί ανάκτησης
+	Done	Τέλος
+# newchat
+	Direct chat	Άμεση συνομιλία
+	Room	Δωμάτιο
+	Space	Χώρος
+	Join a room	Συμμετοχή σε δωμάτιο
+	Public	Δημόσιο
+	Create	Δημιουργία
+	#room:server or !id:server	#δωμάτιο:διακομιστής ή !id:διακομιστής
+	Search people	Αναζήτηση ατόμων
+# pick
+	Images	Εικόνες
+# time_fmt
+	last message at {when}	τελευταίο μήνυμα στις {when}
+	last message on {when}	τελευταίο μήνυμα στις {when}
+	last message {when}	τελευταίο μήνυμα {when}
+# engine text (status rows, attachment labels)
+	A user	Ένας χρήστης
+	{actor} created this room.	Ο/Η {actor} δημιούργησε αυτό το δωμάτιο.
+	{actor} created this chat.	Ο/Η {actor} δημιούργησε αυτή τη συνομιλία.
+	{actor} invited {subject}	Ο/Η {actor} προσκάλεσε τον/την {subject}
+	{subject} joined the room	Ο/Η {subject} μπήκε στο δωμάτιο
+	{subject} left the room	Ο/Η {subject} βγήκε από το δωμάτιο
+	{actor} banned {subject}	Ο/Η {actor} απέκλεισε τον/την {subject}
+	{actor} unbanned {subject}	Ο/Η {actor} ήρε τον αποκλεισμό του/της {subject}
+	{actor} removed {subject} from the room	Ο/Η {actor} αφαίρεσε τον/την {subject} από το δωμάτιο
+	{subject} declined the invitation	Ο/Η {subject} απέρριψε την πρόσκληση
+	{actor} revoked the invitation for {subject}	Ο/Η {actor} ανακάλεσε την πρόσκληση του/της {subject}
+	{actor} removed the room name	Ο/Η {actor} αφαίρεσε το όνομα του δωματίου
+	{actor} changed the room name to «{name}»	Ο/Η {actor} άλλαξε το όνομα του δωματίου σε «{name}»
+	{actor} removed the room topic	Ο/Η {actor} αφαίρεσε το θέμα του δωματίου
+	{actor} changed the room topic to «{topic}»	Ο/Η {actor} άλλαξε το θέμα του δωματίου σε «{topic}»
+	{actor} changed the room avatar	Ο/Η {actor} άλλαξε το avatar του δωματίου
+	{old} changed their name to {new}	Ο/Η {old} άλλαξε το όνομά του/της σε {new}
+	{subject} set their name to {new}	Ο/Η {subject} όρισε το όνομά του/της σε {new}
+	{subject} removed their display name	Ο/Η {subject} αφαίρεσε το εμφανιζόμενο όνομά του/της
+	{subject} changed their avatar	Ο/Η {subject} άλλαξε το avatar του/της
+	{text} (reason: {reason})	{text} (λόγος: {reason})
+	Audio	Ήχος
+	File	Αρχείο
+	Photo	Φωτογραφία
+	Log out	Αποσύνδεση
+	Encryption keys on this device not backed up are lost.	Τα κλειδιά κρυπτογράφησης αυτής της συσκευής που δεν έχουν αντίγραφο ασφαλείας θα χαθούν.
+	The server did not answer. Remove it from this device anyway?	Ο διακομιστής δεν απάντησε. Να αφαιρεθεί παρ' όλα αυτά από αυτή τη συσκευή;
+	Remove from this device	Αφαίρεση από αυτή τη συσκευή
+
+# src/signin_form.rs
+	Wrong key. Check it and try again.	Λάθος κλειδί. Ελέγξτε το και δοκιμάστε ξανά.
+	Server unreachable. Try again later or continue without recovery.	Ο διακομιστής δεν είναι προσβάσιμος. Δοκιμάστε αργότερα ή συνεχίστε χωρίς ανάκτηση.
+	Recovery took too long. Try again or continue without recovery.	Η ανάκτηση άργησε πολύ. Δοκιμάστε ξανά ή συνεχίστε χωρίς ανάκτηση.
+	No key backup on the server. Continue without recovery.	Δεν υπάρχει αντίγραφο ασφαλείας κλειδιών στον διακομιστή. Συνεχίστε χωρίς ανάκτηση.
+	Recovery failed. Try again or continue without recovery.	Η ανάκτηση απέτυχε. Δοκιμάστε ξανά ή συνεχίστε χωρίς ανάκτηση.
+	This account has no Matrix secret storage: no recovery key to enter.	Αυτός ο λογαριασμός δεν έχει αποθήκευση μυστικών Matrix: δεν υπάρχει κλειδί ανάκτησης για εισαγωγή.
+	The server offers no key backup: no recovery to create. Continue without recovery.	Ο διακομιστής δεν προσφέρει αντίγραφο ασφαλείας κλειδιών: δεν υπάρχει ανάκτηση να δημιουργηθεί. Συνεχίστε χωρίς ανάκτηση.
+	This account already has a recovery: enter the existing recovery key.	Αυτός ο λογαριασμός έχει ήδη ανάκτηση: εισαγάγετε το υπάρχον κλειδί ανάκτησης.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Η ανάκτηση αυτού του λογαριασμού έχει ρυθμιστεί μόνο κατά το ήμισυ: το Gnobbi δεν την αλλάζει. Συνεχίστε χωρίς ανάκτηση.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	Αυτός ο λογαριασμός έχει ήδη κρυπτογραφική ταυτότητα που δεν υπάρχει σε αυτή τη συσκευή: το Gnobbi δεν την αντικαθιστά. Συνεχίστε χωρίς ανάκτηση.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	Ο διακομιστής ζητά μια επιπλέον επιβεβαίωση που το Gnobbi δεν υποστηρίζει. Συνεχίστε χωρίς ανάκτηση.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	Ο διακομιστής δεν είναι προσβάσιμος: η ανάκτηση δεν δημιουργήθηκε. Δοκιμάστε ξανά ή συνεχίστε χωρίς ανάκτηση.
+	Creation took too long. Try again or continue without recovery.	Η δημιουργία άργησε πολύ. Δοκιμάστε ξανά ή συνεχίστε χωρίς ανάκτηση.
+	Creating the recovery failed. Try again or continue without recovery.	Η δημιουργία της ανάκτησης απέτυχε. Δοκιμάστε ξανά ή συνεχίστε χωρίς ανάκτηση.
+	Enter a server name or a valid HTTPS address.	Εισαγάγετε όνομα διακομιστή ή έγκυρη διεύθυνση HTTPS.
+	Enter the full Matrix ID: @name:server.	Εισαγάγετε ολόκληρο το Matrix ID: @όνομα:διακομιστής.
+	Enter the profile's local passphrase.	Εισαγάγετε την τοπική φράση πρόσβασης του προφίλ.
+	Password required; local passphrase of at least 16 characters.	Απαιτείται κωδικός· τοπική φράση πρόσβασης τουλάχιστον 16 χαρακτήρων.
+	This server offers no password login. SSO/OIDC are not supported.	Αυτός ο διακομιστής δεν προσφέρει σύνδεση με κωδικό. Τα SSO/OIDC δεν υποστηρίζονται.
+	This server does not support sliding sync	Αυτός ο διακομιστής δεν υποστηρίζει sliding sync
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	Ο διακομιστής απάντησε με σφάλμα: ελέγξτε τη διεύθυνση (π.χ. https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	Ο διακομιστής δεν είναι προσβάσιμος ή το πιστοποιητικό TLS δεν είναι έγκυρο.
+	Credentials not accepted. Try again.	Τα διαπιστευτήρια δεν έγιναν δεκτά. Δοκιμάστε ξανά.
+	Too many attempts: try again in a moment.	Πολλές προσπάθειες: δοκιμάστε ξανά σε λίγο.
+	Sign-in/unlock failed. Check the credentials and try again.	Η σύνδεση/το ξεκλείδωμα απέτυχε. Ελέγξτε τα διαπιστευτήρια και δοκιμάστε ξανά.
+	System keychain unavailable or locked. Unlock it and try again.	Η Κλειδοθήκη του συστήματος δεν είναι διαθέσιμη ή είναι κλειδωμένη. Ξεκλειδώστε την και δοκιμάστε ξανά.
+	The profile key is not in the system keychain. The profile was not changed.	Το κλειδί του προφίλ δεν βρίσκεται στην Κλειδοθήκη του συστήματος. Το προφίλ δεν άλλαξε.
+	Profile already open in another instance. Close it and restart.	Το προφίλ είναι ήδη ανοιχτό σε άλλο στιγμιότυπο. Κλείστε το και κάντε επανεκκίνηση.
+	Local profile unavailable. Close and check the profile path.	Το τοπικό προφίλ δεν είναι διαθέσιμο. Κλείστε και ελέγξτε τη διαδρομή του προφίλ.
+	Enter the Matrix password.	Εισαγάγετε τον κωδικό Matrix.
+
+# signin
+	Creating the recovery and backup…	Δημιουργία ανάκτησης και αντιγράφου ασφαλείας…
+
+# devices
+@plural	{n} device to sign out	{n} συσκευή για αποσύνδεση|{n} συσκευές για αποσύνδεση
+@plural	{n} device without last activity not included	{n} συσκευή χωρίς τελευταία δραστηριότητα δεν περιλαμβάνεται|{n} συσκευές χωρίς τελευταία δραστηριότητα δεν περιλαμβάνονται
+
+# devices
+	Last activity {time}	Τελευταία δραστηριότητα {time}
+	They match	Ταιριάζουν
+	They don't match	Δεν ταιριάζουν
+	Yes	Ναι
+	Not available with this account	Δεν είναι διαθέσιμο με αυτόν τον λογαριασμό
+	Incorrect password	Λάθος κωδικός
+	Failed. Try again.	Απέτυχε. Δοκιμάστε ξανά.
+	Verification failed	Η επαλήθευση απέτυχε
+	Verification request	Αίτημα επαλήθευσης
+	Cancel the verification?	Να ακυρωθεί η επαλήθευση;
+	Verification cancelled	Η επαλήθευση ακυρώθηκε
+	The emoji don't match	Τα emoji δεν ταιριάζουν
+	Verification	Επαλήθευση
+
+# key export
+@plural	{n} key exported	Εξήχθη {n} κλειδί|Εξήχθησαν {n} κλειδιά
+
+# key export
+	Gnobbi recovery key	Κλειδί ανάκτησης Gnobbi
+	Wrong unlock passphrase	Λάθος φράση πρόσβασης ξεκλειδώματος
+	Password too short: at least 12 characters	Ο κωδικός είναι πολύ σύντομος: τουλάχιστον 12 χαρακτήρες
+	Password too long: at most 4096 bytes	Ο κωδικός είναι πολύ μεγάλος: το πολύ 4096 byte
+	The passwords don't match	Οι κωδικοί δεν ταιριάζουν
+	No keys to export on this device	Δεν υπάρχουν κλειδιά για εξαγωγή σε αυτή τη συσκευή
+	Can't write to this location	Δεν είναι δυνατή η εγγραφή σε αυτή τη θέση
+	Export failed: try again	Η εξαγωγή απέτυχε: δοκιμάστε ξανά
+	Recover the keys on this device first	Ανακτήστε πρώτα τα κλειδιά σε αυτή τη συσκευή
+	The server asks for a confirmation that is not supported here	Ο διακομιστής ζητά επιβεβαίωση που δεν υποστηρίζεται εδώ
+	Server unreachable: try again	Ο διακομιστής δεν είναι προσβάσιμος: δοκιμάστε ξανά
+	Regeneration failed: try again	Η αναδημιουργία απέτυχε: δοκιμάστε ξανά
+
+# key export
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	Αυτή η συσκευή δεν έχει τα κλειδιά ανάκτησης του λογαριασμού: εισαγάγετε το κλειδί για να διαβάσετε παλιά κρυπτογραφημένα μηνύματα
+	This account has no recovery key: without one, encrypted messages are lost with the devices	Αυτός ο λογαριασμός δεν έχει κλειδί ανάκτησης: χωρίς αυτό, τα κρυπτογραφημένα μηνύματα χάνονται μαζί με τις συσκευές
+	Restoring…	Επαναφορά…
+	Restore	Επαναφορά
+	Not now	Όχι τώρα
+	Don't ask again for this account	Να μην ερωτηθώ ξανά για αυτόν τον λογαριασμό
+	Copy recovery key	Αντιγραφή κλειδιού ανάκτησης
+	Save it now: it will not be shown again	Αποθηκεύστε το τώρα: δεν θα εμφανιστεί ξανά
+	Save to file	Αποθήκευση σε αρχείο
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	Αναδημιουργία…
+	I kept it elsewhere	Το κράτησα αλλού
+
+# search list and add server
+	The server does not respond	Ο διακομιστής δεν ανταποκρίνεται
+	Not a Matrix server	Δεν είναι διακομιστής Matrix
+	The server does not show its rooms	Ο διακομιστής δεν εμφανίζει τα δωμάτιά του
+	Your server cannot reach this server	Ο διακομιστής σας δεν μπορεί να φτάσει αυτόν τον διακομιστή
+	Invalid server certificate	Μη έγκυρο πιστοποιητικό διακομιστή
+	Searching	Αναζήτηση
+	Partial results	Μερικά αποτελέσματα
+	Invalid server name	Μη έγκυρο όνομα διακομιστή
+	Timed out	Έληξε ο χρόνος
+	Loading	Φόρτωση
+	More results not loaded	Δεν φορτώθηκαν περισσότερα αποτελέσματα
+
+# search list and add server
+	The server name is needed, for example matrix.org	Χρειάζεται το όνομα του διακομιστή, για παράδειγμα matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Αυτό είναι αναγνωριστικό χρήστη: χρειάζεται το όνομα του διακομιστή, για παράδειγμα matrix.org
+	Only https addresses are allowed	Επιτρέπονται μόνο διευθύνσεις https
+	Write only the server name, without a path	Γράψτε μόνο το όνομα του διακομιστή, χωρίς διαδρομή
+	The server name is needed, without user or password	Χρειάζεται το όνομα του διακομιστή, χωρίς χρήστη ή κωδικό
+	Invalid port	Μη έγκυρη θύρα
+	Invalid IP address	Μη έγκυρη διεύθυνση IP
+	Already present	Υπάρχει ήδη
+
+# sidebar
+	Favorites	Αγαπημένα
+	All	Όλα
+	Demo room {n}	Δοκιμαστικό δωμάτιο {n}
+
+# history
+@plural	{n} unread	{n} μη αναγνωσμένο|{n} μη αναγνωσμένα
+
+# history
+	edited	επεξεργασμένο
+	[Message deleted]	[Το μήνυμα διαγράφηκε]
+	Server ack · Reply	Επιβεβαίωση διακομιστή · Απάντηση
+	Server ack	Επιβεβαίωση διακομιστή
+	local	τοπικό
+
+# audio
+	Microphone not available	Το μικρόφωνο δεν είναι διαθέσιμο
+
+# audio
+	Audio playback not available	Η αναπαραγωγή ήχου δεν είναι διαθέσιμη
+
+# search
+	Public spaces	Δημόσιοι χώροι
+	People	Άτομα
+
+# engine placeholders
+	Location	Τοποθεσία
+	Message without text	Μήνυμα χωρίς κείμενο
+	Image.png	Image.png
+
+# update
+	invalid staging	μη έγκυρο ενδιάμεσο αρχείο
+	placement failed and restore failed	η τοποθέτηση και η επαναφορά απέτυχαν
+	start failed and restore failed	η εκκίνηση και η επαναφορά απέτυχαν
+	another installation in progress	άλλη εγκατάσταση σε εξέλιξη
+	channel without in-app update	κανάλι χωρίς ενημέρωση μέσα στην εφαρμογή
+	binary to update not found	δεν βρέθηκε το εκτελέσιμο προς ενημέρωση
+	staging not found	δεν βρέθηκε το ενδιάμεσο αρχείο
+	staging outside the target folder	το ενδιάμεσο αρχείο είναι εκτός του φακέλου προορισμού
+	previous update pending	εκκρεμεί προηγούμενη ενημέρωση
+	staging has a different size	το ενδιάμεσο αρχείο έχει διαφορετικό μέγεθος
+	staging has a different hash	το ενδιάμεσο αρχείο έχει διαφορετικό hash
+	folder not writable	ο φάκελος δεν είναι εγγράψιμος
+	staging cannot be verified	το ενδιάμεσο αρχείο δεν μπορεί να επαληθευτεί
+	Update failed: {cause}	Η ενημέρωση απέτυχε: {cause}
+	remove {name}	αφαίρεση {name}
+	error	σφάλμα
+
+# update
+	invalid helper parameters	μη έγκυρες παράμετροι βοηθητικού
+	invalid binary to update	μη έγκυρο εκτελέσιμο προς ενημέρωση
+	backup to restore not found	δεν βρέθηκε το αντίγραφο ασφαλείας για επαναφορά
+	no pending restore	δεν υπάρχει εκκρεμής επαναφορά
+	Windows update not available	Η ενημέρωση των Windows δεν είναι διαθέσιμη
+	data folder not found	ο φάκελος δεδομένων δεν βρέθηκε
+	the program did not close	το πρόγραμμα δεν έκλεισε
+	running binary differs from the target	το εκτελούμενο αρχείο διαφέρει από τον προορισμό
+	helper without channel	βοηθητικό χωρίς κανάλι
+	helper not ready	το βοηθητικό δεν είναι έτοιμο
+
+# update
+	Update available · {version}	Διαθέσιμη ενημέρωση · {version}
+	Update available, version {version}	Διαθέσιμη ενημέρωση, έκδοση {version}
+	Updated to {version}	Ενημερώθηκε στην {version}
+	Update failed: restored {version}	Η ενημέρωση απέτυχε: επαναφέρθηκε η {version}
+	Update failed: error	Η ενημέρωση απέτυχε: σφάλμα
+	Update postponed: message not sent	Η ενημέρωση αναβλήθηκε: το μήνυμα δεν στάλθηκε
+
+# update
+	backup differs from the binary, kept	το αντίγραφο ασφαλείας διαφέρει από το εκτελέσιμο, διατηρήθηκε
+
+# key export
+	gnobbi-keys.txt	gnobbi-keys.txt
+
+# search
+	Filter: {label}	Φίλτρο: {label}
+
+# devices
+	Sign out inactive	Αποσύνδεση ανενεργών
+
+# update
+	helper out of place	το βοηθητικό είναι σε λάθος θέση
