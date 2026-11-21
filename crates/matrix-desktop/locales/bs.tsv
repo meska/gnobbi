@@ -7,3 +7,596 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of bs in this order, separated by |: one|few|other.
 # See TRANSLATING.md.
+
+	Pinned	Prikvačeno
+	Low priority	Nizak prioritet
+	New chat	Novi razgovor
+	Explore public rooms	Istraži javne sobe
+	Search conversations	Traži razgovore
+	Mark as read	Označi kao pročitano
+	Mark as unread	Označi kao nepročitano
+	Add to a space…	Dodaj u prostor…
+	Leave?	Napustiti?
+	Leave	Napusti
+	Add to a space	Dodaj u prostor
+	Add	Dodaj
+	Cancel	Otkaži
+	Unpin	Otkvači
+	Pin to top	Prikvači na vrh
+	Remove from low priority	Ukloni iz niskog prioriteta
+	Mark as low priority	Označi kao nizak prioritet
+	Remove from {name}	Ukloni iz {name}
+	All messages	Sve poruke
+	Mentions only	Samo spominjanja
+	Muted	Utišano
+banner	Reply	Odgovor
+	Edit	Uredi
+	Send note	Pošalji bilješku
+	Reply in thread	Odgovori u niti
+	Write a message	Napiši poruku
+	Emoji	Emoji
+	Sticker	Stiker
+	Poll	Anketa
+	Attach a file	Priloži datoteku
+	Voice note	Glasovna poruka
+	Send	Pošalji
+	Grinning face	Nasmijano lice
+	Beaming face	Zračeće lice
+	Face with tears of joy	Lice sa suzama radosnicama
+	Rolling on the floor laughing	Valja se od smijeha
+	Smiling face with smiling eyes	Nasmijano lice sa osmijehom u očima
+	Smiling face with heart eyes	Nasmijano lice sa srcima u očima
+	Face blowing a kiss	Lice koje šalje poljubac
+	Smiling face with sunglasses	Nasmijano lice sa sunčanim naočalama
+	Thinking face	Lice koje razmišlja
+	Grinning face with sweat	Nasmijano lice sa znojem
+	Winking face	Lice koje namiguje
+	Upside-down face	Lice naopačke
+	Crying face	Lice koje plače
+	Loudly crying face	Lice koje glasno plače
+	Angry face	Ljuto lice
+	Screaming face	Lice koje vrišti
+	Thumbs up	Palac gore
+	Thumbs down	Palac dolje
+	Clapping hands	Pljesak
+	Folded hands	Sklopljene šake
+	Flexed biceps	Nategnuti biceps
+	Waving hand	Ruka koja maše
+	Handshake	Stisak ruke
+	Raising hands	Podignute ruke
+	Party popper	Zabava
+	Fire	Vatra
+	Sparkles	Iskre
+	Hundred points	Sto bodova
+	Check mark	Kvačica
+	Cross mark	Crveni križ
+	Eyes	Oči
+	Cup of coffee	Šolja kafe
+	Today	Danas
+	Yesterday	Jučer
+	Message deleted	Poruka obrisana
+	Message unavailable	Poruka nije dostupna
+	Encrypted message	Šifrirana poruka
+	Loading…	Učitavanje…
+	Go to bottom	Idi na dno
+	image	slika
+	video	video
+@plural	{n} reply	{n} odgovor|{n} odgovora|{n} odgovora
+	Encrypted	Šifrirano
+	Status messages	Statusne poruke
+	Same as settings	Kao u postavkama
+	Show	Prikaži
+	Hide	Sakrij
+@plural	{n} status message hidden	{n} statusna poruka skrivena|{n} statusne poruke skrivene|{n} statusnih poruka skriveno
+	Search in room	Traži u sobi
+	No results	Nema rezultata
+	Search failed	Pretraga nije uspjela
+	Retry	Pokušaj ponovo
+	More results	Više rezultata
+	Profile link	Link profila
+	Verified	Verificirano
+	Not verified	Nije verificirano
+	Message	Poruka
+	Mention	Spomeni
+	Verify	Verificiraj
+	Disconnect	Prekini vezu
+	Last read	Zadnje pročitano
+	Chat unavailable	Razgovor nije dostupan
+	Ignore	Ignoriši
+	Confirm	Potvrdi
+	Kick	Izbaci
+	Ban	Blokiraj
+	Failed	Neuspjelo
+	Thread unavailable	Nit nije dostupna
+	Thread	Nit
+	Reply	Odgovori
+	Addresses	Adrese
+	main	glavna
+	Main	Glavna
+	name	ime
+@plural	{n} member	{n} član|{n} člana|{n} članova
+@plural	Delete {n} message	Obriši {n} poruku|Obriši {n} poruke|Obriši {n} poruka
+	Reply to {name}	Odgovor za {name}
+	Admin	Admin
+	Moderator	Moderator
+	Member	Član
+	Invite	Pozovi
+	Banned	Blokirani
+	Banned list unavailable	Lista blokiranih nije dostupna
+	Unban	Odblokiraj
+	Reason	Razlog
+	Actions for {name}	Radnje za {name}
+	Name	Naziv
+	Topic	Tema
+	Drop an image here for the photo	Prevuci sliku ovdje za fotografiju
+	Choose photo…	Odaberi fotografiju…
+	Room photo	Fotografija sobe
+	Save	Sačuvaj
+	Photo: {name}	Fotografija: {name}
+	New poll	Nova anketa
+	Question	Pitanje
+	Add option	Dodaj opciju
+	Multiple choice	Višestruki izbor
+	Results visible right away	Rezultati odmah vidljivi
+	Option {n}	Opcija {n}
+	Video	Video
+	Image	Slika
+	Save as	Sačuvaj kao
+	Open	Otvori
+	Cannot open the content	Sadržaj se ne može otvoriti
+	Stickers are not encrypted, like an unencrypted image	Stikeri nisu šifrirani, kao ni nešifrirana slika
+	No sticker packs	Nema paketa stikera
+	Stickers unavailable	Stikeri nisu dostupni
+	Settings	Postavke
+	Account and security	Račun i sigurnost
+	Account	Račun
+	Devices	Uređaji
+	Appearance	Izgled
+	Language	Jezik
+	Theme	Tema
+	System	Sistem
+	Accent	Akcent
+	Icon	Ikona
+	Automatic night	Automatska noć
+	Chat	Razgovor
+	Read receipts	Potvrde čitanja
+	Hide deleted messages	Sakrij obrisane poruke
+	Show status messages	Prikaži statusne poruke
+	Message preview	Pregled poruke
+	Notifications	Obavještenja
+	Close to tray	Zatvori u traku
+	Add to menu	Dodaj u meni
+	Added to menu	Dodano u meni
+	Could not add to menu	Nije moguće dodati u meni
+	Classic	Klasična
+	Day	Dan
+	Dark	Tamna
+	Night	Noć
+	No	Ne
+	Schedule	Raspored
+	Minimal mark	Minimalni znak
+	Gnome	Patuljak
+	Little monster	Čudovište
+	Blue	Plava
+	Teal	Tirkizna
+	Green	Zelena
+	Orange	Narandžasta
+	Red	Crvena
+	Pink	Roza
+	Purple	Ljubičasta
+	A save is already in progress	Čuvanje je već u toku
+	Account no longer connected	Račun više nije povezan
+	Actions not available for this event	Radnje nisu dostupne za ovaj događaj
+	Address already in use	Adresa je već u upotrebi
+	Already joined	Već pridruženo
+	Checking permissions…	Provjera dozvola…
+	Choose a file that does not exist yet	Odaberi datoteku koja još ne postoji
+	Connected	Povezano
+	Connecting…	Povezivanje…
+	Connection failed	Povezivanje nije uspjelo
+	Data folder not available	Folder s podacima nije dostupan
+	Delete the selected message? This cannot be undone.	Obrisati odabranu poruku? Ovo se ne može poništiti.
+	File cannot be attached	Datoteka se ne može priložiti
+	Image cannot be attached	Slika se ne može priložiti
+	Invalid name	Neispravan naziv
+	Joining…	Pridruživanje…
+	Message not available	Poruka nije dostupna
+	No audio recorded	Nema snimljenog zvuka
+	Not allowed	Nije dozvoljeno
+	Not allowed by the server	Server ne dozvoljava
+	Operation failed	Operacija nije uspjela
+	Operation not confirmed · Retry uses the same ID (even if you change room)	Operacija nije potvrđena · Ponovni pokušaj koristi isti ID (čak i ako promijeniš sobu)
+	Operation pending · no server confirmation	Operacija na čekanju · bez potvrde servera
+	Operation refused or unavailable	Operacija odbijena ili nedostupna
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Odgovor/uređivanje: piši u nacrt, zatim koristi dugme. Enter šalje kao i obično.
+	Room not found	Soba nije pronađena
+	Saved	Sačuvano
+	Saving failed	Čuvanje nije uspjelo
+	Server unreachable	Server nije dostupan
+	Sign-in failed	Prijava nije uspjela
+	Sticker not sent	Stiker nije poslan
+	Still joining…	Još se pridružuje…
+	Sync interrupted	Sinhronizacija prekinuta
+	Voice note cannot be played	Glasovna poruka se ne može reproducirati
+	You are offline	Offline si
+	The name cannot be empty.	Naziv ne može biti prazan.
+	The name is too long (256 characters at most).	Naziv je predug (najviše 256 znakova).
+	This server does not allow editing the profile.	Ovaj server ne dozvoljava uređivanje profila.
+	Cannot read the chosen file.	Ne mogu pročitati odabranu datoteku.
+	The image is too large (25 MB at most).	Slika je prevelika (najviše 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	Odaberi ispravnu PNG, JPEG ili WebP sliku.
+	Connection failed: try again shortly.	Povezivanje nije uspjelo: pokušaj ponovo za koji trenutak.
+	The server rejected the change.	Server je odbio promjenu.
+	Space not found	Prostor nije pronađen
+	Operation failed, try again	Operacija nije uspjela, pokušaj ponovo
+	Minimize	Minimiziraj
+	Show Gnobbi	Prikaži Gnobbi
+	Quit Gnobbi	Zatvori Gnobbi
+	{name}, active account	{name}, aktivni račun
+	New messages	Nove poruke
+	1 new message	1 nova poruka
+	New message	Nova poruka
+	📷 Photo	📷 Fotografija
+	🎥 Video	🎥 Video
+	🎤 Voice message	🎤 Glasovna poruka
+	🎵 Audio	🎵 Audio
+	📎 File	📎 Datoteka
+	📍 Location	📍 Lokacija
+menu	Quit Gnobbi	Izađi iz Gnobbija
+menu	About Gnobbi	O Gnobbiju
+menu	Settings…	Postavke…
+menu	Services	Usluge
+menu	Hide Gnobbi	Sakrij Gnobbi
+menu	Hide Others	Sakrij ostale
+menu	Show All	Prikaži sve
+menu	Edit	Uredi
+menu	Undo	Poništi
+menu	Redo	Ponovi
+menu	Cut	Izreži
+menu	Copy	Kopiraj
+menu	Paste	Zalijepi
+menu	Select All	Odaberi sve
+menu	Start Dictation…	Pokreni diktiranje…
+menu	Emoji & Symbols	Emoji i simboli
+menu	Window	Prozor
+menu	Minimize	Minimiziraj
+menu	Zoom	Zumiraj
+menu	Bring All to Front	Prebaci sve naprijed
+@plural	Gnobbi, {n} unread	Gnobbi, {n} nepročitana|Gnobbi, {n} nepročitane|Gnobbi, {n} nepročitanih
+	Customize	Prilagodi
+	Sizes	Veličine
+	Text size	Veličina teksta
+	Buttons and icons size	Veličina dugmadi i ikona
+	Follow the system	Prati sistem
+	Follow the text	Prati tekst
+	Small	Mala
+	Normal	Normalna
+	Large	Velika
+	Compact	Kompaktno
+	Comfortable	Udobno
+	Restore defaults	Vrati zadano
+	Preview	Pregled
+	A sample message	Primjer poruke
+	Button	Dugme
+	Remove attachment	Ukloni prilog
+	Cancel reply	Otkaži odgovor
+	Close card	Zatvori karticu
+	Close thread	Zatvori nit
+	Remove address	Ukloni adresu
+	Copy	Kopiraj
+	Menu	Meni
+	Back	Nazad
+	Chat list	Lista razgovora
+	Info	Info
+	Copy key	Kopiraj ključ
+	Remove option	Ukloni opciju
+	Pause	Pauziraj
+	Play	Reproduciraj
+	New	Novo
+	New space	Novi prostor
+	Close	Zatvori
+	Add account	Dodaj račun
+	Rename	Preimenuj
+	Profile photo	Profilna fotografija
+	Edit photo	Uredi fotografiju
+	Apply	Primijeni
+	Reset	Poništi
+	Rotate left	Rotiraj ulijevo
+	Rotate right	Rotiraj udesno
+	Mirror	Zrcali
+	Zoom	Zum
+	Rotation	Rotacija
+	Brightness	Svjetlina
+	Contrast	Kontrast
+	Saturation	Zasićenost
+	Original	Original
+	B&W	C/B
+	Sepia	Sepija
+	Vivid	Živo
+	Cool	Hladno
+	Warm	Toplo
+	Fade	Izblijedi
+	High contrast	Visok kontrast
+	Preview: drag to move the photo	Pregled: povuci da pomjeriš fotografiju
+	Could not download the current photo.	Nije moguće preuzeti trenutnu fotografiju.
+	Could not prepare the photo.	Nije moguće pripremiti fotografiju.
+	Open link	Otvori link
+	Could not open the link.	Nije moguće otvoriti link.
+	Copy link	Kopiraj link
+	Server	Server
+	Matrix ID	Matrix ID
+	Password	Lozinka
+	Local passphrase	Lokalna lozinka
+	Sign in	Prijavi se
+	Unlock	Otključaj
+	Signing in…	Prijavljivanje…
+	Unlocking…	Otključavanje…
+	Show password	Prikaži lozinku
+	Hide password	Sakrij lozinku
+	Accept	Prihvati
+	Decline	Odbij
+	Edit space	Uredi prostor
+	Edit room	Uredi sobu
+	Start failed	Pokretanje nije uspjelo
+	Search	Traži
+	Conversations	Razgovori
+	Users	Korisnici
+	Public rooms	Javne sobe
+	React	Reaguj
+	Confirm closing	Potvrdi zatvaranje
+	Close poll	Zatvori anketu
+	Confirm deletion	Potvrdi brisanje
+	Delete	Obriši
+	Encrypted history	Šifrirana historija
+	Matrix recovery key	Matrix ključ za oporavak
+	I saved the key: continue	Sačuvao/la sam ključ: nastavi
+	Recover encrypted history	Oporavi šifriranu historiju
+	Try creating the key again	Pokušaj ponovo kreirati ključ
+	Create recovery key	Kreiraj ključ za oporavak
+	Continue without recovery	Nastavi bez oporavka
+	A space cannot go inside itself	Prostor ne može biti unutar samog sebe
+	You do not have permission to edit «{name}»	Nemaš dozvolu za uređivanje «{name}»
+	{label}, {n} unread	{label}, nepročitano: {n}
+	Move {name}	Premjesti {name}
+	Move {name} down	Pomjeri {name} dolje
+	Move {name} up	Pomjeri {name} gore
+	Organise spaces	Organiziraj prostore
+	Unread	Nepročitano
+	All chats	Svi razgovori
+	Spaces	Prostori
+	No spaces	Nema prostora
+	Rooms unlinked: {n}	Odvojene sobe: {n}
+	Rooms not unlinked: {n}	Neodvojene sobe: {n}
+	Members removed: {n}	Uklonjeni članovi: {n}
+	Not removed: {names}	Nisu uklonjeni: {names}
+	Members who will be removed: {n}	Članovi koji će biti uklonjeni: {n}
+	Rooms unlinked (they stay existing): {n}	Odvojene sobe (i dalje postoje): {n}
+	Space menu	Meni prostora
+	Space info	Info o prostoru
+	Members	Članovi
+	Hand over the admin role…	Prepusti ulogu administratora…
+	Leave space	Napusti prostor
+	Delete space	Obriši prostor
+	Forget	Zaboravi
+	Failed, no change guaranteed: try again	Neuspjelo, promjena nije zagarantirana: pokušaj ponovo
+	Member list not read	Lista članova nije pročitana
+	Space left and forgotten	Prostor napušten i zaboravljen
+	Space not left: try again	Prostor nije napušten: pokušaj ponovo
+	Space not left: members remain	Prostor nije napušten: članovi su ostali
+	This cannot be undone	Ovo se ne može poništiti
+	You still have rooms in this space.	Još imaš soba u ovom prostoru.
+	You are the last admin of the space.	Ti si posljednji administrator prostora.
+	Make admin	Postavi za administratora
+	Rooms not available	Sobe nisu dostupne
+	Add existing room	Dodaj postojeću sobu
+	No rooms	Nema soba
+	Rooms	Sobe
+	Remove	Ukloni
+	Search public rooms	Traži javne sobe
+	Your server	Tvoj server
+	Other server…	Drugi server…
+	server name	naziv servera
+	Already in	Već unutra
+	Join	Pridruži se
+	Remove photo	Ukloni fotografiju
+	Active	Aktivan
+	Active account	Aktivni račun
+	Other accounts	Ostali računi
+	Last active {when}	Zadnja aktivnost {when}
+	{text} in {path}	{text} u {path}
+	This device	Ovaj uređaj
+	Keys	Ključevi
+	Export password	Lozinka izvoza
+	Export keys	Izvezi ključeve
+	Regenerate recovery key	Ponovo generiši ključ za oporavak
+	Recover keys	Oporavi ključeve
+	Recovery key	Ključ za oporavak
+	Recover	Oporavi
+	Other devices	Ostali uređaji
+	Sign out	Odjavi
+	Device name	Naziv uređaja
+	New recovery key	Novi ključ za oporavak
+	Done	Gotovo
+	Direct chat	Direktni razgovor
+	Room	Soba
+	Space	Prostor
+	Join a room	Pridruži se sobi
+	Public	Javna
+	Create	Kreiraj
+	#room:server or !id:server	#soba:server ili !id:server
+	Search people	Traži osobe
+	Images	Slike
+	last message at {when}	zadnja poruka u {when}
+	last message on {when}	zadnja poruka {when}
+	last message {when}	zadnja poruka {when}
+	A user	Korisnik
+	{actor} created this room.	{actor} je kreirao/la ovu sobu.
+	{actor} created this chat.	{actor} je kreirao/la ovaj razgovor.
+	{actor} invited {subject}	{actor} je pozvao/la {subject}
+	{subject} joined the room	{subject} se pridružio/la sobi
+	{subject} left the room	{subject} je napustio/la sobu
+	{actor} banned {subject}	{actor} je blokirao/la {subject}
+	{actor} unbanned {subject}	{actor} je odblokirao/la {subject}
+	{actor} removed {subject} from the room	{actor} je uklonio/la {subject} iz sobe
+	{subject} declined the invitation	{subject} je odbio/la poziv
+	{actor} revoked the invitation for {subject}	{actor} je povukao/la poziv za {subject}
+	{actor} removed the room name	{actor} je uklonio/la naziv sobe
+	{actor} changed the room name to «{name}»	{actor} je promijenio/la naziv sobe u «{name}»
+	{actor} removed the room topic	{actor} je uklonio/la temu sobe
+	{actor} changed the room topic to «{topic}»	{actor} je promijenio/la temu sobe u «{topic}»
+	{actor} changed the room avatar	{actor} je promijenio/la avatar sobe
+	{old} changed their name to {new}	{old} je promijenio/la ime u {new}
+	{subject} set their name to {new}	{subject} je postavio/la ime {new}
+	{subject} removed their display name	{subject} je uklonio/la prikazano ime
+	{subject} changed their avatar	{subject} je promijenio/la avatar
+	{text} (reason: {reason})	{text} (razlog: {reason})
+	Audio	Audio
+	File	Datoteka
+	Photo	Fotografija
+	Log out	Odjavi se
+	Encryption keys on this device not backed up are lost.	Ključevi za šifriranje na ovom uređaju koji nisu sačuvani u sigurnosnoj kopiji bit će izgubljeni.
+	The server did not answer. Remove it from this device anyway?	Server ne odgovara. Ukloniti ga s ovog uređaja svejedno?
+	Remove from this device	Ukloni s ovog uređaja
+	Wrong key. Check it and try again.	Pogrešan ključ. Provjeri ga i pokušaj ponovo.
+	Server unreachable. Try again later or continue without recovery.	Server nije dostupan. Pokušaj kasnije ili nastavi bez oporavka.
+	Recovery took too long. Try again or continue without recovery.	Oporavak je trajao predugo. Pokušaj ponovo ili nastavi bez oporavka.
+	No key backup on the server. Continue without recovery.	Na serveru nema sigurnosne kopije ključeva. Nastavi bez oporavka.
+	Recovery failed. Try again or continue without recovery.	Oporavak nije uspio. Pokušaj ponovo ili nastavi bez oporavka.
+	This account has no Matrix secret storage: no recovery key to enter.	Ovaj račun nema Matrix tajnu pohranu: nema ključa za oporavak za unos.
+	The server offers no key backup: no recovery to create. Continue without recovery.	Server ne nudi sigurnosnu kopiju ključeva: nema oporavka za kreiranje. Nastavi bez oporavka.
+	This account already has a recovery: enter the existing recovery key.	Ovaj račun već ima oporavak: unesi postojeći ključ za oporavak.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Oporavak ovog računa je tek napola postavljen: Gnobbi ga ne mijenja. Nastavi bez oporavka.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	Ovaj račun već ima kriptografski identitet koji ovaj uređaj ne posjeduje: Gnobbi ga ne zamjenjuje. Nastavi bez oporavka.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	Server traži dodatnu potvrdu koju Gnobbi ne podržava. Nastavi bez oporavka.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	Server nije dostupan: oporavak nije kreiran. Pokušaj ponovo ili nastavi bez oporavka.
+	Creation took too long. Try again or continue without recovery.	Kreiranje je trajalo predugo. Pokušaj ponovo ili nastavi bez oporavka.
+	Creating the recovery failed. Try again or continue without recovery.	Kreiranje oporavka nije uspjelo. Pokušaj ponovo ili nastavi bez oporavka.
+	Enter a server name or a valid HTTPS address.	Unesi naziv servera ili ispravnu HTTPS adresu.
+	Enter the full Matrix ID: @name:server.	Unesi puni Matrix ID: @ime:server.
+	Enter the profile's local passphrase.	Unesi lokalnu lozinku profila.
+	Password required; local passphrase of at least 16 characters.	Lozinka je obavezna; lokalna lozinka od najmanje 16 znakova.
+	This server offers no password login. SSO/OIDC are not supported.	Ovaj server ne nudi prijavu lozinkom. SSO/OIDC nisu podržani.
+	This server does not support sliding sync	Ovaj server ne podržava sliding sync
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	Server je odgovorio greškom: provjeri adresu (npr. https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	Server nije dostupan ili TLS certifikat nije ispravan.
+	Credentials not accepted. Try again.	Podaci za prijavu nisu prihvaćeni. Pokušaj ponovo.
+	Too many attempts: try again in a moment.	Previše pokušaja: pokušaj ponovo za koji trenutak.
+	Sign-in/unlock failed. Check the credentials and try again.	Prijava/otključavanje nije uspjelo. Provjeri podatke i pokušaj ponovo.
+	System keychain unavailable or locked. Unlock it and try again.	Sistemski privjesak ključeva nije dostupan ili je zaključan. Otključaj ga i pokušaj ponovo.
+	The profile key is not in the system keychain. The profile was not changed.	Ključ profila nije u sistemskom privjesku ključeva. Profil nije promijenjen.
+	Profile already open in another instance. Close it and restart.	Profil je već otvoren u drugoj instanci. Zatvori je i ponovo pokreni.
+	Local profile unavailable. Close and check the profile path.	Lokalni profil nije dostupan. Zatvori i provjeri putanju profila.
+	Enter the Matrix password.	Unesi Matrix lozinku.
+	Creating the recovery and backup…	Kreiranje oporavka i sigurnosne kopije…
+@plural	{n} device to sign out	{n} uređaj za odjavu|{n} uređaja za odjavu|{n} uređaja za odjavu
+@plural	{n} device without last activity not included	{n} uređaj bez zadnje aktivnosti nije uključen|{n} uređaja bez zadnje aktivnosti nisu uključena|{n} uređaja bez zadnje aktivnosti nije uključeno
+	Last activity {time}	Zadnja aktivnost {time}
+	They match	Podudaraju se
+	They don't match	Ne podudaraju se
+	Yes	Da
+	Not available with this account	Nije dostupno s ovim računom
+	Incorrect password	Neispravna lozinka
+	Failed. Try again.	Neuspjelo. Pokušaj ponovo.
+	Verification failed	Verifikacija nije uspjela
+	Verification request	Zahtjev za verifikaciju
+	Cancel the verification?	Otkazati verifikaciju?
+	Verification cancelled	Verifikacija otkazana
+	The emoji don't match	Emoji se ne podudaraju
+	Verification	Verifikacija
+@plural	{n} key exported	Izvezen {n} ključ|Izvezena {n} ključa|Izvezeno {n} ključeva
+	Gnobbi recovery key	Gnobbi ključ za oporavak
+	Wrong unlock passphrase	Pogrešna lozinka za otključavanje
+	Password too short: at least 12 characters	Lozinka je prekratka: najmanje 12 znakova
+	Password too long: at most 4096 bytes	Lozinka je predugačka: najviše 4096 bajtova
+	The passwords don't match	Lozinke se ne podudaraju
+	No keys to export on this device	Nema ključeva za izvoz na ovom uređaju
+	Can't write to this location	Nije moguće pisati na ovu lokaciju
+	Export failed: try again	Izvoz nije uspio: pokušaj ponovo
+	Recover the keys on this device first	Prvo oporavi ključeve na ovom uređaju
+	The server asks for a confirmation that is not supported here	Server traži potvrdu koja ovdje nije podržana
+	Server unreachable: try again	Server nije dostupan: pokušaj ponovo
+	Regeneration failed: try again	Ponovno generiranje nije uspjelo: pokušaj ponovo
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	Ovaj uređaj nema ključeve za oporavak računa: unesi ključ da pročitaš stare šifrirane poruke
+	This account has no recovery key: without one, encrypted messages are lost with the devices	Ovaj račun nema ključ za oporavak: bez njega se šifrirane poruke gube zajedno s uređajima
+	Restoring…	Vraćanje…
+	Restore	Vrati
+	Not now	Ne sada
+	Don't ask again for this account	Ne pitaj ponovo za ovaj račun
+	Copy recovery key	Kopiraj ključ za oporavak
+	Save it now: it will not be shown again	Sačuvaj ga sada: neće se ponovo prikazati
+	Save to file	Sačuvaj u datoteku
+	gnobbi-recovery-key.txt	gnobbi-kljuc-za-oporavak.txt
+	Regenerating…	Ponovno generiranje…
+	I kept it elsewhere	Sačuvao/la sam ga drugdje
+	The server does not respond	Server ne odgovara
+	Not a Matrix server	Nije Matrix server
+	The server does not show its rooms	Server ne prikazuje svoje sobe
+	Your server cannot reach this server	Tvoj server ne može doći do ovog servera
+	Invalid server certificate	Neispravan certifikat servera
+	Searching	Pretraga
+	Partial results	Djelimični rezultati
+	Invalid server name	Neispravan naziv servera
+	Timed out	Isteklo vrijeme
+	Loading	Učitavanje
+	More results not loaded	Više rezultata nije učitano
+	The server name is needed, for example matrix.org	Potreban je naziv servera, na primjer matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Ovo je ID korisnika: potreban je naziv servera, na primjer matrix.org
+	Only https addresses are allowed	Dozvoljene su samo https adrese
+	Write only the server name, without a path	Upiši samo naziv servera, bez putanje
+	The server name is needed, without user or password	Potreban je naziv servera, bez korisnika i lozinke
+	Invalid port	Neispravan port
+	Invalid IP address	Neispravna IP adresa
+	Already present	Već postoji
+	Favorites	Favoriti
+	All	Sve
+	Demo room {n}	Demo soba {n}
+@plural	{n} unread	{n} nepročitana|{n} nepročitane|{n} nepročitanih
+	edited	uređeno
+	[Message deleted]	[Poruka obrisana]
+	Server ack · Reply	Potvrda servera · Odgovor
+	Server ack	Potvrda servera
+	local	lokalno
+	Microphone not available	Mikrofon nije dostupan
+	Audio playback not available	Reprodukcija zvuka nije dostupna
+	Public spaces	Javni prostori
+	People	Osobe
+	Location	Lokacija
+	Message without text	Poruka bez teksta
+	Image.png	Slika.png
+	invalid staging	neispravan staging
+	placement failed and restore failed	postavljanje nije uspjelo i vraćanje nije uspjelo
+	start failed and restore failed	pokretanje nije uspjelo i vraćanje nije uspjelo
+	another installation in progress	u toku je druga instalacija
+	channel without in-app update	kanal bez ažuriranja u aplikaciji
+	binary to update not found	binarna datoteka za ažuriranje nije pronađena
+	staging not found	staging nije pronađen
+	staging outside the target folder	staging izvan ciljnog foldera
+	previous update pending	prethodno ažuriranje je na čekanju
+	staging has a different size	staging ima drugu veličinu
+	staging has a different hash	staging ima drugi hash
+	folder not writable	folder nije upisiv
+	staging cannot be verified	staging se ne može provjeriti
+	Update failed: {cause}	Ažuriranje nije uspjelo: {cause}
+	remove {name}	ukloni {name}
+	error	greška
+	invalid helper parameters	neispravni parametri pomoćnika
+	invalid binary to update	neispravna binarna datoteka za ažuriranje
+	backup to restore not found	sigurnosna kopija za vraćanje nije pronađena
+	no pending restore	nema vraćanja na čekanju
+	Windows update not available	Windows ažuriranje nije dostupno
+	data folder not found	folder s podacima nije pronađen
+	the program did not close	program se nije zatvorio
+	running binary differs from the target	pokrenuta binarna datoteka razlikuje se od ciljne
+	helper without channel	pomoćnik bez kanala
+	helper not ready	pomoćnik nije spreman
+	Update available · {version}	Dostupno ažuriranje · {version}
+	Update available, version {version}	Dostupno ažuriranje, verzija {version}
+	Updated to {version}	Ažurirano na {version}
+	Update failed: restored {version}	Ažuriranje nije uspjelo: vraćena verzija {version}
+	Update failed: error	Ažuriranje nije uspjelo: greška
+	Update postponed: message not sent	Ažuriranje odgođeno: poruka nije poslana
+	backup differs from the binary, kept	sigurnosna kopija se razlikuje od binarne datoteke, zadržana
+	gnobbi-keys.txt	gnobbi-kljucevi.txt
+	Filter: {label}	Filter: {label}
+	Sign out inactive	Odjavi neaktivne
+	helper out of place	pomoćnik na pogrešnom mjestu
