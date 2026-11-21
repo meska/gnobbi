@@ -62,29 +62,91 @@ pub fn observe_keyboard(ctx: &egui::Context) {
     }
 }
 
-/// iOS: ends every account worker when the app goes to the background and flags the return (see `suspend`). Call once at
-/// startup, on the main thread. The work runs inside the notification, under a background task, before iOS suspends the process.
+/// iOS: give short app switches a grace period, then free every shared-store lock before suspension.
 #[cfg(target_os = "ios")]
 pub fn observe_lifecycle(ctx: &egui::Context) {
     use objc2::MainThreadMarker;
-    use objc2_foundation::{NSNotification, NSNotificationCenter};
-    use objc2_ui_kit::{UIApplication, UIApplicationDidEnterBackgroundNotification, UIApplicationWillEnterForegroundNotification};
+    use objc2_foundation::{NSNotification, NSNotificationCenter, NSString};
+    use objc2_ui_kit::{UIApplication, UIApplicationDidEnterBackgroundNotification, UIApplicationWillEnterForegroundNotification, UIBackgroundTaskInvalid};
+    use crate::suspend::{Action, Event, State, transition};
+    use std::cell::RefCell;
+    use std::ffi::c_void;
+
+    thread_local! { static LIFE: RefCell<(State, usize, Option<usize>)> = const { RefCell::new((State::Foreground, 0, None)) }; }
+    unsafe extern "C" {
+        static _dispatch_main_q: u8;
+        fn dispatch_time(when: u64, delta: i64) -> u64;
+        fn dispatch_after_f(when: u64, queue: *const c_void, context: *mut c_void, work: extern "C" fn(*mut c_void));
+    }
+    fn end(mtm: MainThreadMarker) {
+        let task = LIFE.with(|l| l.borrow_mut().2.take());
+        if let Some(task) = task && task != unsafe { UIBackgroundTaskInvalid } {
+            UIApplication::sharedApplication(mtm).endBackgroundTask(task);
+        }
+    }
+    fn release(generation: usize, mtm: MainThreadMarker) {
+        let do_release = LIFE.with(|l| {
+            let mut l = l.borrow_mut();
+            if l.1 != generation { return false; }
+            let (state, action) = transition(l.0, Event::Deadline);
+            l.0 = state;
+            action == Action::Release
+        });
+        if !do_release { return; }
+        eprintln!("Gnobbi lifecycle: release");
+        if crate::suspend::suspend(std::time::Duration::from_secs(8)) {
+            end(mtm);
+        } else {
+            // Keeping the task open lets iOS terminate rather than suspend with a shared-store lock.
+            eprintln!("Gnobbi lifecycle: worker did not release its lock");
+            if LIFE.with(|l| l.borrow().2 == Some(unsafe { UIBackgroundTaskInvalid })) {
+                std::process::abort();
+            }
+        }
+    }
+    extern "C" fn timer(context: *mut c_void) {
+        if let Some(mtm) = MainThreadMarker::new() { release(context as usize, mtm); }
+    }
     let Some(mtm) = MainThreadMarker::new() else { return };
     let center = NSNotificationCenter::defaultCenter();
     let back = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
+        let generation = LIFE.with(|l| {
+            let mut l = l.borrow_mut();
+            let (state, action) = transition(l.0, Event::Background);
+            l.0 = state;
+            if action != Action::Begin { return None; }
+            l.1 = l.1.wrapping_add(1).max(1);
+            Some(l.1)
+        });
+        let Some(generation) = generation else { return };
+        crate::suspend::background();
         let app = UIApplication::sharedApplication(mtm);
-        let task = unsafe { app.beginBackgroundTaskWithExpirationHandler(None) };
-        if !crate::suspend::suspend(std::time::Duration::from_secs(8)) {
-            eprintln!("Gnobbi: a worker did not stop in time");
+        let expired = block2::RcBlock::new(move || release(generation, mtm));
+        let task = app.beginBackgroundTaskWithName_expirationHandler(Some(&NSString::from_str("Gnobbi stores")), Some(&expired));
+        LIFE.with(|l| l.borrow_mut().2 = Some(task));
+        if task == unsafe { UIBackgroundTaskInvalid } {
+            release(generation, mtm);
+            return;
         }
-        unsafe { app.endBackgroundTask(task) };
+        let delay = (app.backgroundTimeRemaining() - 10.0).clamp(0.0, 20.0);
+        eprintln!("Gnobbi lifecycle: grace {delay:.1}s");
+        unsafe { dispatch_after_f(dispatch_time(0, (delay * 1_000_000_000.0) as i64), &raw const _dispatch_main_q as *const c_void, generation as *mut c_void, timer); }
     });
     let ctx = ctx.clone();
     let front = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
-        crate::suspend::resume();
+        let action = LIFE.with(|l| {
+            let mut l = l.borrow_mut();
+            let (state, action) = transition(l.0, Event::Foregrounded);
+            l.0 = state;
+            action
+        });
+        match action {
+            Action::Cancel => { eprintln!("Gnobbi lifecycle: cancel grace"); crate::suspend::resume(); end(mtm); }
+            Action::Restart => { eprintln!("Gnobbi lifecycle: restart"); crate::suspend::resume(); end(mtm); }
+            _ => {}
+        }
         ctx.request_repaint();
     });
-    // The centre keeps the observers; they live as long as the app.
     unsafe {
         let _ = center.addObserverForName_object_queue_usingBlock(Some(UIApplicationDidEnterBackgroundNotification), None, None, &back);
         let _ = center.addObserverForName_object_queue_usingBlock(Some(UIApplicationWillEnterForegroundNotification), None, None, &front);

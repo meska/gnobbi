@@ -7,6 +7,24 @@ use matrix_engine::WorkerControl;
 use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
 use std::time::{Duration, Instant};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum State { Foreground, Grace, Released }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Event { Background, Foregrounded, Deadline }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action { Begin, Cancel, Release, Restart, None }
+
+pub fn transition(state: State, event: Event) -> (State, Action) {
+    use Action::*;
+    match (state, event) {
+        (State::Foreground, Event::Background) => (State::Grace, Begin),
+        (State::Grace, Event::Foregrounded) => (State::Foreground, Cancel),
+        (State::Grace, Event::Deadline) => (State::Released, Release),
+        (State::Released, Event::Foregrounded) => (State::Foreground, Restart),
+        _ => (state, None),
+    }
+}
+
 static CONTROLS: Mutex<Vec<WorkerControl>> = Mutex::new(Vec::new());
 static SUSPENDED: AtomicBool = AtomicBool::new(false);
 static RESUMED: AtomicBool = AtomicBool::new(false);
@@ -31,8 +49,12 @@ pub fn suspend(wait: Duration) -> bool {
     all.iter().all(WorkerControl::is_done)
 }
 
+pub fn background() {
+    RESUMED.store(false, Ordering::Release);
+}
+
 pub fn resume() {
-    if SUSPENDED.swap(false, Ordering::AcqRel) {
+    if SUSPENDED.load(Ordering::Acquire) {
         RESUMED.store(true, Ordering::Release);
     }
 }
@@ -43,6 +65,10 @@ pub fn is_suspended() -> bool {
 
 /// True once per resume: the window must restart its accounts.
 pub fn take_resumed() -> bool {
+    if !RESUMED.load(Ordering::Acquire) || !CONTROLS.lock().unwrap_or_else(|e| e.into_inner()).iter().all(WorkerControl::is_done) {
+        return false;
+    }
+    SUSPENDED.store(false, Ordering::Release);
     RESUMED.swap(false, Ordering::AcqRel)
 }
 
@@ -57,6 +83,20 @@ mod tests {
         (c, stop, done)
     }
 
+    #[test]
+    fn lifecycle_cancels_grace_and_restarts_only_after_release() {
+        use Event::*;
+        use State::*;
+        assert_eq!(transition(Foreground, Background), (Grace, Action::Begin));
+        assert_eq!(transition(Grace, Foregrounded), (Foreground, Action::Cancel));
+        assert_eq!(transition(Grace, Deadline), (Released, Action::Release));
+        assert_eq!(transition(Grace, Background), (Grace, Action::None));
+        assert_eq!(transition(Released, Background), (Released, Action::None));
+        assert_eq!(transition(Released, Foregrounded), (Foreground, Action::Restart));
+        assert_eq!(transition(Foreground, Deadline), (Foreground, Action::None));
+        assert_eq!(transition(Released, Deadline), (Released, Action::None));
+    }
+
     // One test: the registry and flags are process-wide.
     #[test]
     fn suspend_stops_waits_for_every_worker_and_resume_signals_once() {
@@ -67,12 +107,20 @@ mod tests {
         assert!(suspend(Duration::from_secs(2)));
         assert!(a_stop.load(Ordering::Acquire) && is_suspended());
         resume();
-        assert!(!is_suspended());
+        assert!(is_suspended(), "stay paused until restart is taken");
         assert!(take_resumed() && !take_resumed(), "one signal per resume");
+        assert!(!is_suspended());
         resume();
         assert!(!take_resumed(), "a resume without a suspend signals nothing");
-        let (b, _, _) = control(); // never ends
+        let (b, _, b_done) = control(); // never ends until explicitly released
         register(b);
         assert!(!suspend(Duration::from_millis(60)), "a worker that does not end is reported");
+        resume();
+        assert!(!take_resumed() && is_suspended(), "never reopen a locked store");
+        background();
+        b_done.store(true, Ordering::Release);
+        assert!(!take_resumed(), "background cancels a pending restart");
+        resume();
+        assert!(take_resumed() && !is_suspended());
     }
 }

@@ -233,12 +233,14 @@ impl App {
     /// Starts every account again from its saved profile (after the background, which ended the workers).
     fn restart_accounts(&mut self) {
         let Some(d) = self.dirs.clone() else { return };
-        if self.session.is_some() && let Ok(s) = Session::start(&d, self.root.clone(), self.trust.clone()) {
-            self.session = Some(s);
+        if let Some(session) = &mut self.session {
+            if let Err(error) = session.reconnect(&d, self.root.clone(), self.trust.clone()) {
+                eprintln!("Gnobbi: reconnect failed: {error}");
+            }
         }
         for p in &mut self.parked {
-            if let Ok(s) = Session::start(&d, p.root.clone(), self.trust.clone()) {
-                p.session = s;
+            if let Err(error) = p.session.reconnect(&d, p.root.clone(), self.trust.clone()) {
+                eprintln!("Gnobbi: reconnect failed: {error}");
             }
         }
     }
@@ -373,6 +375,7 @@ impl eframe::App for App {
             self.restart_accounts();
         }
         if suspend::is_suspended() {
+            ctx.request_repaint_after(Duration::from_millis(100));
             return;
         }
         let Some(session) = &mut self.session else { return };

@@ -105,6 +105,7 @@ pub enum RoomAction {
 
 pub struct Session {
     pub form: SignInForm,
+    reconnecting: bool,
     ui: SignInUi,
     /// Kept alive for the whole session: dropping it stops the backend.
     _worker: RoomListWorker,
@@ -314,6 +315,7 @@ impl Session {
         form.vault = with_vault;
         Ok(Session {
             form,
+            reconnecting: false,
             ui,
             _worker: worker,
             rooms,
@@ -438,6 +440,29 @@ impl Session {
         })
     }
 
+    /// Reconnect the transport without replacing the visible room, drafts or scroll state.
+    pub fn reconnect(&mut self, dirs: &AppDirs, root: std::path::PathBuf, trust: Option<Vec<u8>>) -> Result<(), String> {
+        let mut new = Self::start(dirs, root, trust)?;
+        if self.account.is_none() {
+            *self = new;
+            return Ok(());
+        }
+        std::mem::swap(&mut self.form, &mut new.form);
+        std::mem::swap(&mut self.ui, &mut new.ui);
+        std::mem::swap(&mut self._worker, &mut new._worker);
+        std::mem::swap(&mut self.rooms, &mut new.rooms);
+        std::mem::swap(&mut self.route, &mut new.route);
+        std::mem::swap(&mut self.send, &mut new.send);
+        std::mem::swap(&mut self.op_route, &mut new.op_route);
+        std::mem::swap(&mut self.ver_route, &mut new.ver_route);
+        std::mem::swap(&mut self.media_route, &mut new.media_route);
+        std::mem::swap(&mut self.avatar_slot, &mut new.avatar_slot);
+        self.history = HistorySession::new();
+        self.pending = self.history.select(self.sidebar.selected().map(|r| r.scope.clone()));
+        self.reconnecting = true;
+        Ok(())
+    }
+
     /// Drains what the backend sent since the last frame. True when something changed.
     pub fn poll(&mut self, ctx: &egui::Context, notifications: bool, preview: bool) -> bool {
         let mut changed = false;
@@ -451,14 +476,19 @@ impl Session {
             match event {
                 SignInEvent::Prompt(p) if p.mode == SignInMode::UnlockVault && p.error.is_none() => self.send_submit(),
                 SignInEvent::Authenticated(account) => {
+                    let reconnecting = self.reconnecting && self.account == Some(account);
                     self.account = Some(account);
-                    let mut v = matrix_desktop::DeviceVerification::new(account);
-                    v.refresh();
-                    self.verification = Some(v);
-                    self.notifications = matrix_domain::notifications::NotificationPolicy::new(account);
-                    // Rooms are scoped by account: the list must be built for the account that signed in.
-                    self.sidebar = matrix_desktop::Sidebar::connected(account);
+                    if reconnecting {
+                        if let Some(v) = &mut self.verification { v.refresh(); }
+                    } else {
+                        let mut v = matrix_desktop::DeviceVerification::new(account);
+                        v.refresh();
+                        self.verification = Some(v);
+                        self.notifications = matrix_domain::notifications::NotificationPolicy::new(account);
+                        self.sidebar = matrix_desktop::Sidebar::connected(account);
+                    }
                 }
+                SignInEvent::Recovery(RecoveryState::Offered) if self.reconnecting => self.defer_recovery(),
                 _ => {}
             }
         }
@@ -466,6 +496,7 @@ impl Session {
             changed = true;
             match event {
                 RoomListEvent::Status(s) => {
+                    if s == RoomSyncStatus::Ready { self.reconnecting = false; }
                     if s == RoomSyncStatus::AuthenticationFailed
                         && let Some(h) = &self.notify
                     {
@@ -1684,7 +1715,7 @@ impl Session {
 
     /// The «Cronologia cifrata» step is open: signed in, recovery offered, being checked or failed.
     pub fn recovering(&self) -> bool {
-        recovery_open(self.form.recovery())
+        !self.reconnecting && recovery_open(self.form.recovery())
     }
 
     pub fn defer_recovery(&mut self) {
@@ -1775,7 +1806,11 @@ impl Session {
     }
 
     pub fn status(&self) -> FormStatus {
-        self.form.status()
+        let status = self.form.status();
+        if self.reconnecting && !matches!(status, FormStatus::Failed(_) | FormStatus::Prompt(matrix_engine::signin::SignInPrompt { error: Some(_), .. })) {
+            if let Some(account) = self.account { return FormStatus::Authenticated(account); }
+        }
+        status
     }
 }
 
