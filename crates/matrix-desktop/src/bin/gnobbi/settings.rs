@@ -11,8 +11,10 @@ fn rgb(c: u32) -> Color32 {
 pub fn switch(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label(label);
-        ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| changed = toggle(ui, label, on, t));
+        ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
+            changed = toggle(ui, label, on, t);
+            wrapped_label(ui, label);
+        });
     });
     changed
 }
@@ -58,12 +60,17 @@ fn nav_row(ui: &mut egui::Ui, label: &str, icon: crate::icons::Icon, t: &DesignT
     resp
 }
 
+/// The row label, placed after the control so that it wraps in the width the control leaves (long translations).
+fn wrapped_label(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    ui.with_layout(crate::dir::row(egui::Align::Center), |ui| ui.add(egui::Label::new(label).wrap())).inner
+}
+
 /// One choice among a few: fixed label, the list on the right.
 pub fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
-        let name = ui.label(label);
         ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
-            crate::metrics::clickable(egui::ComboBox::from_id_salt(label).selected_text(selected).width(150.).show_ui(ui, |ui| crate::dir::scope(ui, add)).response).labelled_by(name.id);
+            let combo = crate::metrics::clickable(egui::ComboBox::from_id_salt(label).selected_text(selected).width(150.).show_ui(ui, |ui| crate::dir::scope(ui, add)).response);
+            combo.labelled_by(wrapped_label(ui, label).id);
         });
     });
 }
