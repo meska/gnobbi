@@ -2328,8 +2328,9 @@ fn single_instance_gate(_link: Option<String>) {
 #[cfg(not(any(target_os = "linux", windows)))]
 fn single_instance_gate(_link: Option<String>) {}
 
-/// Linux: the bundled Noto Color Emoji (SIL OFL 1.1, see THIRD_PARTY_NOTICES.md) as the last fallback, so the emoji set is the
-/// same on every system. macOS and Windows keep their own emoji font (system_fonts).
+/// Linux and iOS: the bundled Noto Color Emoji (SIL OFL 1.1, see THIRD_PARTY_NOTICES.md) as the last fallback, so the emoji set is the
+/// same on every system and never depends on the app being allowed to read Apple Color Emoji (on iOS the system font provider
+/// found nothing on the owner's iPhone). macOS and Windows keep their own emoji font (system_fonts).
 #[cfg(not(target_os = "ios"))]
 use matrix_desktop::tray::Tray as TrayHandle;
 /// iOS stub: the tray module needs tray-icon, which does not exist there.
@@ -2339,7 +2340,7 @@ struct TrayHandle;
 impl TrayHandle { fn start() -> Option<Self> { None } }
 
 fn register_emoji_font(ctx: &egui::Context) {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "ios"))]
     {
         static NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../assets/fonts/NotoColorEmoji.ttf");
         ctx.add_font(egui::epaint::text::FontInsert::new(
@@ -2351,7 +2352,7 @@ fn register_emoji_font(ctx: &egui::Context) {
             ],
         ));
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "ios")))]
     let _ = ctx;
 }
 
