@@ -7,3 +7,595 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of ja in this order, separated by |: other (a single form, no |).
 # See TRANSLATING.md.
+	Pinned	ピン留め
+	Low priority	低優先度
+	New chat	新しいチャット
+	Explore public rooms	公開ルームを探す
+	Search conversations	会話を検索
+	Mark as read	既読にする
+	Mark as unread	未読にする
+	Add to a space…	スペースに追加…
+	Leave?	退出しますか？
+	Leave	退出
+	Add to a space	スペースに追加
+	Add	追加
+	Cancel	キャンセル
+	Unpin	ピン留めを解除
+	Pin to top	先頭にピン留め
+	Remove from low priority	低優先度を解除
+	Mark as low priority	低優先度にする
+	Remove from {name}	{name} から削除
+	All messages	すべてのメッセージ
+	Mentions only	メンションのみ
+	Muted	ミュート
+banner	Reply	返信
+	Edit	編集
+	Send note	メモを送信
+	Reply in thread	スレッドで返信
+	Write a message	メッセージを入力
+	Emoji	絵文字
+	Sticker	ステッカー
+	Poll	投票
+	Attach a file	ファイルを添付
+	Voice note	ボイスメモ
+	Send	送信
+	Grinning face	にっこり笑った顔
+	Beaming face	目が笑っている満面の笑顔
+	Face with tears of joy	うれし涙を流す顔
+	Rolling on the floor laughing	笑い転げる
+	Smiling face with smiling eyes	目が笑っている笑顔
+	Smiling face with heart eyes	目がハートの笑顔
+	Face blowing a kiss	投げキスをする顔
+	Smiling face with sunglasses	サングラスをかけた笑顔
+	Thinking face	考える顔
+	Grinning face with sweat	冷や汗をかく笑顔
+	Winking face	ウインクする顔
+	Upside-down face	逆さまの顔
+	Crying face	泣き顔
+	Loudly crying face	大泣きする顔
+	Angry face	怒った顔
+	Screaming face	叫ぶ顔
+	Thumbs up	いいね
+	Thumbs down	よくないね
+	Clapping hands	拍手
+	Folded hands	祈る手
+	Flexed biceps	力こぶ
+	Waving hand	手を振る
+	Handshake	握手
+	Raising hands	両手を上げる
+	Party popper	クラッカー
+	Fire	炎
+	Sparkles	キラキラ
+	Hundred points	100点
+	Check mark	チェックマーク
+	Cross mark	バツ印
+	Eyes	目
+	Cup of coffee	コーヒー
+	Today	今日
+	Yesterday	昨日
+	Message deleted	メッセージは削除されました
+	Message unavailable	メッセージを表示できません
+	Encrypted message	暗号化されたメッセージ
+	Loading…	読み込み中…
+	Go to bottom	一番下へ移動
+	image	画像
+	video	動画
+@plural	{n} reply	{n} 件の返信
+	Encrypted	暗号化済み
+	Status messages	ステータスメッセージ
+	Same as settings	設定に従う
+	Show	表示
+	Hide	非表示
+@plural	{n} status message hidden	{n} 件のステータスメッセージを非表示
+	Search in room	ルーム内を検索
+	No results	結果なし
+	Search failed	検索に失敗しました
+	Retry	再試行
+	More results	さらに結果を表示
+	Profile link	プロフィールリンク
+	Verified	確認済み
+	Not verified	未確認
+	Message	メッセージ
+	Mention	メンション
+	Verify	確認する
+	Disconnect	切断
+	Last read	最後に既読
+	Chat unavailable	チャットを表示できません
+	Ignore	無視
+	Confirm	確認
+	Kick	キック
+	Ban	BAN
+	Failed	失敗しました
+	Thread unavailable	スレッドを表示できません
+	Thread	スレッド
+	Reply	返信
+	Addresses	アドレス
+	main	メイン
+	Main	メイン
+	name	名前
+@plural	{n} member	{n} 人のメンバー
+@plural	Delete {n} message	{n} 件のメッセージを削除
+	Reply to {name}	{name} に返信
+	Admin	管理者
+	Moderator	モデレーター
+	Member	メンバー
+	Invite	招待
+	Banned	BAN済み
+	Banned list unavailable	BANリストを表示できません
+	Unban	BANを解除
+	Reason	理由
+	Actions for {name}	{name} の操作
+	Name	名前
+	Topic	トピック
+	Drop an image here for the photo	ここに画像をドロップして写真に設定
+	Choose photo…	写真を選択…
+	Room photo	ルームの写真
+	Save	保存
+	Photo: {name}	写真: {name}
+	New poll	新しい投票
+	Question	質問
+	Add option	選択肢を追加
+	Multiple choice	複数選択
+	Results visible right away	結果をすぐに表示
+	Option {n}	選択肢 {n}
+	Video	動画
+	Image	画像
+	Save as	名前を付けて保存
+	Open	開く
+	Cannot open the content	コンテンツを開けません
+	Stickers are not encrypted, like an unencrypted image	ステッカーは暗号化されません（暗号化されていない画像と同じです）
+	No sticker packs	ステッカーパックがありません
+	Stickers unavailable	ステッカーを利用できません
+	Settings	設定
+	Account and security	アカウントとセキュリティ
+	Account	アカウント
+	Devices	デバイス
+	Appearance	外観
+	Language	言語
+	Theme	テーマ
+	System	システム
+	Accent	アクセントカラー
+	Icon	アイコン
+	Automatic night	自動ナイトモード
+	Chat	チャット
+	Read receipts	既読通知
+	Hide deleted messages	削除したメッセージを隠す
+	Show status messages	ステータスメッセージを表示
+	Message preview	メッセージのプレビュー
+	Notifications	通知
+	Close to tray	閉じるとトレイに格納
+	Add to menu	メニューに追加
+	Added to menu	メニューに追加しました
+	Could not add to menu	メニューに追加できませんでした
+	Classic	クラシック
+	Day	デイ
+	Dark	ダーク
+	Night	ナイト
+	No	なし
+	Schedule	スケジュール
+	Minimal mark	ミニマルマーク
+	Gnome	Gnome
+	Little monster	リトルモンスター
+	Blue	ブルー
+	Teal	ティール
+	Green	グリーン
+	Orange	オレンジ
+	Red	レッド
+	Pink	ピンク
+	Purple	パープル
+	A save is already in progress	保存はすでに進行中です
+	Account no longer connected	アカウントは接続されていません
+	Actions not available for this event	このイベントでは操作できません
+	Address already in use	アドレスはすでに使用されています
+	Already joined	すでに参加しています
+	Checking permissions…	権限を確認中…
+	Choose a file that does not exist yet	まだ存在しないファイルを選択してください
+	Connected	接続済み
+	Connecting…	接続中…
+	Connection failed	接続に失敗しました
+	Data folder not available	データフォルダを利用できません
+	Delete the selected message? This cannot be undone.	選択したメッセージを削除しますか？この操作は元に戻せません。
+	File cannot be attached	ファイルを添付できません
+	Image cannot be attached	画像を添付できません
+	Invalid name	無効な名前です
+	Joining…	参加中…
+	Message not available	メッセージを利用できません
+	No audio recorded	音声が録音されていません
+	Not allowed	許可されていません
+	Not allowed by the server	サーバーによって許可されていません
+	Operation failed	操作に失敗しました
+	Operation not confirmed · Retry uses the same ID (even if you change room)	操作が確認されていません · 再試行すると同じIDが使われます（ルームを変更しても同様）
+	Operation pending · no server confirmation	操作は保留中 · サーバーからの確認なし
+	Operation refused or unavailable	操作が拒否されたか、利用できません
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	返信/編集: 下書きに入力してからボタンを押してください。Enterは通常どおり送信します。
+	Room not found	ルームが見つかりません
+	Saved	保存しました
+	Saving failed	保存に失敗しました
+	Server unreachable	サーバーに接続できません
+	Sign-in failed	サインインに失敗しました
+	Sticker not sent	ステッカーを送信できませんでした
+	Still joining…	まだ参加中…
+	Sync interrupted	同期が中断されました
+	Voice note cannot be played	ボイスメモを再生できません
+	You are offline	オフラインです
+	The name cannot be empty.	名前を空にすることはできません。
+	The name is too long (256 characters at most).	名前が長すぎます（最大256文字）。
+	This server does not allow editing the profile.	このサーバーではプロフィールを編集できません。
+	Cannot read the chosen file.	選択したファイルを読み込めません。
+	The image is too large (25 MB at most).	画像が大きすぎます（最大25 MB）。
+	Choose a valid PNG, JPEG or WebP image.	有効なPNG、JPEG、WebP画像を選択してください。
+	Connection failed: try again shortly.	接続に失敗しました。しばらくしてからもう一度お試しください。
+	The server rejected the change.	サーバーが変更を拒否しました。
+	Space not found	スペースが見つかりません
+	Operation failed, try again	操作に失敗しました。もう一度お試しください
+	Minimize	最小化
+	Show Gnobbi	Gnobbi を表示
+	Quit Gnobbi	Gnobbi を終了
+	{name}, active account	{name}、アクティブなアカウント
+	New messages	新着メッセージ
+	1 new message	新着メッセージ1件
+	New message	新着メッセージ
+	📷 Photo	📷 写真
+	🎥 Video	🎥 動画
+	🎤 Voice message	🎤 ボイスメッセージ
+	🎵 Audio	🎵 音声
+	📎 File	📎 ファイル
+	📍 Location	📍 位置情報
+menu	Quit Gnobbi	Gnobbi を終了
+menu	About Gnobbi	Gnobbi について
+menu	Settings…	設定…
+menu	Services	サービス
+menu	Hide Gnobbi	Gnobbi を隠す
+menu	Hide Others	ほかを隠す
+menu	Show All	すべてを表示
+menu	Edit	編集
+menu	Undo	取り消す
+menu	Redo	やり直す
+menu	Cut	カット
+menu	Copy	コピー
+menu	Paste	ペースト
+menu	Select All	すべてを選択
+menu	Start Dictation…	音声入力を開始…
+menu	Emoji & Symbols	絵文字と記号
+menu	Window	ウインドウ
+menu	Minimize	しまう
+menu	Zoom	拡大/縮小
+menu	Bring All to Front	すべてを手前に移動
+@plural	Gnobbi, {n} unread	Gnobbi、未読 {n} 件
+	Customize	カスタマイズ
+	Sizes	サイズ
+	Text size	文字サイズ
+	Buttons and icons size	ボタンとアイコンのサイズ
+	Follow the system	システムに従う
+	Follow the text	文字に合わせる
+	Small	小
+	Normal	標準
+	Large	大
+	Compact	コンパクト
+	Comfortable	ゆったり
+	Restore defaults	初期設定に戻す
+	Preview	プレビュー
+	A sample message	サンプルメッセージ
+	Button	ボタン
+	Remove attachment	添付ファイルを削除
+	Cancel reply	返信をキャンセル
+	Close card	カードを閉じる
+	Close thread	スレッドを閉じる
+	Remove address	アドレスを削除
+	Copy	コピー
+	Menu	メニュー
+	Back	戻る
+	Chat list	チャット一覧
+	Info	情報
+	Copy key	キーをコピー
+	Remove option	選択肢を削除
+	Pause	一時停止
+	Play	再生
+	New	新規
+	New space	新しいスペース
+	Close	閉じる
+	Add account	アカウントを追加
+	Rename	名前を変更
+	Profile photo	プロフィール写真
+	Edit photo	写真を編集
+	Apply	適用
+	Reset	リセット
+	Rotate left	左に回転
+	Rotate right	右に回転
+	Mirror	反転
+	Zoom	ズーム
+	Rotation	回転
+	Brightness	明るさ
+	Contrast	コントラスト
+	Saturation	彩度
+	Original	オリジナル
+	B&W	白黒
+	Sepia	セピア
+	Vivid	ビビッド
+	Cool	クール
+	Warm	ウォーム
+	Fade	フェード
+	High contrast	ハイコントラスト
+	Preview: drag to move the photo	プレビュー: ドラッグして写真を移動
+	Could not download the current photo.	現在の写真をダウンロードできませんでした。
+	Could not prepare the photo.	写真を準備できませんでした。
+	Open link	リンクを開く
+	Could not open the link.	リンクを開けませんでした。
+	Copy link	リンクをコピー
+	Server	サーバー
+	Matrix ID	Matrix ID
+	Password	パスワード
+	Local passphrase	ローカルパスフレーズ
+	Sign in	サインイン
+	Unlock	ロック解除
+	Signing in…	サインイン中…
+	Unlocking…	ロック解除中…
+	Show password	パスワードを表示
+	Hide password	パスワードを隠す
+	Accept	承諾
+	Decline	辞退
+	Edit space	スペースを編集
+	Edit room	ルームを編集
+	Start failed	開始に失敗しました
+	Search	検索
+	Conversations	会話
+	Users	ユーザー
+	Public rooms	公開ルーム
+	React	リアクション
+	Confirm closing	終了の確認
+	Close poll	投票を終了
+	Confirm deletion	削除の確認
+	Delete	削除
+	Encrypted history	暗号化された履歴
+	Matrix recovery key	Matrix リカバリーキー
+	I saved the key: continue	キーを保存しました: 続ける
+	Recover encrypted history	暗号化された履歴を復元
+	Try creating the key again	もう一度キーを作成
+	Create recovery key	リカバリーキーを作成
+	Continue without recovery	リカバリーなしで続ける
+	A space cannot go inside itself	スペースを自分自身の中に入れることはできません
+	You do not have permission to edit «{name}»	「{name}」を編集する権限がありません
+	{label}, {n} unread	{label}、未読 {n} 件
+	Move {name}	{name} を移動
+	Move {name} down	{name} を下へ移動
+	Move {name} up	{name} を上へ移動
+	Organise spaces	スペースを整理
+	Unread	未読
+	All chats	すべてのチャット
+	Spaces	スペース
+	No spaces	スペースなし
+	Rooms unlinked: {n}	リンク解除したルーム: {n}
+	Rooms not unlinked: {n}	リンク解除できなかったルーム: {n}
+	Members removed: {n}	削除したメンバー: {n}
+	Not removed: {names}	削除できなかった人: {names}
+	Members who will be removed: {n}	削除されるメンバー: {n}
+	Rooms unlinked (they stay existing): {n}	リンク解除されるルーム（ルーム自体は残ります）: {n}
+	Space menu	スペースメニュー
+	Space info	スペース情報
+	Members	メンバー
+	Hand over the admin role…	管理者の役割を引き継ぐ…
+	Leave space	スペースから退出
+	Delete space	スペースを削除
+	Forget	忘れる
+	Failed, no change guaranteed: try again	失敗しました。変更は保証されません: もう一度お試しください
+	Member list not read	メンバーリストを読み込めませんでした
+	Space left and forgotten	スペースから退出し、忘れました
+	Space not left: try again	スペースから退出できませんでした: もう一度お試しください
+	Space not left: members remain	スペースから退出できませんでした: メンバーが残っています
+	This cannot be undone	この操作は元に戻せません
+	You still have rooms in this space.	このスペースにはまだルームがあります。
+	You are the last admin of the space.	あなたはこのスペースの最後の管理者です。
+	Make admin	管理者にする
+	Rooms not available	ルームを利用できません
+	Add existing room	既存のルームを追加
+	No rooms	ルームなし
+	Rooms	ルーム
+	Remove	削除
+	Search public rooms	公開ルームを検索
+	Your server	あなたのサーバー
+	Other server…	別のサーバー…
+	server name	サーバー名
+	Already in	参加済み
+	Join	参加
+	Remove photo	写真を削除
+	Active	アクティブ
+	Active account	アクティブなアカウント
+	Other accounts	ほかのアカウント
+	Last active {when}	最終アクティブ {when}
+	{text} in {path}	{path} の {text}
+	This device	このデバイス
+	Keys	キー
+	Export password	パスワードをエクスポート
+	Export keys	キーをエクスポート
+	Regenerate recovery key	リカバリーキーを再生成
+	Recover keys	キーを復元
+	Recovery key	リカバリーキー
+	Recover	復元
+	Other devices	ほかのデバイス
+	Sign out	サインアウト
+	Device name	デバイス名
+	New recovery key	新しいリカバリーキー
+	Done	完了
+	Direct chat	ダイレクトチャット
+	Room	ルーム
+	Space	スペース
+	Join a room	ルームに参加
+	Public	公開
+	Create	作成
+	#room:server or !id:server	#room:server または !id:server
+	Search people	ユーザーを検索
+	Images	画像
+	last message at {when}	最後のメッセージ {when}
+	last message on {when}	最後のメッセージ {when}
+	last message {when}	最後のメッセージ {when}
+	A user	ユーザー
+	{actor} created this room.	{actor} がこのルームを作成しました。
+	{actor} created this chat.	{actor} がこのチャットを作成しました。
+	{actor} invited {subject}	{actor} が {subject} を招待しました
+	{subject} joined the room	{subject} がルームに参加しました
+	{subject} left the room	{subject} がルームから退出しました
+	{actor} banned {subject}	{actor} が {subject} をBANしました
+	{actor} unbanned {subject}	{actor} が {subject} のBANを解除しました
+	{actor} removed {subject} from the room	{actor} が {subject} をルームから削除しました
+	{subject} declined the invitation	{subject} が招待を辞退しました
+	{actor} revoked the invitation for {subject}	{actor} が {subject} への招待を取り消しました
+	{actor} removed the room name	{actor} がルーム名を削除しました
+	{actor} changed the room name to «{name}»	{actor} がルーム名を「{name}」に変更しました
+	{actor} removed the room topic	{actor} がルームのトピックを削除しました
+	{actor} changed the room topic to «{topic}»	{actor} がルームのトピックを「{topic}」に変更しました
+	{actor} changed the room avatar	{actor} がルームのアバターを変更しました
+	{old} changed their name to {new}	{old} が名前を {new} に変更しました
+	{subject} set their name to {new}	{subject} が名前を {new} に設定しました
+	{subject} removed their display name	{subject} が表示名を削除しました
+	{subject} changed their avatar	{subject} がアバターを変更しました
+	{text} (reason: {reason})	{text}（理由: {reason}）
+	Audio	音声
+	File	ファイル
+	Photo	写真
+	Log out	ログアウト
+	Encryption keys on this device not backed up are lost.	このデバイス上でバックアップされていない暗号化キーは失われます。
+	The server did not answer. Remove it from this device anyway?	サーバーから応答がありません。このデバイスからそれでも削除しますか？
+	Remove from this device	このデバイスから削除
+	Wrong key. Check it and try again.	キーが正しくありません。確認してもう一度お試しください。
+	Server unreachable. Try again later or continue without recovery.	サーバーに接続できません。しばらくしてからもう一度お試しいただくか、リカバリーなしで続けてください。
+	Recovery took too long. Try again or continue without recovery.	復元に時間がかかりすぎました。もう一度お試しいただくか、リカバリーなしで続けてください。
+	No key backup on the server. Continue without recovery.	サーバーにキーのバックアップがありません。リカバリーなしで続けてください。
+	Recovery failed. Try again or continue without recovery.	復元に失敗しました。もう一度お試しいただくか、リカバリーなしで続けてください。
+	This account has no Matrix secret storage: no recovery key to enter.	このアカウントには Matrix のシークレットストレージがありません: 入力するリカバリーキーはありません。
+	The server offers no key backup: no recovery to create. Continue without recovery.	サーバーがキーのバックアップに対応していません: 作成できるリカバリーはありません。リカバリーなしで続けてください。
+	This account already has a recovery: enter the existing recovery key.	このアカウントにはすでにリカバリーがあります: 既存のリカバリーキーを入力してください。
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	このアカウントのリカバリーは設定が途中です: Gnobbi は変更しません。リカバリーなしで続けてください。
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	このアカウントには、このデバイスが持っていない暗号化IDがすでにあります: Gnobbi は置き換えません。リカバリーなしで続けてください。
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	サーバーが Gnobbi の対応していない追加の確認を求めています。リカバリーなしで続けてください。
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	サーバーに接続できません: リカバリーは作成されませんでした。もう一度お試しいただくか、リカバリーなしで続けてください。
+	Creation took too long. Try again or continue without recovery.	作成に時間がかかりすぎました。もう一度お試しいただくか、リカバリーなしで続けてください。
+	Creating the recovery failed. Try again or continue without recovery.	リカバリーの作成に失敗しました。もう一度お試しいただくか、リカバリーなしで続けてください。
+	Enter a server name or a valid HTTPS address.	サーバー名または有効なHTTPSアドレスを入力してください。
+	Enter the full Matrix ID: @name:server.	Matrix ID をすべて入力してください: @name:server
+	Enter the profile's local passphrase.	プロフィールのローカルパスフレーズを入力してください。
+	Password required; local passphrase of at least 16 characters.	パスワードが必要です。ローカルパスフレーズは16文字以上にしてください。
+	This server offers no password login. SSO/OIDC are not supported.	このサーバーはパスワードでのログインに対応していません。SSO/OIDC には対応していません。
+	This server does not support sliding sync	このサーバーは sliding sync に対応していません
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	サーバーからエラーが返されました: アドレスを確認してください（例: https://matrix.example.org）。
+	Server unreachable or invalid TLS certificate.	サーバーに接続できないか、TLS証明書が無効です。
+	Credentials not accepted. Try again.	認証情報が受け付けられませんでした。もう一度お試しください。
+	Too many attempts: try again in a moment.	試行回数が多すぎます。しばらくしてからもう一度お試しください。
+	Sign-in/unlock failed. Check the credentials and try again.	サインイン/ロック解除に失敗しました。認証情報を確認してもう一度お試しください。
+	System keychain unavailable or locked. Unlock it and try again.	システムのキーチェーンが利用できないか、ロックされています。ロックを解除してもう一度お試しください。
+	The profile key is not in the system keychain. The profile was not changed.	プロフィールキーがシステムのキーチェーンにありません。プロフィールは変更されていません。
+	Profile already open in another instance. Close it and restart.	プロフィールはすでに別のインスタンスで開かれています。閉じてから再起動してください。
+	Local profile unavailable. Close and check the profile path.	ローカルプロフィールを利用できません。閉じて、プロフィールのパスを確認してください。
+	Enter the Matrix password.	Matrix のパスワードを入力してください。
+	Creating the recovery and backup…	リカバリーとバックアップを作成中…
+@plural	{n} device to sign out	サインアウトするデバイス {n} 台
+@plural	{n} device without last activity not included	最終アクティビティのないデバイス {n} 台は対象外
+	Last activity {time}	最終アクティビティ {time}
+	They match	一致します
+	They don't match	一致しません
+	Yes	はい
+	Not available with this account	このアカウントでは利用できません
+	Incorrect password	パスワードが正しくありません
+	Failed. Try again.	失敗しました。もう一度お試しください。
+	Verification failed	確認に失敗しました
+	Verification request	確認リクエスト
+	Cancel the verification?	確認をキャンセルしますか？
+	Verification cancelled	確認をキャンセルしました
+	The emoji don't match	絵文字が一致しません
+	Verification	確認
+@plural	{n} key exported	{n} 個のキーをエクスポートしました
+	Gnobbi recovery key	Gnobbi リカバリーキー
+	Wrong unlock passphrase	ロック解除のパスフレーズが正しくありません
+	Password too short: at least 12 characters	パスワードが短すぎます: 12文字以上にしてください
+	Password too long: at most 4096 bytes	パスワードが長すぎます: 4096バイト以内にしてください
+	The passwords don't match	パスワードが一致しません
+	No keys to export on this device	このデバイスにはエクスポートするキーがありません
+	Can't write to this location	この場所には書き込めません
+	Export failed: try again	エクスポートに失敗しました: もう一度お試しください
+	Recover the keys on this device first	先にこのデバイスでキーを復元してください
+	The server asks for a confirmation that is not supported here	サーバーがここでは対応していない確認を求めています
+	Server unreachable: try again	サーバーに接続できません: もう一度お試しください
+	Regeneration failed: try again	再生成に失敗しました: もう一度お試しください
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	このデバイスにはアカウントのリカバリーキーがありません: 過去の暗号化メッセージを読むにはキーを入力してください
+	This account has no recovery key: without one, encrypted messages are lost with the devices	このアカウントにはリカバリーキーがありません: キーがないと、デバイスとともに暗号化メッセージも失われます
+	Restoring…	復元中…
+	Restore	復元
+	Not now	今はしない
+	Don't ask again for this account	このアカウントでは今後確認しない
+	Copy recovery key	リカバリーキーをコピー
+	Save it now: it will not be shown again	今すぐ保存してください: 二度と表示されません
+	Save to file	ファイルに保存
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	再生成中…
+	I kept it elsewhere	別の場所に保管しました
+	The server does not respond	サーバーが応答しません
+	Not a Matrix server	Matrix サーバーではありません
+	The server does not show its rooms	サーバーがルームを公開していません
+	Your server cannot reach this server	あなたのサーバーからこのサーバーに接続できません
+	Invalid server certificate	サーバー証明書が無効です
+	Searching	検索中
+	Partial results	一部の結果
+	Invalid server name	無効なサーバー名です
+	Timed out	タイムアウトしました
+	Loading	読み込み中
+	More results not loaded	それ以上の結果は読み込まれていません
+	The server name is needed, for example matrix.org	サーバー名が必要です（例: matrix.org）
+	This is a user ID: the server name is needed, for example matrix.org	これはユーザーIDです: サーバー名が必要です（例: matrix.org）
+	Only https addresses are allowed	https のアドレスのみ使用できます
+	Write only the server name, without a path	パスを含めず、サーバー名だけを入力してください
+	The server name is needed, without user or password	ユーザー名とパスワードを含めず、サーバー名を入力してください
+	Invalid port	無効なポートです
+	Invalid IP address	無効なIPアドレスです
+	Already present	すでにあります
+	Favorites	お気に入り
+	All	すべて
+	Demo room {n}	デモルーム {n}
+@plural	{n} unread	未読 {n} 件
+	edited	編集済み
+	[Message deleted]	[メッセージは削除されました]
+	Server ack · Reply	サーバー確認済み · 返信
+	Server ack	サーバー確認済み
+	local	ローカル
+	Microphone not available	マイクを利用できません
+	Audio playback not available	音声を再生できません
+	Public spaces	公開スペース
+	People	ユーザー
+	Location	位置情報
+	Message without text	テキストなしのメッセージ
+	Image.png	Image.png
+	invalid staging	無効なステージング
+	placement failed and restore failed	配置と復元に失敗しました
+	start failed and restore failed	開始と復元に失敗しました
+	another installation in progress	別のインストールが進行中です
+	channel without in-app update	アプリ内アップデートに対応していないチャンネル
+	binary to update not found	更新するバイナリが見つかりません
+	staging not found	ステージングが見つかりません
+	staging outside the target folder	ステージングが対象フォルダの外にあります
+	previous update pending	前のアップデートが保留中です
+	staging has a different size	ステージングのサイズが異なります
+	staging has a different hash	ステージングのハッシュが異なります
+	folder not writable	フォルダに書き込めません
+	staging cannot be verified	ステージングを検証できません
+	Update failed: {cause}	アップデートに失敗しました: {cause}
+	remove {name}	{name} を削除
+	error	エラー
+	invalid helper parameters	無効なヘルパーパラメーター
+	invalid binary to update	更新するバイナリが無効です
+	backup to restore not found	復元するバックアップが見つかりません
+	no pending restore	保留中の復元はありません
+	Windows update not available	Windows のアップデートは利用できません
+	data folder not found	データフォルダが見つかりません
+	the program did not close	プログラムが終了しませんでした
+	running binary differs from the target	実行中のバイナリが対象と異なります
+	helper without channel	チャンネルのないヘルパー
+	helper not ready	ヘルパーの準備ができていません
+	Update available · {version}	アップデートがあります · {version}
+	Update available, version {version}	アップデートがあります（バージョン {version}）
+	Updated to {version}	{version} に更新しました
+	Update failed: restored {version}	アップデートに失敗しました: {version} に復元しました
+	Update failed: error	アップデートに失敗しました: エラー
+	Update postponed: message not sent	アップデートを延期しました: メッセージは未送信です
+	backup differs from the binary, kept	バックアップがバイナリと異なるため、保持しました
+	gnobbi-keys.txt	gnobbi-keys.txt
+	Filter: {label}	フィルター: {label}
+	Sign out inactive	非アクティブをサインアウト
+	helper out of place	ヘルパーの位置が正しくありません
