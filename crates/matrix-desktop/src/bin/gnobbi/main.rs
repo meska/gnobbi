@@ -79,9 +79,9 @@ fn visuals(t: &DesignTokens, dark: bool) -> Visuals {
 }
 
 /// An account that is not on screen: its profile folder and its live session.
-struct Parked {
+struct Parked<S = Session> {
     root: std::path::PathBuf,
-    session: Session,
+    session: S,
     recorded: bool,
 }
 
@@ -173,6 +173,10 @@ struct App {
     remembered_root: Option<std::path::PathBuf>,
     signing_in_again: bool,
     recovery_switch: bool,
+    /// Add-account mode: the account that was on screen when the sign-in form opened (it keeps running, parked).
+    add_from: Option<std::path::PathBuf>,
+    /// Cancelled new profiles: removed once their worker has ended and let go of the store.
+    discarding: Vec<(matrix_engine::WorkerControl, std::path::PathBuf)>,
 }
 
 impl App {
@@ -218,7 +222,7 @@ impl App {
         }
         App { prefs, dirs: dirs.cloned(), list_open: false, nav: mobile::Nav::from_env(), rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
-            auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false, startup, startup_notice: None, account_notice: None, reopening: None, remembered_root: None, signing_in_again: false, recovery_switch: false }
+            auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false, startup, startup_notice: None, account_notice: None, reopening: None, remembered_root: None, signing_in_again: false, recovery_switch: false, add_from: None, discarding: Vec::new() }
     }
 
     /// Brings parked account `i` on screen; the shown one takes its place in the list.
@@ -227,6 +231,7 @@ impl App {
         let target = self.dirs.as_ref().and_then(|d| matrix_desktop::AccountCatalog::load(d).id_for_root(d, &self.parked[i].root)).map(|id| id.as_u64());
         eprintln!("Gnobbi: switch request catalog={target:?}");
         self.wake = None;
+        self.add_from = None;
         let p = self.parked.remove(i);
         if let Some(session) = self.session.take() {
             self.parked.push(Parked { root: self.root.clone(), session, recorded: self.recorded });
@@ -357,6 +362,7 @@ impl App {
     /// Takes the account out of the app and the catalog and deletes its files and vault items; no other account is touched.
     fn remove_account(&mut self, dir: &std::path::Path) {
         let Some(d) = self.dirs.clone() else { return };
+        self.add_from = None;
         if dir == self.root {
             self.start_error = None;
             self.startup = None;
@@ -429,6 +435,21 @@ impl App {
         }
     }
 
+    /// Leaves the add-account sign-in form: the previous account comes back on screen (it never stopped), the half-created
+    /// profile ends its worker and is wiped by `logic` once that has let go of the store. Nothing of the previous account is written.
+    fn cancel_add(&mut self) {
+        let Some(previous) = self.add_from.take() else { return };
+        let Some((new, new_root)) = cancel_add(&mut self.session, &mut self.root, &mut self.recorded, &mut self.parked, &previous) else { return };
+        let control = new.control();
+        control.stop();
+        self.discarding.push((control, new_root));
+        self.start_error = None;
+        self.account_notice = None;
+        self.signing_in_again = false;
+        self.remembered_root = Some(self.root.clone()); // LAST_ACCOUNT still names it: no write
+        self.reset_account_ui();
+    }
+
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
     fn refresh(&mut self, ctx: &egui::Context) {
         let system_dark = ctx.system_theme().is_some_and(|t| t == egui::Theme::Dark);
@@ -475,6 +496,13 @@ impl eframe::App for App {
         if suspend::is_suspended() {
             ctx.request_repaint_after(Duration::from_millis(100));
             return;
+        }
+        if let Some(d) = &self.dirs {
+            self.discarding.retain(|(control, dir)| {
+                let done = control.is_done();
+                if done { discard_new_profile(d, dir); }
+                !done
+            });
         }
         if self.reopening.as_ref().is_some_and(|(control, _)| control.as_ref().is_none_or(|c| c.is_done())) {
             let (_, again) = self.reopening.take().unwrap();
@@ -718,19 +746,28 @@ impl eframe::App for App {
         if self.open_failed() {
             self.account_recovery(ui, &t);
         } else if self.session.as_ref().is_some_and(|s| s.account.is_some() && !s.recovering()) {
+            self.add_from = None;
             self.shell(ui, &t);
             if self.nav.wants_repaint(self.list_open) {
                 ctx.request_repaint();
             }
         } else {
-            if self.signing_in_again {
+            let back = signin_back(self.signing_in_again, self.add_from.as_ref().is_some_and(|p| self.parked.iter().any(|q| &q.root == p)), self.session.as_ref().is_some_and(|s| s.account.is_some()));
+            let mut go = false;
+            if back.is_some() {
                 egui::Panel::top("account-sign-in-back").frame(bar(&t)).show(ui, |ui| {
-                    if ui.button(i18n::t("Cancel")).clicked() {
-                        self.signing_in_again = false;
-                    }
+                    go = icons::button(ui, icons::Icon::CaretLeft, false, i18n::t("Back")).clicked();
                 });
+                // Esc on desktop, the left-edge swipe on a phone.
+                go |= ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+                    || (mobile::touch() && mobile::back_drag(&ctx) == Some(mobile::BackDrag::Released(true)));
             }
-            self.sign_in(ui, &t);
+            match back {
+                Some(SigninBack::Recovery) if go => self.signing_in_again = false,
+                Some(SigninBack::Previous) if go => self.cancel_add(),
+                _ => {}
+            }
+            if !go { self.sign_in(ui, &t); }
         }
         if self.open_failed() { self.sign_out_step(&ctx); }
         if let Some(s) = &mut self.session { s.show_viewer(&ctx); }
@@ -1783,7 +1820,10 @@ impl App {
                 Some(accounts::Launch::Open(dir)) => self.open_account(dir),
                 Some(accounts::Launch::Add) => {
                     let next = matrix_desktop::AccountCatalog::load(dirs).next_root(dirs);
-                    self.open_account(next);
+                    let previous = self.root.clone();
+                    self.open_account(next.clone());
+                    // The way back from the sign-in form: only if the new profile really is on screen and the old one runs.
+                    self.add_from = (self.root == next && self.session.is_some()).then_some(previous);
                 }
                 Some(accounts::Launch::SignOut(dir)) => {
                     let catalog = matrix_desktop::AccountCatalog::load(dirs);
@@ -2534,6 +2574,36 @@ fn account_row_label<'a>(name: Option<&'a str>, saved: Option<&'a str>, user: Op
     [name, saved, user].into_iter().flatten().map(str::trim).find(|s| !s.is_empty()).unwrap_or("?")
 }
 
+/// Where the back control of the sign-in form leads. None: no way back (first run, or the account is already in).
+#[derive(Debug, PartialEq)]
+enum SigninBack {
+    /// «Accedi di nuovo»: the recovery screen.
+    Recovery,
+    /// Add account: the account that was open.
+    Previous,
+}
+
+fn signin_back(again: bool, previous_running: bool, authenticated: bool) -> Option<SigninBack> {
+    if again { Some(SigninBack::Recovery) } else { (previous_running && !authenticated).then_some(SigninBack::Previous) }
+}
+
+/// Swaps the previous account back in as the active one and hands out the cancelled new session with its folder.
+fn cancel_add<S>(current: &mut Option<S>, root: &mut std::path::PathBuf, recorded: &mut bool, parked: &mut Vec<Parked<S>>, previous: &std::path::Path) -> Option<(S, std::path::PathBuf)> {
+    let i = parked.iter().position(|p| p.root == previous)?;
+    let back = parked.remove(i);
+    let new = current.replace(back.session)?;
+    let new_root = std::mem::replace(root, back.root);
+    *recorded = back.recorded;
+    Some((new, new_root))
+}
+
+/// Deletes a profile folder that never got an account: only under `accounts/` and never one the catalog knows.
+fn discard_new_profile(dirs: &AppDirs, dir: &std::path::Path) {
+    if dir.starts_with(dirs.data.join("accounts")) && matrix_desktop::AccountCatalog::load(dirs).id_for_root(dirs, dir).is_none() {
+        accounts::wipe(dir, None);
+    }
+}
+
 fn account_switch_effect(pick: Option<std::path::PathBuf>, active: &std::path::Path, narrow: bool) -> (Option<std::path::PathBuf>, bool) {
     (pick.filter(|path| path != active), narrow)
 }
@@ -2541,6 +2611,38 @@ fn account_switch_effect(pick: Option<std::path::PathBuf>, active: &std::path::P
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signin_back_only_with_a_way_to_go() {
+        assert_eq!(signin_back(false, true, false), Some(SigninBack::Previous));
+        assert_eq!(signin_back(false, false, false), None); // first run / signed out of all
+        assert_eq!(signin_back(false, true, true), None); // already signed in: recovery step has its own skip
+        assert_eq!(signin_back(true, true, false), Some(SigninBack::Recovery));
+        assert_eq!(signin_back(true, false, false), Some(SigninBack::Recovery));
+    }
+
+    #[test]
+    fn cancelling_add_restores_the_previous_account_and_removes_only_the_new_profile() {
+        let root = std::env::temp_dir().join(format!("gnobbi-cancel-add-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dirs = AppDirs { config: root.join("c"), data: root.join("d"), cache: root.join("k") };
+        let (old, new) = (dirs.data.join("accounts/1"), dirs.data.join("accounts/2"));
+        for d in [&old, &new] {
+            std::fs::create_dir_all(d).unwrap();
+            std::fs::write(d.join("file"), "x").unwrap();
+        }
+        // The new profile is on screen, the old one parked (as `open_account` leaves them).
+        let (mut current, mut at, mut recorded) = (Some("new"), new.clone(), false);
+        let mut parked = vec![Parked { root: old.clone(), session: "old", recorded: true }];
+        assert!(cancel_add(&mut current, &mut at, &mut recorded, &mut parked, &root.join("gone")).is_none());
+        let (gone, gone_root) = cancel_add(&mut current, &mut at, &mut recorded, &mut parked, &old).unwrap();
+        assert_eq!((current, gone, &at, recorded, parked.len()), (Some("old"), "new", &old, true, 0));
+        discard_new_profile(&dirs, &gone_root);
+        assert!(!new.exists() && old.join("file").exists());
+        discard_new_profile(&dirs, &root); // outside accounts/: untouched
+        assert!(root.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn account_recovery_fallback_waits_for_open_and_stops_at_first_success() {
