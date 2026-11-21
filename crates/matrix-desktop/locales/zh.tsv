@@ -7,3 +7,681 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of zh in this order, separated by |: other (a single form, no |).
 # See TRANSLATING.md.
+
+# list
+	Pinned	已置顶
+	Low priority	低优先级
+	New chat	新建聊天
+	Explore public rooms	浏览公开房间
+	Search conversations	搜索对话
+	Mark as read	标记为已读
+	Mark as unread	标记为未读
+	Add to a space…	添加到空间…
+	Leave?	离开？
+	Leave	离开
+	Add to a space	添加到空间
+	Add	添加
+	Cancel	取消
+	Unpin	取消置顶
+	Pin to top	置顶
+	Remove from low priority	移出低优先级
+	Mark as low priority	标为低优先级
+	Remove from {name}	从{name}中移除
+	All messages	所有消息
+	Mentions only	仅提及
+	Muted	已静音
+
+# composer
+banner	Reply	回复
+	Edit	编辑
+	Send note	发送备注
+	Reply in thread	在消息串中回复
+	Write a message	输入消息
+	Emoji	表情
+	Sticker	贴纸
+	Poll	投票
+	Attach a file	附加文件
+	Voice note	语音消息
+	Send	发送
+
+# composer (emoji names)
+	Grinning face	露齿笑脸
+	Beaming face	眉开眼笑
+	Face with tears of joy	笑哭
+	Rolling on the floor laughing	笑得满地打滚
+	Smiling face with smiling eyes	微笑
+	Smiling face with heart eyes	爱心眼笑脸
+	Face blowing a kiss	飞吻
+	Smiling face with sunglasses	戴墨镜的笑脸
+	Thinking face	思考的脸
+	Grinning face with sweat	汗颜笑脸
+	Winking face	眨眼
+	Upside-down face	倒脸
+	Crying face	哭脸
+	Loudly crying face	大哭
+	Angry face	生气的脸
+	Screaming face	尖叫的脸
+	Thumbs up	点赞
+	Thumbs down	点踩
+	Clapping hands	鼓掌
+	Folded hands	双手合十
+	Flexed biceps	肌肉
+	Waving hand	挥手
+	Handshake	握手
+	Raising hands	举起双手
+	Party popper	庆祝
+	Fire	火焰
+	Sparkles	闪亮
+	Hundred points	一百分
+	Check mark	对勾
+	Cross mark	叉号
+	Eyes	眼睛
+	Cup of coffee	一杯咖啡
+
+# timeline
+	Today	今天
+	Yesterday	昨天
+	Message deleted	消息已删除
+	Message unavailable	消息不可用
+	Encrypted message	加密消息
+	Loading…	加载中…
+	Go to bottom	回到底部
+	image	图片
+	video	视频
+@plural	{n} reply	{n}条回复
+
+# info
+	Encrypted	已加密
+	Status messages	状态消息
+	Same as settings	与设置相同
+	Show	显示
+	Hide	隐藏
+@plural	{n} status message hidden	已隐藏{n}条状态消息
+	Search in room	在房间中搜索
+	No results	无结果
+	Search failed	搜索失败
+	Retry	重试
+	More results	更多结果
+	Profile link	个人资料链接
+	Verified	已验证
+	Not verified	未验证
+	Message	消息
+	Mention	提及
+	Verify	验证
+	Disconnect	断开连接
+	Last read	上次已读
+	Chat unavailable	聊天不可用
+	Ignore	忽略
+	Confirm	确认
+	Kick	移出
+	Ban	封禁
+	Failed	失败
+	Thread unavailable	消息串不可用
+	Thread	消息串
+	Reply	回复
+	Addresses	地址
+	main	主要
+	Main	主要
+	name	名称
+@plural	{n} member	{n}位成员
+@plural	Delete {n} message	删除{n}条消息
+	Reply to {name}	回复{name}
+
+# members
+	Admin	管理员
+	Moderator	协管员
+	Member	成员
+	Invite	邀请
+	Banned	已封禁
+	Banned list unavailable	无法获取封禁列表
+	Unban	解除封禁
+	Reason	原因
+	Actions for {name}	{name}的操作
+
+# roomedit
+	Name	名称
+	Topic	话题
+	Drop an image here for the photo	将图片拖到此处作为照片
+	Choose photo…	选择照片…
+	Room photo	房间照片
+	Save	保存
+	Photo: {name}	照片：{name}
+
+# poll
+	New poll	新建投票
+	Question	问题
+	Add option	添加选项
+	Multiple choice	多选
+	Results visible right away	立即显示结果
+	Option {n}	选项{n}
+
+# viewer
+	Video	视频
+	Image	图片
+	Save as	另存为
+	Open	打开
+	Cannot open the content	无法打开内容
+
+# stickers
+	Stickers are not encrypted, like an unencrypted image	贴纸未加密，与未加密的图片相同
+	No sticker packs	没有贴纸包
+	Stickers unavailable	贴纸不可用
+
+# settings
+	Settings	设置
+	Account and security	账户与安全
+	Account	账户
+	Devices	设备
+	Appearance	外观
+	Language	语言
+	Theme	主题
+	System	跟随系统
+	Accent	强调色
+	Icon	图标
+	Automatic night	自动夜间模式
+	Chat	聊天
+	Read receipts	已读回执
+	Hide deleted messages	隐藏已删除的消息
+	Show status messages	显示状态消息
+	Message preview	消息预览
+	Notifications	通知
+	Close to tray	关闭时最小化到托盘
+	Add to menu	添加到菜单
+	Added to menu	已添加到菜单
+	Could not add to menu	无法添加到菜单
+	Classic	经典
+	Day	日间
+	Dark	深色
+	Night	夜间
+	No	否
+	Schedule	定时
+	Minimal mark	极简标记
+	Gnome	Gnome
+	Little monster	小怪兽
+	Blue	蓝色
+	Teal	青色
+	Green	绿色
+	Orange	橙色
+	Red	红色
+	Pink	粉色
+	Purple	紫色
+
+# notifications, tray, menu bar, errors
+	A save is already in progress	正在保存，请稍候
+	Account no longer connected	账户已断开连接
+	Actions not available for this event	此事件不支持任何操作
+	Address already in use	地址已被占用
+	Already joined	已加入
+	Checking permissions…	正在检查权限…
+	Choose a file that does not exist yet	请选择一个尚不存在的文件
+	Connected	已连接
+	Connecting…	正在连接…
+	Connection failed	连接失败
+	Data folder not available	数据文件夹不可用
+	Delete the selected message? This cannot be undone.	删除所选消息？此操作无法撤销。
+	File cannot be attached	无法附加文件
+	Image cannot be attached	无法附加图片
+	Invalid name	名称无效
+	Joining…	正在加入…
+	Message not available	消息不可用
+	No audio recorded	没有录制到音频
+	Not allowed	不允许
+	Not allowed by the server	服务器不允许
+	Operation failed	操作失败
+	Operation not confirmed · Retry uses the same ID (even if you change room)	操作未确认 · 重试将使用相同的 ID（即使更换房间）
+	Operation pending · no server confirmation	操作待处理 · 服务器未确认
+	Operation refused or unavailable	操作被拒绝或不可用
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	回复/编辑：请在草稿中输入，然后点按按钮。按回车键将正常发送。
+	Room not found	未找到房间
+	Saved	已保存
+	Saving failed	保存失败
+	Server unreachable	无法连接服务器
+	Sign-in failed	登录失败
+	Sticker not sent	贴纸未发送
+	Still joining…	仍在加入…
+	Sync interrupted	同步已中断
+	Voice note cannot be played	无法播放语音消息
+	You are offline	你已离线
+	The name cannot be empty.	名称不能为空。
+	The name is too long (256 characters at most).	名称过长（最多 256 个字符）。
+	This server does not allow editing the profile.	此服务器不允许编辑个人资料。
+	Cannot read the chosen file.	无法读取所选文件。
+	The image is too large (25 MB at most).	图片过大（最大 25 MB）。
+	Choose a valid PNG, JPEG or WebP image.	请选择有效的 PNG、JPEG 或 WebP 图片。
+	Connection failed: try again shortly.	连接失败：请稍后重试。
+	The server rejected the change.	服务器拒绝了此更改。
+	Space not found	未找到空间
+	Operation failed, try again	操作失败，请重试
+	Minimize	最小化
+	Show Gnobbi	显示 Gnobbi
+	Quit Gnobbi	退出 Gnobbi
+	{name}, active account	{name}，当前账户
+	New messages	新消息
+	1 new message	1 条新消息
+	New message	新消息
+	📷 Photo	📷 图片
+	🎥 Video	🎥 视频
+	🎤 Voice message	🎤 语音消息
+	🎵 Audio	🎵 音频
+	📎 File	📎 文件
+	📍 Location	📍 位置
+menu	Quit Gnobbi	退出 Gnobbi
+menu	About Gnobbi	关于 Gnobbi
+menu	Settings…	设置…
+menu	Services	服务
+menu	Hide Gnobbi	隐藏 Gnobbi
+menu	Hide Others	隐藏其他
+menu	Show All	全部显示
+menu	Edit	编辑
+menu	Undo	撤销
+menu	Redo	重做
+menu	Cut	剪切
+menu	Copy	拷贝
+menu	Paste	粘贴
+menu	Select All	全选
+menu	Start Dictation…	开始听写…
+menu	Emoji & Symbols	表情与符号
+menu	Window	窗口
+menu	Minimize	最小化
+menu	Zoom	缩放
+menu	Bring All to Front	全部置于前面
+@plural	Gnobbi, {n} unread	Gnobbi，{n}条未读
+
+# Phosphor icons, sizes and Personalizza
+	Customize	自定义
+	Sizes	尺寸
+	Text size	文字大小
+	Buttons and icons size	按钮和图标大小
+	Follow the system	跟随系统
+	Follow the text	跟随文字
+	Small	小
+	Normal	正常
+	Large	大
+	Compact	紧凑
+	Comfortable	舒适
+	Restore defaults	恢复默认设置
+	Preview	预览
+	A sample message	示例消息
+	Button	按钮
+	Remove attachment	移除附件
+	Cancel reply	取消回复
+	Close card	关闭卡片
+	Close thread	关闭消息串
+	Remove address	移除地址
+	Copy	复制
+	Menu	菜单
+	Back	返回
+	Chat list	聊天列表
+	Info	信息
+	Copy key	复制密钥
+	Remove option	移除选项
+	Pause	暂停
+	Play	播放
+	New	新建
+	New space	新建空间
+	Close	关闭
+	Add account	添加账户
+	Rename	重命名
+
+# avatar editor
+	Profile photo	头像
+	Edit photo	编辑照片
+	Apply	应用
+	Reset	重置
+	Rotate left	向左旋转
+	Rotate right	向右旋转
+	Mirror	镜像
+	Zoom	缩放
+	Rotation	旋转
+	Brightness	亮度
+	Contrast	对比度
+	Saturation	饱和度
+	Original	原图
+	B&W	黑白
+	Sepia	怀旧
+	Vivid	鲜艳
+	Cool	冷色
+	Warm	暖色
+	Fade	褪色
+	High contrast	高对比度
+	Preview: drag to move the photo	预览：拖动以移动照片
+	Could not download the current photo.	无法下载当前照片。
+	Could not prepare the photo.	无法处理照片。
+	Open link	打开链接
+	Could not open the link.	无法打开链接。
+	Copy link	复制链接
+	Server	服务器
+	Matrix ID	Matrix ID
+	Password	密码
+	Local passphrase	本地口令
+	Sign in	登录
+	Unlock	解锁
+	Signing in…	正在登录…
+	Unlocking…	正在解锁…
+	Show password	显示密码
+	Hide password	隐藏密码
+# main
+	Accept	接受
+	Decline	拒绝
+	Edit space	编辑空间
+	Edit room	编辑房间
+	Start failed	启动失败
+	Search	搜索
+	Conversations	对话
+	Users	用户
+	Public rooms	公开房间
+	React	回应
+	Confirm closing	确认关闭
+	Close poll	结束投票
+	Confirm deletion	确认删除
+	Delete	删除
+	Encrypted history	加密历史记录
+	Matrix recovery key	Matrix 恢复密钥
+	I saved the key: continue	我已保存密钥：继续
+	Recover encrypted history	恢复加密历史记录
+	Try creating the key again	再次尝试创建密钥
+	Create recovery key	创建恢复密钥
+	Continue without recovery	不恢复，继续
+# rail
+	A space cannot go inside itself	空间不能放入其自身
+	You do not have permission to edit «{name}»	你没有编辑「{name}」的权限
+	{label}, {n} unread	{label}，{n}条未读
+	Move {name}	移动{name}
+	Move {name} down	将{name}下移
+	Move {name} up	将{name}上移
+	Organise spaces	整理空间
+	Unread	未读
+	All chats	所有聊天
+	Spaces	空间
+	No spaces	没有空间
+# space
+	Rooms unlinked: {n}	已取消关联的房间：{n}
+	Rooms not unlinked: {n}	未能取消关联的房间：{n}
+	Members removed: {n}	已移除的成员：{n}
+	Not removed: {names}	未移除：{names}
+	Members who will be removed: {n}	将被移除的成员：{n}
+	Rooms unlinked (they stay existing): {n}	已取消关联的房间（房间仍然存在）：{n}
+	Space menu	空间菜单
+	Space info	空间信息
+	Members	成员
+	Hand over the admin role…	移交管理员角色…
+	Leave space	离开空间
+	Delete space	删除空间
+	Forget	忘记
+	Failed, no change guaranteed: try again	失败，不保证未做任何更改：请重试
+	Member list not read	未读取成员列表
+	Space left and forgotten	已离开并忘记该空间
+	Space not left: try again	未能离开空间：请重试
+	Space not left: members remain	未能离开空间：仍有成员留下
+	This cannot be undone	此操作无法撤销
+	You still have rooms in this space.	你在此空间中仍有房间。
+	You are the last admin of the space.	你是此空间的最后一位管理员。
+	Make admin	设为管理员
+	Rooms not available	房间不可用
+	Add existing room	添加现有房间
+	No rooms	没有房间
+	Rooms	房间
+	Remove	移除
+# explore
+	Search public rooms	搜索公开房间
+	Your server	你的服务器
+	Other server…	其他服务器…
+	server name	服务器名称
+	Already in	已在其中
+	Join	加入
+# accounts
+	Remove photo	移除照片
+	Active	当前
+	Active account	当前账户
+	Other accounts	其他账户
+# devices
+	Last active {when}	最后活跃于{when}
+	{text} in {path}	{path}中的{text}
+	This device	此设备
+	Keys	密钥
+	Export password	导出密码
+	Export keys	导出密钥
+	Regenerate recovery key	重新生成恢复密钥
+	Recover keys	恢复密钥
+	Recovery key	恢复密钥
+	Recover	恢复
+	Other devices	其他设备
+	Sign out	退出登录
+	Device name	设备名称
+	New recovery key	新的恢复密钥
+	Done	完成
+# newchat
+	Direct chat	私聊
+	Room	房间
+	Space	空间
+	Join a room	加入房间
+	Public	公开
+	Create	创建
+	#room:server or !id:server	#room:server 或 !id:server
+	Search people	搜索用户
+# pick
+	Images	图片
+# time_fmt
+	last message at {when}	最后一条消息于{when}
+	last message on {when}	最后一条消息于{when}
+	last message {when}	最后一条消息{when}
+# engine text (status rows, attachment labels)
+	A user	某用户
+	{actor} created this room.	{actor}创建了此房间。
+	{actor} created this chat.	{actor}创建了此聊天。
+	{actor} invited {subject}	{actor}邀请了{subject}
+	{subject} joined the room	{subject}加入了房间
+	{subject} left the room	{subject}离开了房间
+	{actor} banned {subject}	{actor}封禁了{subject}
+	{actor} unbanned {subject}	{actor}解除了对{subject}的封禁
+	{actor} removed {subject} from the room	{actor}将{subject}移出了房间
+	{subject} declined the invitation	{subject}拒绝了邀请
+	{actor} revoked the invitation for {subject}	{actor}撤销了对{subject}的邀请
+	{actor} removed the room name	{actor}移除了房间名称
+	{actor} changed the room name to «{name}»	{actor}将房间名称更改为「{name}」
+	{actor} removed the room topic	{actor}移除了房间话题
+	{actor} changed the room topic to «{topic}»	{actor}将房间话题更改为「{topic}」
+	{actor} changed the room avatar	{actor}更改了房间头像
+	{old} changed their name to {new}	{old}将名称更改为{new}
+	{subject} set their name to {new}	{subject}将名称设为{new}
+	{subject} removed their display name	{subject}移除了显示名称
+	{subject} changed their avatar	{subject}更改了头像
+	{text} (reason: {reason})	{text}（原因：{reason}）
+	Audio	音频
+	File	文件
+	Photo	照片
+	Log out	退出登录
+	Encryption keys on this device not backed up are lost.	此设备上未备份的加密密钥将会丢失。
+	The server did not answer. Remove it from this device anyway?	服务器没有响应。仍要从此设备中移除吗？
+	Remove from this device	从此设备中移除
+
+# src/signin_form.rs
+	Wrong key. Check it and try again.	密钥错误。请检查后重试。
+	Server unreachable. Try again later or continue without recovery.	无法连接服务器。请稍后重试，或不恢复继续。
+	Recovery took too long. Try again or continue without recovery.	恢复耗时过长。请重试，或不恢复继续。
+	No key backup on the server. Continue without recovery.	服务器上没有密钥备份。请不恢复继续。
+	Recovery failed. Try again or continue without recovery.	恢复失败。请重试，或不恢复继续。
+	This account has no Matrix secret storage: no recovery key to enter.	此账户没有 Matrix 安全存储：无需输入恢复密钥。
+	The server offers no key backup: no recovery to create. Continue without recovery.	服务器不提供密钥备份：无法创建恢复。请不恢复继续。
+	This account already has a recovery: enter the existing recovery key.	此账户已有恢复：请输入现有的恢复密钥。
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	此账户的恢复仅设置了一半：Gnobbi 不会更改它。请不恢复继续。
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	此账户已有一个本设备不持有的加密身份：Gnobbi 不会替换它。请不恢复继续。
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	服务器要求额外确认，Gnobbi 不支持。请不恢复继续。
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	无法连接服务器：未创建恢复。请重试，或不恢复继续。
+	Creation took too long. Try again or continue without recovery.	创建耗时过长。请重试，或不恢复继续。
+	Creating the recovery failed. Try again or continue without recovery.	创建恢复失败。请重试，或不恢复继续。
+	Enter a server name or a valid HTTPS address.	请输入服务器名称或有效的 HTTPS 地址。
+	Enter the full Matrix ID: @name:server.	请输入完整的 Matrix ID：@name:server。
+	Enter the profile's local passphrase.	请输入此配置文件的本地口令。
+	Password required; local passphrase of at least 16 characters.	需要密码；本地口令至少 16 个字符。
+	This server offers no password login. SSO/OIDC are not supported.	此服务器不提供密码登录。不支持 SSO/OIDC。
+	This server does not support sliding sync	此服务器不支持 sliding sync
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	服务器返回了错误：请检查地址（例如 https://matrix.example.org）。
+	Server unreachable or invalid TLS certificate.	无法连接服务器，或 TLS 证书无效。
+	Credentials not accepted. Try again.	凭据未被接受。请重试。
+	Too many attempts: try again in a moment.	尝试次数过多：请稍后再试。
+	Sign-in/unlock failed. Check the credentials and try again.	登录/解锁失败。请检查凭据后重试。
+	System keychain unavailable or locked. Unlock it and try again.	系统钥匙串不可用或已锁定。请解锁后重试。
+	The profile key is not in the system keychain. The profile was not changed.	系统钥匙串中没有该配置文件的密钥。配置文件未被更改。
+	Profile already open in another instance. Close it and restart.	配置文件已在另一个实例中打开。请关闭后重新启动。
+	Local profile unavailable. Close and check the profile path.	本地配置文件不可用。请关闭并检查配置文件路径。
+	Enter the Matrix password.	请输入 Matrix 密码。
+
+# signin
+	Creating the recovery and backup…	正在创建恢复和备份…
+
+# devices
+@plural	{n} device to sign out	{n}台设备待退出登录
+@plural	{n} device without last activity not included	不含{n}台无最近活动记录的设备
+
+# devices
+	Last activity {time}	最后活动于{time}
+	They match	一致
+	They don't match	不一致
+	Yes	是
+	Not available with this account	此账户不可用
+	Incorrect password	密码不正确
+	Failed. Try again.	失败。请重试。
+	Verification failed	验证失败
+	Verification request	验证请求
+	Cancel the verification?	取消验证？
+	Verification cancelled	验证已取消
+	The emoji don't match	表情不一致
+	Verification	验证
+
+# key export
+@plural	{n} key exported	已导出{n}个密钥
+
+# key export
+	Gnobbi recovery key	Gnobbi 恢复密钥
+	Wrong unlock passphrase	解锁口令错误
+	Password too short: at least 12 characters	密码太短：至少 12 个字符
+	Password too long: at most 4096 bytes	密码太长：最多 4096 字节
+	The passwords don't match	两次输入的密码不一致
+	No keys to export on this device	此设备上没有可导出的密钥
+	Can't write to this location	无法写入此位置
+	Export failed: try again	导出失败：请重试
+	Recover the keys on this device first	请先在此设备上恢复密钥
+	The server asks for a confirmation that is not supported here	服务器要求此处不支持的确认
+	Server unreachable: try again	无法连接服务器：请重试
+	Regeneration failed: try again	重新生成失败：请重试
+
+# key export
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	此设备没有该账户的恢复密钥：请输入密钥以读取旧的加密消息
+	This account has no recovery key: without one, encrypted messages are lost with the devices	此账户没有恢复密钥：没有它，加密消息会随设备一起丢失
+	Restoring…	正在恢复…
+	Restore	恢复
+	Not now	以后再说
+	Don't ask again for this account	不再为此账户询问
+	Copy recovery key	复制恢复密钥
+	Save it now: it will not be shown again	请立即保存：之后将不再显示
+	Save to file	保存到文件
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	正在重新生成…
+	I kept it elsewhere	我已另行保存
+
+# search list and add server
+	The server does not respond	服务器没有响应
+	Not a Matrix server	不是 Matrix 服务器
+	The server does not show its rooms	服务器不显示其房间
+	Your server cannot reach this server	你的服务器无法连接到此服务器
+	Invalid server certificate	服务器证书无效
+	Searching	正在搜索
+	Partial results	部分结果
+	Invalid server name	服务器名称无效
+	Timed out	已超时
+	Loading	加载中
+	More results not loaded	未加载更多结果
+
+# search list and add server
+	The server name is needed, for example matrix.org	需要服务器名称，例如 matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	这是用户 ID：需要服务器名称，例如 matrix.org
+	Only https addresses are allowed	仅允许 https 地址
+	Write only the server name, without a path	只需填写服务器名称，不要带路径
+	The server name is needed, without user or password	需要服务器名称，不含用户名或密码
+	Invalid port	端口无效
+	Invalid IP address	IP 地址无效
+	Already present	已存在
+
+# sidebar
+	Favorites	收藏
+	All	全部
+	Demo room {n}	演示房间 {n}
+
+# history
+@plural	{n} unread	{n}条未读
+
+# history
+	edited	已编辑
+	[Message deleted]	[消息已删除]
+	Server ack · Reply	服务器已确认 · 回复
+	Server ack	服务器已确认
+	local	本地
+
+# audio
+	Microphone not available	麦克风不可用
+
+# audio
+	Audio playback not available	音频播放不可用
+
+# search
+	Public spaces	公开空间
+	People	用户
+
+# engine placeholders
+	Location	位置
+	Message without text	无文字消息
+	Image.png	Image.png
+
+# update
+	invalid staging	暂存无效
+	placement failed and restore failed	放置失败且恢复失败
+	start failed and restore failed	启动失败且恢复失败
+	another installation in progress	另一个安装正在进行
+	channel without in-app update	该渠道不支持应用内更新
+	binary to update not found	未找到要更新的程序
+	staging not found	未找到暂存
+	staging outside the target folder	暂存位于目标文件夹之外
+	previous update pending	上一次更新尚未完成
+	staging has a different size	暂存的大小不一致
+	staging has a different hash	暂存的哈希值不一致
+	folder not writable	文件夹不可写
+	staging cannot be verified	无法验证暂存
+	Update failed: {cause}	更新失败：{cause}
+	remove {name}	移除{name}
+	error	错误
+
+# update
+	invalid helper parameters	辅助程序参数无效
+	invalid binary to update	要更新的程序无效
+	backup to restore not found	未找到要恢复的备份
+	no pending restore	没有待处理的恢复
+	Windows update not available	Windows 更新不可用
+	data folder not found	未找到数据文件夹
+	the program did not close	程序未关闭
+	running binary differs from the target	正在运行的程序与目标不一致
+	helper without channel	辅助程序没有渠道
+	helper not ready	辅助程序未就绪
+
+# update
+	Update available · {version}	有可用更新 · {version}
+	Update available, version {version}	有可用更新，版本 {version}
+	Updated to {version}	已更新到 {version}
+	Update failed: restored {version}	更新失败：已恢复到 {version}
+	Update failed: error	更新失败：错误
+	Update postponed: message not sent	更新已推迟：消息未发送
+
+# update
+	backup differs from the binary, kept	备份与程序不一致，已保留
+
+# key export
+	gnobbi-keys.txt	gnobbi-keys.txt
+
+# search
+	Filter: {label}	筛选：{label}
+
+# devices
+	Sign out inactive	退出不活跃的设备
+
+# update
+	helper out of place	辅助程序位置不当
