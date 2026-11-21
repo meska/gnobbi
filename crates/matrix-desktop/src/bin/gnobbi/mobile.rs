@@ -13,13 +13,21 @@ pub fn set_keyboard(points: f32) {
     KEYBOARD.store(points.max(0.).to_bits(), Ordering::Relaxed);
 }
 
+/// Points of the screen bottom covered by a keyboard whose end frame starts at `frame.0` and is `frame.1` wide, on a screen of
+/// `screen` = (width, height). None for the transient frame iOS posts in the rotated space (width = screen height, y = 67):
+/// a frame that is not as wide as the screen is not the keyboard, keep the previous value.
+#[cfg(any(target_os = "ios", test))]
+fn covered_by_keyboard(screen: (f64, f64), frame: (f64, f64)) -> Option<f32> {
+    ((frame.1 - screen.0).abs() <= 1.).then(|| (screen.1 - frame.0).max(0.) as f32)
+}
+
 /// iOS: follows the on-screen keyboard (frame changes and hide) into `set_keyboard`. Call once at startup, on the main thread.
 #[cfg(target_os = "ios")]
 pub fn observe_keyboard(ctx: &egui::Context) {
     use objc2::{MainThreadMarker, msg_send, runtime::AnyObject};
     use objc2_core_foundation::CGRect;
     use objc2_foundation::{NSNotification, NSNotificationCenter};
-    use objc2_ui_kit::{UIApplication, UIKeyboardFrameEndUserInfoKey, UIKeyboardWillChangeFrameNotification, UIKeyboardWillHideNotification};
+    use objc2_ui_kit::{UIKeyboardFrameEndUserInfoKey, UIScreen, UIKeyboardWillChangeFrameNotification, UIKeyboardWillHideNotification};
     let Some(mtm) = MainThreadMarker::new() else { return };
     let center = NSNotificationCenter::defaultCenter();
     let on = |name: &objc2_foundation::NSNotificationName, hide: bool| {
@@ -29,17 +37,15 @@ pub fn observe_keyboard(ctx: &egui::Context) {
             let covered = if hide {
                 0.
             } else {
-                // The end frame is in screen coordinates; a full-screen app's window starts at the screen top.
+                // The end frame is in screen coordinates. `keyWindow` is NOT the screen: during keyboard transitions it is a system
+                // window of another size (seen: 402 for 874), so measure against the screen.
                 let frame = n.userInfo().and_then(|u| u.objectForKey(unsafe { UIKeyboardFrameEndUserInfoKey }));
-                let bottom = UIApplication::sharedApplication(mtm).keyWindow().map(|w| w.bounds().max().y);
-                match (frame, bottom) {
-                    (Some(v), Some(bottom)) => {
-                        let v: &AnyObject = &v;
-                        let f: CGRect = unsafe { msg_send![v, CGRectValue] };
-                        (bottom - f.min().y) as f32
-                    }
-                    _ => return,
-                }
+                let screen = UIScreen::mainScreen(mtm).bounds();
+                let Some(v) = frame else { return };
+                let v: &AnyObject = &v;
+                let f: CGRect = unsafe { msg_send![v, CGRectValue] };
+                let Some(covered) = covered_by_keyboard((screen.size.width, screen.max().y), (f.min().y, f.size.width)) else { return };
+                covered
             };
             set_keyboard(covered);
             ctx.request_repaint();
@@ -233,6 +239,14 @@ mod tests {
         let mut se = egui::RawInput { screen_rect: raw.screen_rect, safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 20., ..Default::default() })), ..Default::default() };
         insets.apply(&mut se);
         assert_eq!(se.safe_area_insets.unwrap().0.left, 0., "no notch: nothing to add");
+    }
+
+    #[test]
+    fn keyboard_frames_of_the_wrong_shape_are_ignored() {
+        let screen = (402., 874.);
+        assert_eq!(covered_by_keyboard(screen, (539., 402.)), Some(335.), "docked keyboard");
+        assert_eq!(covered_by_keyboard(screen, (874., 402.)), Some(0.), "hidden: parked below the screen");
+        assert_eq!(covered_by_keyboard(screen, (67., 874.)), None, "transient frame in the rotated space");
     }
 
     #[test]

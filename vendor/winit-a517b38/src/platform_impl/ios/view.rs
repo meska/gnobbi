@@ -3,15 +3,16 @@ use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
+use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{declare_class, msg_send, msg_send_id, mutability, sel, ClassType, DeclaredClass};
 use objc2_foundation::{
     CGFloat, CGPoint, CGRect, CGSize, MainThreadMarker, NSArray, NSAttributedStringKey,
     NSComparisonResult, NSDictionary, NSInteger, NSObject, NSRange, NSSet, NSString,
 };
 use objc2_ui_kit::{
-    UICoordinateSpace, UIEvent, UIForceTouchCapability, UIGestureRecognizer,
-    UIGestureRecognizerDelegate, UIGestureRecognizerState, UIKeyInput, UIPanGestureRecognizer,
+    UICoordinateSpace, UIEditMenuConfiguration, UIEditMenuInteraction, UIEvent, UIForceTouchCapability,
+    UIGestureRecognizer, UIGestureRecognizerDelegate, UIGestureRecognizerState, UIKeyInput,
+    UILongPressGestureRecognizer, UIPanGestureRecognizer, UIPasteboard,
     UIPinchGestureRecognizer, UIResponder, UIRotationGestureRecognizer, UITapGestureRecognizer,
     UITextAutocapitalizationType, UITextAutocorrectionType, UITextInput, UITextInputDelegate, UITextInputStringTokenizer,
     UITextInputTokenizer, UITextInputTraits, UITextLayoutDirection, UITextPosition, UITextRange,
@@ -24,7 +25,8 @@ use super::ime::{downcast_position, downcast_range, WinitTextPosition, WinitText
 use super::ime_document::ImeDocument;
 use super::window::WinitUIWindow;
 use crate::dpi::PhysicalPosition;
-use crate::event::{ElementState, Event, Force, Ime, KeyEvent, Touch, TouchPhase, WindowEvent};
+use crate::event::{ElementState, Event, Force, Ime, KeyEvent, Modifiers, Touch, TouchPhase, WindowEvent};
+use crate::keyboard::ModifiersState;
 use crate::keyboard::{Key, KeyCode, KeyLocation, NamedKey, NativeKeyCode, PhysicalKey};
 use crate::platform_impl::platform::DEVICE_ID;
 use crate::platform_impl::KeyEventExtra;
@@ -53,6 +55,9 @@ pub struct WinitViewState {
     ime_delegate: RefCell<Option<Retained<ProtocolObject<dyn UITextInputDelegate>>>>,
     // One entry per `Ime::Commit` sent: the bytes before the caret it replaces.
     ime_deletes: RefCell<VecDeque<Option<usize>>>,
+    // System edit menu (Cut/Copy/Paste/Select All) on long press and double tap in a text field.
+    edit_menu: RefCell<Option<Retained<UIEditMenuInteraction>>>,
+    edit_menu_at: Cell<CGPoint>,
 }
 
 declare_class!(
@@ -342,6 +347,74 @@ declare_class!(
             app_state::handle_nonuser_event(mtm, gesture_event);
         }
 
+        // System edit actions: the edit menu and the hardware Cmd+C/X/V/A reach the view through the responder chain.
+        #[method(canPerformAction:withSender:)]
+        fn can_perform_action(&self, action: Sel, sender: Option<&AnyObject>) -> bool {
+            if action == sel!(paste:) {
+                self.ivars().ime_allowed.get() && unsafe { UIPasteboard::generalPasteboard().hasStrings() }
+            } else if action == sel!(selectAll:) {
+                self.ivars().ime_allowed.get()
+            } else if action == sel!(copy:) || action == sel!(cut:) {
+                // Nothing leaves a password field.
+                self.ivars().ime_allowed.get() && !self.ivars().ime_secure.get()
+            } else {
+                unsafe { msg_send![super(self), canPerformAction: action, withSender: sender] }
+            }
+        }
+
+        #[method(paste:)]
+        fn paste(&self, _sender: Option<&AnyObject>) {
+            // Same path as typing, so it reaches whichever field has the focus (password included).
+            if let Some(text) = unsafe { UIPasteboard::generalPasteboard().string() } {
+                self.handle_insert_text(&text);
+            }
+        }
+
+        #[method(copy:)]
+        fn copy(&self, _sender: Option<&AnyObject>) {
+            self.emit_named_key(NamedKey::Copy);
+        }
+
+        #[method(cut:)]
+        fn cut(&self, _sender: Option<&AnyObject>) {
+            self.emit_named_key(NamedKey::Cut);
+        }
+
+        #[method(selectAll:)]
+        fn select_all(&self, _sender: Option<&AnyObject>) {
+            // Cmd+A, as a hardware keyboard would send it.
+            self.emit_window_event(WindowEvent::ModifiersChanged(Modifiers::from(ModifiersState::SUPER)));
+            self.emit_key(Key::Character("a".into()), PhysicalKey::Code(KeyCode::KeyA));
+            self.emit_window_event(WindowEvent::ModifiersChanged(Modifiers::default()));
+            // UIKit closes the menu after an action; iOS shows it again on the selection (Cut/Copy/Paste), so do the same.
+            unsafe { let _: () = msg_send![self, performSelector: sel!(reshowEditMenu), withObject: None::<&AnyObject>, afterDelay: 0.2f64]; }
+        }
+
+        #[method(reshowEditMenu)]
+        fn reshow_edit_menu(&self) {
+            self.present_edit_menu(self.ivars().edit_menu_at.get());
+        }
+
+        #[method(showEditMenu:)]
+        fn show_edit_menu(&self, recognizer: &UIGestureRecognizer) {
+            // Long press starts the menu; the double tap ends after egui has selected the word.
+            let state = recognizer.state();
+            if state != UIGestureRecognizerState::Began && state != UIGestureRecognizerState::Ended {
+                return;
+            }
+            if !self.ivars().ime_allowed.get() {
+                return;
+            }
+            let at = unsafe { recognizer.locationInView(Some(self)) };
+            // shortcut: the field is known only by the caret rectangle, so a press within 60 pt above or below it counts as on
+            // the field; a field that wraps over more lines than that does not get the menu on its first lines.
+            let caret = self.ivars().ime_area.get();
+            if caret.size.height > 0.0 && (at.y < caret.origin.y - 60.0 || at.y > caret.origin.y + caret.size.height + 60.0) {
+                return;
+            }
+            self.present_edit_menu(at);
+        }
+
         #[method(canBecomeFirstResponder)]
         fn can_become_first_responder(&self) -> bool {
             true
@@ -358,9 +431,13 @@ declare_class!(
     }
 
     unsafe impl UITextInputTraits for WinitView {
+        // Never true: once UIKit has seen `isSecureTextEntry` on this (single) view it keeps the Passwords AutoFill bar on every
+        // field that follows, the chat composer included (measured in the simulator). A password field is protected here by
+        // `ime_secure` instead: no autocorrection or learning, the document stays empty. shortcut: a third-party keyboard is
+        // allowed there; split the password field into its own UIView to get the system's secure keyboard back.
         #[method(isSecureTextEntry)]
         fn is_secure_text_entry(&self) -> bool {
-            self.ivars().ime_secure.get()
+            false
         }
 
         #[method(autocorrectionType)]
@@ -767,16 +844,72 @@ impl WinitView {
             ime_area: Cell::new(CGRect { origin: CGPoint { x: 0.0, y: 0.0 }, size: CGSize { width: 0.0, height: 0.0 } }),
             ime_delegate: RefCell::new(None),
             ime_deletes: RefCell::new(VecDeque::new()),
+            edit_menu: RefCell::new(None),
+            edit_menu_at: Cell::new(CGPoint { x: 0.0, y: 0.0 }),
         });
         let this: Retained<Self> = unsafe { msg_send_id![super(this), initWithFrame: frame] };
 
         this.setMultipleTouchEnabled(true);
+        this.install_edit_menu(mtm);
 
         if let Some(scale_factor) = window_attributes.platform_specific.scale_factor {
             this.setContentScaleFactor(scale_factor as _);
         }
 
         this
+    }
+
+    /// Long press and double tap open the system edit menu (the interaction is shown by `showEditMenu:`).
+    fn install_edit_menu(&self, mtm: MainThreadMarker) {
+        unsafe {
+            let menu = UIEditMenuInteraction::initWithDelegate(mtm.alloc(), None);
+            self.addInteraction(ProtocolObject::from_ref(&*menu));
+            self.ivars().edit_menu.replace(Some(menu));
+            let long = UILongPressGestureRecognizer::initWithTarget_action(mtm.alloc(), Some(self), Some(sel!(showEditMenu:)));
+            let tap = UITapGestureRecognizer::initWithTarget_action(mtm.alloc(), Some(self), Some(sel!(showEditMenu:)));
+            tap.setNumberOfTapsRequired(2);
+            for r in [&**long as &UIGestureRecognizer, &**tap as &UIGestureRecognizer] {
+                // egui keeps every touch: the menu is an extra, not a replacement.
+                r.setCancelsTouchesInView(false);
+                r.setDelaysTouchesEnded(false);
+                r.setDelegate(Some(ProtocolObject::from_ref(self)));
+                self.addGestureRecognizer(r);
+            }
+        }
+    }
+
+    fn present_edit_menu(&self, at: CGPoint) {
+        self.ivars().edit_menu_at.set(at);
+        unsafe { self.becomeFirstResponder() };
+        if let Some(menu) = self.ivars().edit_menu.borrow().as_ref() {
+            let mtm = MainThreadMarker::from(self);
+            unsafe {
+                let config = UIEditMenuConfiguration::configurationWithIdentifier_sourcePoint(None, at, mtm);
+                menu.presentEditMenuWithConfiguration(&config);
+            }
+        }
+    }
+
+    fn emit_key(&self, logical_key: Key, physical_key: PhysicalKey) {
+        for state in [ElementState::Pressed, ElementState::Released] {
+            self.emit_window_event(WindowEvent::KeyboardInput {
+                device_id: DEVICE_ID,
+                event: KeyEvent {
+                    state,
+                    logical_key: logical_key.clone(),
+                    physical_key,
+                    platform_specific: KeyEventExtra {},
+                    repeat: false,
+                    location: KeyLocation::Standard,
+                    text: None,
+                },
+                is_synthetic: false,
+            });
+        }
+    }
+
+    fn emit_named_key(&self, key: NamedKey) {
+        self.emit_key(Key::Named(key), PhysicalKey::Unidentified(NativeKeyCode::Unidentified));
     }
 
     fn window(&self) -> Option<Retained<WinitUIWindow>> {

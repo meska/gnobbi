@@ -1888,7 +1888,8 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
                 ui.data_mut(|d| d.insert_temp(eye_id, !shown));
             }
         }
-        // Long press (touch) or right click: the only way to paste on a phone without a keyboard shortcut.
+        // Right click. On iOS the long press opens the system edit menu on the view (winit), which pastes into every field.
+        #[cfg(not(target_os = "ios"))]
         r.context_menu(|ui| {
             if ui.button(i18n::t_ctx("menu", "Paste")).clicked() {
                 ui.memory_mut(|mem| mem.request_focus(r.id));

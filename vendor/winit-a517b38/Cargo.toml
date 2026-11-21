@@ -203,8 +203,12 @@ version = "0.2.2"
 features = [
     "UIApplication",
     "UIDevice",
+    "UIEditMenuInteraction",
     "UIEvent",
     "UIGeometry",
+    "UIInteraction",
+    "UILongPressGestureRecognizer",
+    "UIPasteboard",
     "UIGestureRecognizer",
     "UITextInput",
     "UITextInputTraits",
