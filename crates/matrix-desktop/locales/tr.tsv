@@ -7,3 +7,596 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of tr in this order, separated by |: one|other.
 # See TRANSLATING.md.
+
+	Pinned	Sabitlenenler
+	Low priority	Düşük öncelik
+	New chat	Yeni sohbet
+	Explore public rooms	Herkese açık odalara göz at
+	Search conversations	Sohbetlerde ara
+	Mark as read	Okundu olarak işaretle
+	Mark as unread	Okunmadı olarak işaretle
+	Add to a space…	Bir alana ekle…
+	Leave?	Ayrılınsın mı?
+	Leave	Ayrıl
+	Add to a space	Bir alana ekle
+	Add	Ekle
+	Cancel	İptal
+	Unpin	Sabitlemeyi kaldır
+	Pin to top	En üste sabitle
+	Remove from low priority	Düşük öncelikten çıkar
+	Mark as low priority	Düşük öncelik olarak işaretle
+	Remove from {name}	{name} içinden çıkar
+	All messages	Tüm mesajlar
+	Mentions only	Yalnızca bahsetmeler
+	Muted	Sessiz
+banner	Reply	Yanıtla
+	Edit	Düzenle
+	Send note	Not gönder
+	Reply in thread	Konuda yanıtla
+	Write a message	Bir mesaj yaz
+	Emoji	Emoji
+	Sticker	Çıkartma
+	Poll	Anket
+	Attach a file	Dosya ekle
+	Voice note	Sesli mesaj
+	Send	Gönder
+	Grinning face	Sırıtan yüz
+	Beaming face	Parlayan yüz
+	Face with tears of joy	Sevinç gözyaşlı yüz
+	Rolling on the floor laughing	Yerde yuvarlanarak gülen yüz
+	Smiling face with smiling eyes	Gülen gözlü gülümseyen yüz
+	Smiling face with heart eyes	Kalp gözlü gülümseyen yüz
+	Face blowing a kiss	Öpücük gönderen yüz
+	Smiling face with sunglasses	Güneş gözlüklü gülümseyen yüz
+	Thinking face	Düşünen yüz
+	Grinning face with sweat	Soğuk terli sırıtan yüz
+	Winking face	Göz kırpan yüz
+	Upside-down face	Ters yüz
+	Crying face	Ağlayan yüz
+	Loudly crying face	Hıçkırarak ağlayan yüz
+	Angry face	Kızgın yüz
+	Screaming face	Çığlık atan yüz
+	Thumbs up	Başparmak yukarı
+	Thumbs down	Başparmak aşağı
+	Clapping hands	Alkışlayan eller
+	Folded hands	Birleşmiş eller
+	Flexed biceps	Kas yapan kol
+	Waving hand	El sallayan el
+	Handshake	El sıkışma
+	Raising hands	Havaya kalkmış eller
+	Party popper	Parti konfetisi
+	Fire	Ateş
+	Sparkles	Parıltılar
+	Hundred points	Yüz puan
+	Check mark	Onay işareti
+	Cross mark	Çarpı işareti
+	Eyes	Gözler
+	Cup of coffee	Bir fincan kahve
+	Today	Bugün
+	Yesterday	Dün
+	Message deleted	Mesaj silindi
+	Message unavailable	Mesaj kullanılamıyor
+	Encrypted message	Şifreli mesaj
+	Loading…	Yükleniyor…
+	Go to bottom	En alta git
+	image	görsel
+	video	video
+@plural	{n} reply	{n} yanıt|{n} yanıt
+	Encrypted	Şifreli
+	Status messages	Durum mesajları
+	Same as settings	Ayarlarla aynı
+	Show	Göster
+	Hide	Gizle
+@plural	{n} status message hidden	{n} durum mesajı gizlendi|{n} durum mesajı gizlendi
+	Search in room	Odada ara
+	No results	Sonuç yok
+	Search failed	Arama başarısız
+	Retry	Yeniden dene
+	More results	Daha fazla sonuç
+	Profile link	Profil bağlantısı
+	Verified	Doğrulandı
+	Not verified	Doğrulanmadı
+	Message	Mesaj
+	Mention	Bahset
+	Verify	Doğrula
+	Disconnect	Bağlantıyı kes
+	Last read	Son okunan
+	Chat unavailable	Sohbet kullanılamıyor
+	Ignore	Yoksay
+	Confirm	Onayla
+	Kick	At
+	Ban	Yasakla
+	Failed	Başarısız
+	Thread unavailable	Konu başlığı kullanılamıyor
+	Thread	İleti dizisi
+	Reply	Yanıtla
+	Addresses	Adresler
+	main	ana
+	Main	Ana
+	name	ad
+@plural	{n} member	{n} üye|{n} üye
+@plural	Delete {n} message	{n} mesajı sil|{n} mesajı sil
+	Reply to {name}	{name} kişisine yanıt ver
+	Admin	Yönetici
+	Moderator	Moderatör
+	Member	Üye
+	Invite	Davet et
+	Banned	Yasaklı
+	Banned list unavailable	Yasaklılar listesi kullanılamıyor
+	Unban	Yasağı kaldır
+	Reason	Neden
+	Actions for {name}	{name} için işlemler
+	Name	Ad
+	Topic	Konu
+	Drop an image here for the photo	Fotoğraf için bir görseli buraya bırakın
+	Choose photo…	Fotoğraf seç…
+	Room photo	Oda fotoğrafı
+	Save	Kaydet
+	Photo: {name}	Fotoğraf: {name}
+	New poll	Yeni anket
+	Question	Soru
+	Add option	Seçenek ekle
+	Multiple choice	Çoklu seçim
+	Results visible right away	Sonuçlar hemen görünsün
+	Option {n}	Seçenek {n}
+	Video	Video
+	Image	Görsel
+	Save as	Farklı kaydet
+	Open	Aç
+	Cannot open the content	İçerik açılamıyor
+	Stickers are not encrypted, like an unencrypted image	Çıkartmalar, şifrelenmemiş bir görsel gibi şifrelenmez
+	No sticker packs	Çıkartma paketi yok
+	Stickers unavailable	Çıkartmalar kullanılamıyor
+	Settings	Ayarlar
+	Account and security	Hesap ve güvenlik
+	Account	Hesap
+	Devices	Cihazlar
+	Appearance	Görünüm
+	Language	Dil
+	Theme	Tema
+	System	Sistem
+	Accent	Vurgu rengi
+	Icon	Simge
+	Automatic night	Otomatik gece
+	Chat	Sohbet
+	Read receipts	Okundu bilgisi
+	Hide deleted messages	Silinen mesajları gizle
+	Show status messages	Durum mesajlarını göster
+	Message preview	Mesaj önizlemesi
+	Notifications	Bildirimler
+	Close to tray	Kapatınca tepsiye küçült
+	Add to menu	Menüye ekle
+	Added to menu	Menüye eklendi
+	Could not add to menu	Menüye eklenemedi
+	Classic	Klasik
+	Day	Gündüz
+	Dark	Koyu
+	Night	Gece
+	No	Hayır
+	Schedule	Zamanlama
+	Minimal mark	Minimal işaret
+	Gnome	Gnome
+	Little monster	Küçük canavar
+	Blue	Mavi
+	Teal	Camgöbeği
+	Green	Yeşil
+	Orange	Turuncu
+	Red	Kırmızı
+	Pink	Pembe
+	Purple	Mor
+	A save is already in progress	Bir kaydetme işlemi zaten sürüyor
+	Account no longer connected	Hesap artık bağlı değil
+	Actions not available for this event	Bu olay için işlemler kullanılamıyor
+	Address already in use	Adres zaten kullanımda
+	Already joined	Zaten katıldınız
+	Checking permissions…	İzinler denetleniyor…
+	Choose a file that does not exist yet	Henüz var olmayan bir dosya seçin
+	Connected	Bağlı
+	Connecting…	Bağlanıyor…
+	Connection failed	Bağlantı başarısız
+	Data folder not available	Veri klasörü kullanılamıyor
+	Delete the selected message? This cannot be undone.	Seçilen mesaj silinsin mi? Bu işlem geri alınamaz.
+	File cannot be attached	Dosya eklenemiyor
+	Image cannot be attached	Görsel eklenemiyor
+	Invalid name	Geçersiz ad
+	Joining…	Katılınıyor…
+	Message not available	Mesaj kullanılamıyor
+	No audio recorded	Ses kaydedilmedi
+	Not allowed	İzin verilmiyor
+	Not allowed by the server	Sunucu izin vermiyor
+	Operation failed	İşlem başarısız
+	Operation not confirmed · Retry uses the same ID (even if you change room)	İşlem onaylanmadı · Yeniden deneme aynı kimliği kullanır (oda değiştirseniz bile)
+	Operation pending · no server confirmation	İşlem beklemede · sunucudan onay yok
+	Operation refused or unavailable	İşlem reddedildi veya kullanılamıyor
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Yanıtla/düzenle: taslağa yazın, sonra düğmeyi kullanın. Enter normal şekilde gönderir.
+	Room not found	Oda bulunamadı
+	Saved	Kaydedildi
+	Saving failed	Kaydedilemedi
+	Server unreachable	Sunucuya ulaşılamıyor
+	Sign-in failed	Giriş başarısız
+	Sticker not sent	Çıkartma gönderilmedi
+	Still joining…	Hâlâ katılınıyor…
+	Sync interrupted	Eşitleme kesildi
+	Voice note cannot be played	Sesli mesaj oynatılamıyor
+	You are offline	Çevrimdışısınız
+	The name cannot be empty.	Ad boş olamaz.
+	The name is too long (256 characters at most).	Ad çok uzun (en fazla 256 karakter).
+	This server does not allow editing the profile.	Bu sunucu profil düzenlemeye izin vermiyor.
+	Cannot read the chosen file.	Seçilen dosya okunamıyor.
+	The image is too large (25 MB at most).	Görsel çok büyük (en fazla 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	Geçerli bir PNG, JPEG veya WebP görseli seçin.
+	Connection failed: try again shortly.	Bağlantı başarısız: biraz sonra tekrar deneyin.
+	The server rejected the change.	Sunucu değişikliği reddetti.
+	Space not found	Alan bulunamadı
+	Operation failed, try again	İşlem başarısız, tekrar deneyin
+	Minimize	Küçült
+	Show Gnobbi	Gnobbi'yi göster
+	Quit Gnobbi	Gnobbi'den çık
+	{name}, active account	{name}, etkin hesap
+	New messages	Yeni mesajlar
+	1 new message	1 yeni mesaj
+	New message	Yeni mesaj
+	📷 Photo	📷 Fotoğraf
+	🎥 Video	🎥 Video
+	🎤 Voice message	🎤 Sesli mesaj
+	🎵 Audio	🎵 Ses
+	📎 File	📎 Dosya
+	📍 Location	📍 Konum
+menu	Quit Gnobbi	Gnobbi'den çık
+menu	About Gnobbi	Gnobbi hakkında
+menu	Settings…	Ayarlar…
+menu	Services	Hizmetler
+menu	Hide Gnobbi	Gnobbi'yi gizle
+menu	Hide Others	Diğerlerini gizle
+menu	Show All	Tümünü göster
+menu	Edit	Düzen
+menu	Undo	Geri al
+menu	Redo	Yinele
+menu	Cut	Kes
+menu	Copy	Kopyala
+menu	Paste	Yapıştır
+menu	Select All	Tümünü seç
+menu	Start Dictation…	Dikteyi başlat…
+menu	Emoji & Symbols	Emoji ve semboller
+menu	Window	Pencere
+menu	Minimize	Küçült
+menu	Zoom	Yakınlaştır
+menu	Bring All to Front	Tümünü öne getir
+@plural	Gnobbi, {n} unread	Gnobbi, {n} okunmamış|Gnobbi, {n} okunmamış
+	Customize	Özelleştir
+	Sizes	Boyutlar
+	Text size	Metin boyutu
+	Buttons and icons size	Düğme ve simge boyutu
+	Follow the system	Sistemi izle
+	Follow the text	Metni izle
+	Small	Küçük
+	Normal	Normal
+	Large	Büyük
+	Compact	Sıkı
+	Comfortable	Rahat
+	Restore defaults	Varsayılanlara dön
+	Preview	Önizleme
+	A sample message	Örnek bir mesaj
+	Button	Düğme
+	Remove attachment	Eki kaldır
+	Cancel reply	Yanıtı iptal et
+	Close card	Kartı kapat
+	Close thread	İleti dizisini kapat
+	Remove address	Adresi kaldır
+	Copy	Kopyala
+	Menu	Menü
+	Back	Geri
+	Chat list	Sohbet listesi
+	Info	Bilgi
+	Copy key	Anahtarı kopyala
+	Remove option	Seçeneği kaldır
+	Pause	Duraklat
+	Play	Oynat
+	New	Yeni
+	New space	Yeni alan
+	Close	Kapat
+	Add account	Hesap ekle
+	Rename	Yeniden adlandır
+	Profile photo	Profil fotoğrafı
+	Edit photo	Fotoğrafı düzenle
+	Apply	Uygula
+	Reset	Sıfırla
+	Rotate left	Sola döndür
+	Rotate right	Sağa döndür
+	Mirror	Yansıt
+	Zoom	Yakınlaştırma
+	Rotation	Döndürme
+	Brightness	Parlaklık
+	Contrast	Karşıtlık
+	Saturation	Doygunluk
+	Original	Orijinal
+	B&W	Siyah-beyaz
+	Sepia	Sepya
+	Vivid	Canlı
+	Cool	Soğuk
+	Warm	Sıcak
+	Fade	Soluk
+	High contrast	Yüksek karşıtlık
+	Preview: drag to move the photo	Önizleme: fotoğrafı taşımak için sürükleyin
+	Could not download the current photo.	Mevcut fotoğraf indirilemedi.
+	Could not prepare the photo.	Fotoğraf hazırlanamadı.
+	Open link	Bağlantıyı aç
+	Could not open the link.	Bağlantı açılamadı.
+	Copy link	Bağlantıyı kopyala
+	Server	Sunucu
+	Matrix ID	Matrix kimliği
+	Password	Parola
+	Local passphrase	Yerel parola
+	Sign in	Giriş yap
+	Unlock	Kilidi aç
+	Signing in…	Giriş yapılıyor…
+	Unlocking…	Kilit açılıyor…
+	Show password	Parolayı göster
+	Hide password	Parolayı gizle
+	Accept	Kabul et
+	Decline	Reddet
+	Edit space	Alanı düzenle
+	Edit room	Odayı düzenle
+	Start failed	Başlatılamadı
+	Search	Ara
+	Conversations	Sohbetler
+	Users	Kullanıcılar
+	Public rooms	Herkese açık odalar
+	React	Tepki ver
+	Confirm closing	Kapatmayı onayla
+	Close poll	Anketi kapat
+	Confirm deletion	Silmeyi onayla
+	Delete	Sil
+	Encrypted history	Şifreli geçmiş
+	Matrix recovery key	Matrix kurtarma anahtarı
+	I saved the key: continue	Anahtarı kaydettim: devam et
+	Recover encrypted history	Şifreli geçmişi kurtar
+	Try creating the key again	Anahtarı yeniden oluşturmayı dene
+	Create recovery key	Kurtarma anahtarı oluştur
+	Continue without recovery	Kurtarma olmadan devam et
+	A space cannot go inside itself	Bir alan kendi içine konamaz
+	You do not have permission to edit «{name}»	«{name}» öğesini düzenleme izniniz yok
+	{label}, {n} unread	{label}, {n} okunmamış
+	Move {name}	{name} öğesini taşı
+	Move {name} down	{name} öğesini aşağı taşı
+	Move {name} up	{name} öğesini yukarı taşı
+	Organise spaces	Alanları düzenle
+	Unread	Okunmamış
+	All chats	Tüm sohbetler
+	Spaces	Alanlar
+	No spaces	Alan yok
+	Rooms unlinked: {n}	Bağlantısı kaldırılan odalar: {n}
+	Rooms not unlinked: {n}	Bağlantısı kaldırılamayan odalar: {n}
+	Members removed: {n}	Çıkarılan üyeler: {n}
+	Not removed: {names}	Çıkarılamayanlar: {names}
+	Members who will be removed: {n}	Çıkarılacak üyeler: {n}
+	Rooms unlinked (they stay existing): {n}	Bağlantısı kaldırılan odalar (var olmaya devam eder): {n}
+	Space menu	Alan menüsü
+	Space info	Alan bilgisi
+	Members	Üyeler
+	Hand over the admin role…	Yönetici rolünü devret…
+	Leave space	Alandan ayrıl
+	Delete space	Alanı sil
+	Forget	Unut
+	Failed, no change guaranteed: try again	Başarısız, değişiklik garanti değil: tekrar deneyin
+	Member list not read	Üye listesi okunamadı
+	Space left and forgotten	Alandan ayrıldınız ve unutuldu
+	Space not left: try again	Alandan ayrılınamadı: tekrar deneyin
+	Space not left: members remain	Alandan ayrılınamadı: üyeler kaldı
+	This cannot be undone	Bu işlem geri alınamaz
+	You still have rooms in this space.	Bu alanda hâlâ odalarınız var.
+	You are the last admin of the space.	Alanın son yöneticisisiniz.
+	Make admin	Yönetici yap
+	Rooms not available	Odalar kullanılamıyor
+	Add existing room	Mevcut odayı ekle
+	No rooms	Oda yok
+	Rooms	Odalar
+	Remove	Kaldır
+	Search public rooms	Herkese açık odalarda ara
+	Your server	Sunucunuz
+	Other server…	Başka sunucu…
+	server name	sunucu adı
+	Already in	Zaten içinde
+	Join	Katıl
+	Remove photo	Fotoğrafı kaldır
+	Active	Etkin
+	Active account	Etkin hesap
+	Other accounts	Diğer hesaplar
+	Last active {when}	Son etkinlik {when}
+	{text} in {path}	{text}, {path} içinde
+	This device	Bu cihaz
+	Keys	Anahtarlar
+	Export password	Dışa aktarma parolası
+	Export keys	Anahtarları dışa aktar
+	Regenerate recovery key	Kurtarma anahtarını yeniden oluştur
+	Recover keys	Anahtarları kurtar
+	Recovery key	Kurtarma anahtarı
+	Recover	Kurtar
+	Other devices	Diğer cihazlar
+	Sign out	Oturumu kapat
+	Device name	Cihaz adı
+	New recovery key	Yeni kurtarma anahtarı
+	Done	Bitti
+	Direct chat	Doğrudan sohbet
+	Room	Oda
+	Space	Alan
+	Join a room	Bir odaya katıl
+	Public	Herkese açık
+	Create	Oluştur
+	#room:server or !id:server	#oda:sunucu veya !kimlik:sunucu
+	Search people	Kişi ara
+	Images	Görseller
+	last message at {when}	son mesaj saat {when}
+	last message on {when}	son mesaj tarihi {when}
+	last message {when}	son mesaj {when}
+	A user	Bir kullanıcı
+	{actor} created this room.	{actor} bu odayı oluşturdu.
+	{actor} created this chat.	{actor} bu sohbeti oluşturdu.
+	{actor} invited {subject}	{actor}, {subject} kişisini davet etti
+	{subject} joined the room	{subject} odaya katıldı
+	{subject} left the room	{subject} odadan ayrıldı
+	{actor} banned {subject}	{actor}, {subject} kişisini yasakladı
+	{actor} unbanned {subject}	{actor}, {subject} kişisinin yasağını kaldırdı
+	{actor} removed {subject} from the room	{actor}, {subject} kişisini odadan çıkardı
+	{subject} declined the invitation	{subject} daveti reddetti
+	{actor} revoked the invitation for {subject}	{actor}, {subject} kişisinin davetini geri çekti
+	{actor} removed the room name	{actor} oda adını kaldırdı
+	{actor} changed the room name to «{name}»	{actor} oda adını «{name}» olarak değiştirdi
+	{actor} removed the room topic	{actor} oda konusunu kaldırdı
+	{actor} changed the room topic to «{topic}»	{actor} oda konusunu «{topic}» olarak değiştirdi
+	{actor} changed the room avatar	{actor} oda avatarını değiştirdi
+	{old} changed their name to {new}	{old} adını {new} olarak değiştirdi
+	{subject} set their name to {new}	{subject} adını {new} olarak belirledi
+	{subject} removed their display name	{subject} görünen adını kaldırdı
+	{subject} changed their avatar	{subject} avatarını değiştirdi
+	{text} (reason: {reason})	{text} (neden: {reason})
+	Audio	Ses
+	File	Dosya
+	Photo	Fotoğraf
+	Log out	Çıkış yap
+	Encryption keys on this device not backed up are lost.	Bu cihazda yedeklenmemiş şifreleme anahtarları kaybolur.
+	The server did not answer. Remove it from this device anyway?	Sunucu yanıt vermedi. Yine de bu cihazdan kaldırılsın mı?
+	Remove from this device	Bu cihazdan kaldır
+	Wrong key. Check it and try again.	Yanlış anahtar. Kontrol edip tekrar deneyin.
+	Server unreachable. Try again later or continue without recovery.	Sunucuya ulaşılamıyor. Daha sonra deneyin veya kurtarma olmadan devam edin.
+	Recovery took too long. Try again or continue without recovery.	Kurtarma çok uzun sürdü. Tekrar deneyin veya kurtarma olmadan devam edin.
+	No key backup on the server. Continue without recovery.	Sunucuda anahtar yedeği yok. Kurtarma olmadan devam edin.
+	Recovery failed. Try again or continue without recovery.	Kurtarma başarısız. Tekrar deneyin veya kurtarma olmadan devam edin.
+	This account has no Matrix secret storage: no recovery key to enter.	Bu hesapta Matrix gizli depolaması yok: girilecek kurtarma anahtarı yok.
+	The server offers no key backup: no recovery to create. Continue without recovery.	Sunucu anahtar yedeği sunmuyor: oluşturulacak kurtarma yok. Kurtarma olmadan devam edin.
+	This account already has a recovery: enter the existing recovery key.	Bu hesapta zaten bir kurtarma var: mevcut kurtarma anahtarını girin.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Bu hesabın kurtarması yarım kurulmuş: Gnobbi bunu değiştirmez. Kurtarma olmadan devam edin.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	Bu hesapta bu cihazın sahip olmadığı bir kriptografik kimlik zaten var: Gnobbi onu değiştirmez. Kurtarma olmadan devam edin.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	Sunucu, Gnobbi'nin desteklemediği ek bir onay istiyor. Kurtarma olmadan devam edin.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	Sunucuya ulaşılamıyor: kurtarma oluşturulmadı. Tekrar deneyin veya kurtarma olmadan devam edin.
+	Creation took too long. Try again or continue without recovery.	Oluşturma çok uzun sürdü. Tekrar deneyin veya kurtarma olmadan devam edin.
+	Creating the recovery failed. Try again or continue without recovery.	Kurtarma oluşturulamadı. Tekrar deneyin veya kurtarma olmadan devam edin.
+	Enter a server name or a valid HTTPS address.	Bir sunucu adı veya geçerli bir HTTPS adresi girin.
+	Enter the full Matrix ID: @name:server.	Matrix kimliğini tam girin: @ad:sunucu.
+	Enter the profile's local passphrase.	Profilin yerel parolasını girin.
+	Password required; local passphrase of at least 16 characters.	Parola gerekli; yerel parola en az 16 karakter olmalı.
+	This server offers no password login. SSO/OIDC are not supported.	Bu sunucu parolayla girişi sunmuyor. SSO/OIDC desteklenmiyor.
+	This server does not support sliding sync	Bu sunucu sliding sync desteklemiyor
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	Sunucu hatayla yanıt verdi: adresi kontrol edin (ör. https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	Sunucuya ulaşılamıyor veya TLS sertifikası geçersiz.
+	Credentials not accepted. Try again.	Kimlik bilgileri kabul edilmedi. Tekrar deneyin.
+	Too many attempts: try again in a moment.	Çok fazla deneme: biraz sonra tekrar deneyin.
+	Sign-in/unlock failed. Check the credentials and try again.	Giriş/kilit açma başarısız. Kimlik bilgilerini kontrol edip tekrar deneyin.
+	System keychain unavailable or locked. Unlock it and try again.	Sistem anahtar zinciri kullanılamıyor veya kilitli. Kilidini açıp tekrar deneyin.
+	The profile key is not in the system keychain. The profile was not changed.	Profil anahtarı sistem anahtar zincirinde yok. Profil değiştirilmedi.
+	Profile already open in another instance. Close it and restart.	Profil başka bir örnekte zaten açık. Onu kapatıp yeniden başlatın.
+	Local profile unavailable. Close and check the profile path.	Yerel profil kullanılamıyor. Kapatıp profil yolunu kontrol edin.
+	Enter the Matrix password.	Matrix parolasını girin.
+	Creating the recovery and backup…	Kurtarma ve yedek oluşturuluyor…
+@plural	{n} device to sign out	Oturumu kapatılacak {n} cihaz|Oturumu kapatılacak {n} cihaz
+@plural	{n} device without last activity not included	Son etkinliği olmayan {n} cihaz dahil edilmedi|Son etkinliği olmayan {n} cihaz dahil edilmedi
+	Last activity {time}	Son etkinlik {time}
+	They match	Eşleşiyor
+	They don't match	Eşleşmiyor
+	Yes	Evet
+	Not available with this account	Bu hesapla kullanılamıyor
+	Incorrect password	Yanlış parola
+	Failed. Try again.	Başarısız. Tekrar deneyin.
+	Verification failed	Doğrulama başarısız
+	Verification request	Doğrulama isteği
+	Cancel the verification?	Doğrulama iptal edilsin mi?
+	Verification cancelled	Doğrulama iptal edildi
+	The emoji don't match	Emojiler eşleşmiyor
+	Verification	Doğrulama
+@plural	{n} key exported	{n} anahtar dışa aktarıldı|{n} anahtar dışa aktarıldı
+	Gnobbi recovery key	Gnobbi kurtarma anahtarı
+	Wrong unlock passphrase	Yanlış kilit açma parolası
+	Password too short: at least 12 characters	Parola çok kısa: en az 12 karakter
+	Password too long: at most 4096 bytes	Parola çok uzun: en fazla 4096 bayt
+	The passwords don't match	Parolalar eşleşmiyor
+	No keys to export on this device	Bu cihazda dışa aktarılacak anahtar yok
+	Can't write to this location	Bu konuma yazılamıyor
+	Export failed: try again	Dışa aktarma başarısız: tekrar deneyin
+	Recover the keys on this device first	Önce bu cihazdaki anahtarları kurtarın
+	The server asks for a confirmation that is not supported here	Sunucu burada desteklenmeyen bir onay istiyor
+	Server unreachable: try again	Sunucuya ulaşılamıyor: tekrar deneyin
+	Regeneration failed: try again	Yeniden oluşturma başarısız: tekrar deneyin
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	Bu cihazda hesabın kurtarma anahtarları yok: eski şifreli mesajları okumak için anahtarı girin
+	This account has no recovery key: without one, encrypted messages are lost with the devices	Bu hesapta kurtarma anahtarı yok: anahtar olmadan şifreli mesajlar cihazlarla birlikte kaybolur
+	Restoring…	Geri yükleniyor…
+	Restore	Geri yükle
+	Not now	Şimdi değil
+	Don't ask again for this account	Bu hesap için bir daha sorma
+	Copy recovery key	Kurtarma anahtarını kopyala
+	Save it now: it will not be shown again	Şimdi kaydedin: bir daha gösterilmeyecek
+	Save to file	Dosyaya kaydet
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	Yeniden oluşturuluyor…
+	I kept it elsewhere	Başka yerde sakladım
+	The server does not respond	Sunucu yanıt vermiyor
+	Not a Matrix server	Matrix sunucusu değil
+	The server does not show its rooms	Sunucu odalarını göstermiyor
+	Your server cannot reach this server	Sunucunuz bu sunucuya ulaşamıyor
+	Invalid server certificate	Sunucu sertifikası geçersiz
+	Searching	Aranıyor
+	Partial results	Kısmi sonuçlar
+	Invalid server name	Geçersiz sunucu adı
+	Timed out	Zaman aşımı
+	Loading	Yükleniyor
+	More results not loaded	Daha fazla sonuç yüklenmedi
+	The server name is needed, for example matrix.org	Sunucu adı gerekli, örneğin matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Bu bir kullanıcı kimliği: sunucu adı gerekli, örneğin matrix.org
+	Only https addresses are allowed	Yalnızca https adreslerine izin verilir
+	Write only the server name, without a path	Yalnızca sunucu adını yazın, yol olmadan
+	The server name is needed, without user or password	Sunucu adı gerekli, kullanıcı veya parola olmadan
+	Invalid port	Geçersiz port
+	Invalid IP address	Geçersiz IP adresi
+	Already present	Zaten mevcut
+	Favorites	Sık kullanılanlar
+	All	Tümü
+	Demo room {n}	Demo odası {n}
+@plural	{n} unread	{n} okunmamış|{n} okunmamış
+	edited	düzenlendi
+	[Message deleted]	[Mesaj silindi]
+	Server ack · Reply	Sunucu onayı · Yanıt
+	Server ack	Sunucu onayı
+	local	yerel
+	Microphone not available	Mikrofon kullanılamıyor
+	Audio playback not available	Ses oynatma kullanılamıyor
+	Public spaces	Herkese açık alanlar
+	People	Kişiler
+	Location	Konum
+	Message without text	Metinsiz mesaj
+	Image.png	Image.png
+	invalid staging	geçersiz staging
+	placement failed and restore failed	yerleştirme başarısız ve geri yükleme başarısız
+	start failed and restore failed	başlatma başarısız ve geri yükleme başarısız
+	another installation in progress	başka bir kurulum sürüyor
+	channel without in-app update	uygulama içi güncellemesi olmayan kanal
+	binary to update not found	güncellenecek ikili dosya bulunamadı
+	staging not found	staging bulunamadı
+	staging outside the target folder	staging hedef klasörün dışında
+	previous update pending	önceki güncelleme beklemede
+	staging has a different size	staging farklı boyutta
+	staging has a different hash	staging farklı karmaya sahip
+	folder not writable	klasör yazılabilir değil
+	staging cannot be verified	staging doğrulanamıyor
+	Update failed: {cause}	Güncelleme başarısız: {cause}
+	remove {name}	{name} öğesini kaldır
+	error	hata
+	invalid helper parameters	geçersiz yardımcı parametreleri
+	invalid binary to update	güncellenecek ikili dosya geçersiz
+	backup to restore not found	geri yüklenecek yedek bulunamadı
+	no pending restore	bekleyen geri yükleme yok
+	Windows update not available	Windows güncellemesi kullanılamıyor
+	data folder not found	veri klasörü bulunamadı
+	the program did not close	program kapanmadı
+	running binary differs from the target	çalışan ikili dosya hedeften farklı
+	helper without channel	kanalsız yardımcı
+	helper not ready	yardımcı hazır değil
+	Update available · {version}	Güncelleme var · {version}
+	Update available, version {version}	Güncelleme var, sürüm {version}
+	Updated to {version}	{version} sürümüne güncellendi
+	Update failed: restored {version}	Güncelleme başarısız: {version} geri yüklendi
+	Update failed: error	Güncelleme başarısız: hata
+	Update postponed: message not sent	Güncelleme ertelendi: mesaj gönderilmedi
+	backup differs from the binary, kept	yedek ikili dosyadan farklı, korundu
+	gnobbi-keys.txt	gnobbi-keys.txt
+	Filter: {label}	Filtre: {label}
+	Sign out inactive	Etkin olmayanların oturumunu kapat
+	helper out of place	yardımcı yanlış yerde
