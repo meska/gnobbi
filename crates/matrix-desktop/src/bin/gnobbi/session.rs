@@ -300,6 +300,7 @@ impl Session {
             pending.run().await.map_err(|_| matrix_engine::auth::AuthError::Storage)
         })
         .map_err(|e| e.to_string())?;
+        crate::suspend::register(worker.control());
         let route = worker.take_history_route();
         let send = worker.take_send_route();
         let op_route = worker.take_operation_route();

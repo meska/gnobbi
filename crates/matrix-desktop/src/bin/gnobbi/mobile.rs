@@ -53,6 +53,35 @@ pub fn observe_keyboard(ctx: &egui::Context) {
     }
 }
 
+/// iOS: ends every account worker when the app goes to the background and flags the return (see `suspend`). Call once at
+/// startup, on the main thread. The work runs inside the notification, under a background task, before iOS suspends the process.
+#[cfg(target_os = "ios")]
+pub fn observe_lifecycle(ctx: &egui::Context) {
+    use objc2::MainThreadMarker;
+    use objc2_foundation::{NSNotification, NSNotificationCenter};
+    use objc2_ui_kit::{UIApplication, UIApplicationDidEnterBackgroundNotification, UIApplicationWillEnterForegroundNotification};
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let center = NSNotificationCenter::defaultCenter();
+    let back = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
+        let app = UIApplication::sharedApplication(mtm);
+        let task = unsafe { app.beginBackgroundTaskWithExpirationHandler(None) };
+        if !crate::suspend::suspend(std::time::Duration::from_secs(8)) {
+            eprintln!("Gnobbi: a worker did not stop in time");
+        }
+        unsafe { app.endBackgroundTask(task) };
+    });
+    let ctx = ctx.clone();
+    let front = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
+        crate::suspend::resume();
+        ctx.request_repaint();
+    });
+    // The centre keeps the observers; they live as long as the app.
+    unsafe {
+        let _ = center.addObserverForName_object_queue_usingBlock(Some(UIApplicationDidEnterBackgroundNotification), None, None, &back);
+        let _ = center.addObserverForName_object_queue_usingBlock(Some(UIApplicationWillEnterForegroundNotification), None, None, &front);
+    }
+}
+
 /// iOS, or the test hook GNOBBI_EGUI_TOUCH on desktop.
 pub fn touch() -> bool {
     static TOUCH_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();

@@ -345,7 +345,7 @@ pub fn offer(ctx: &egui::Context, v: &DeviceVerification, suppressed: bool, f: &
         ui.horizontal_wrapped(|ui| {
             if enter {
                 if ui.add_enabled(!busy, egui::Button::new(i18n::t_ctx("menu", "Paste"))).clicked()
-                    && let Ok(text) = arboard::Clipboard::new().and_then(|mut b| b.get_text())
+                    && let Some(text) = clipboard_text()
                 {
                     f.key = text.trim().to_owned();
                 }
@@ -437,4 +437,12 @@ mod tests {
         assert_eq!(kind_of("Firefox su Linux"), Kind::Web);
         assert_eq!(kind_of("ABCDEFGHIJ"), Kind::Other);
     }
+}
+
+/// iOS has no arboard (the system paste menu fills the field instead).
+fn clipboard_text() -> Option<String> {
+    #[cfg(not(target_os = "ios"))]
+    return arboard::Clipboard::new().and_then(|mut b| b.get_text()).ok();
+    #[cfg(target_os = "ios")]
+    None
 }

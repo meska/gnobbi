@@ -26,6 +26,11 @@ impl WorkerControl {
         self.revoked.load(Ordering::Acquire)
     }
 
+    /// Stops the worker without logging out (app suspended); `is_done` says when the store is free.
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Release);
+    }
+
     /// Stops the worker; once its writes are drained it revokes this session on the server
     /// (best effort, bounded) and forgets the session's store.
     pub fn logout_and_stop(&self) {

@@ -37,6 +37,7 @@ mod space;
 mod stickers;
 mod secret_clip;
 mod session;
+mod suspend;
 mod settings;
 mod timeline;
 mod viewer;
@@ -229,6 +230,19 @@ impl App {
         }
     }
 
+    /// Starts every account again from its saved profile (after the background, which ended the workers).
+    fn restart_accounts(&mut self) {
+        let Some(d) = self.dirs.clone() else { return };
+        if self.session.is_some() && let Ok(s) = Session::start(&d, self.root.clone(), self.trust.clone()) {
+            self.session = Some(s);
+        }
+        for p in &mut self.parked {
+            if let Ok(s) = Session::start(&d, p.root.clone(), self.trust.clone()) {
+                p.session = s;
+            }
+        }
+    }
+
     /// «Esci» on an account: confirm, revoke the device on the server, then delete the account from this device.
     fn sign_out_step(&mut self, ctx: &egui::Context) {
         let Some(so) = &mut self.sign_out else { return };
@@ -354,6 +368,13 @@ impl eframe::App for App {
     /// Runs before every frame and also with the window minimized, occluded or hidden (then `ui` does not run):
     /// draining the backend here lets notifications go out with the window out of sight.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Back from the background: the workers were ended (store and locks released); start them again.
+        if suspend::take_resumed() {
+            self.restart_accounts();
+        }
+        if suspend::is_suspended() {
+            return;
+        }
         let Some(session) = &mut self.session else { return };
         // Out of sight nothing is being read: the flags of the last painted frame would still say "focused".
         if ctx.input(|i| i.viewport().minimized == Some(true) || i.viewport().occluded == Some(true)) {
@@ -2164,7 +2185,10 @@ fn main() -> eframe::Result {
         register_emoji_font(&cc.egui_ctx);
         icons::register(&cc.egui_ctx);
         #[cfg(target_os = "ios")]
-        mobile::observe_keyboard(&cc.egui_ctx);
+        {
+            mobile::observe_keyboard(&cc.egui_ctx);
+            mobile::observe_lifecycle(&cc.egui_ctx);
+        }
         #[cfg(target_os = "ios")]
         pick::purge_temp();
         Ok(Box::new(App::new(dirs.as_ref(), root, trust, link, multi)))
