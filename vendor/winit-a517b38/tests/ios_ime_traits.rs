@@ -17,7 +17,7 @@ mod window {
 #[path = "../src/platform_impl/ios/ime_traits.rs"]
 mod ime_traits;
 
-use ime_traits::{traits, Credential};
+use ime_traits::{split_autofill, traits, Credential};
 use window::ImePurpose::*;
 
 #[test]
@@ -42,4 +42,25 @@ fn secrets_stay_internal_and_raw() {
     assert!(traits(Password).secret && traits(LoginPassword).secret);
     assert!(!traits(Username).secret && !traits(Normal).secret);
     assert!(traits(Username).raw && traits(Url).raw && traits(Password).raw && !traits(Normal).raw);
+}
+
+fn some(s: &str) -> Option<String> {
+    Some(s.to_owned())
+}
+
+#[test]
+fn autofill_values_go_to_their_own_field() {
+    assert_eq!(split_autofill(some("afuser"), some("hunter2"), None), (some("afuser"), some("hunter2")));
+    assert_eq!(split_autofill(some("afuser"), None, None), (some("afuser"), None), "username only: password untouched");
+    assert_eq!(split_autofill(None, some("hunter2"), None), (None, some("hunter2")));
+}
+
+#[test]
+fn username_glued_before_the_password_is_cut_off() {
+    // Second AutoFill on the password field: username + password both landed in the password proxy.
+    assert_eq!(split_autofill(None, some("afuserhunter2"), Some("afuser")), (None, some("hunter2")));
+    assert_eq!(split_autofill(some("afuser"), some("afuserhunter2"), None), (some("afuser"), some("hunter2")));
+    assert_eq!(split_autofill(None, some("afuser"), Some("afuser")), (None, None), "only the username arrived there");
+    assert_eq!(split_autofill(None, some("hunter2"), Some("afuser")), (None, some("hunter2")));
+    assert_eq!(split_autofill(None, some("hunter2"), Some("")), (None, some("hunter2")), "no known username: nothing to cut");
 }

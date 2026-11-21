@@ -31,7 +31,7 @@ fn nslog(message: &str) {
 }
 use super::ime::{downcast_position, downcast_range, WinitTextPosition, WinitTextRange};
 use super::ime_document::ImeDocument;
-use super::ime_traits::{traits, Credential, Traits};
+use super::ime_traits::{split_autofill, traits, Credential, Traits};
 use super::window::WinitUIWindow;
 use crate::dpi::PhysicalPosition;
 use crate::event::{ElementState, Event, Force, Ime, KeyEvent, Modifiers, Touch, TouchPhase, WindowEvent};
@@ -117,28 +117,42 @@ declare_class!(
             false
         }
 
-        // What the person types goes to egui through the main view, exactly as for any other field.
+        // What the person types goes to egui through the main view, exactly as for any other field. Typed characters never
+        // reach the hidden field's own text, so nothing stale piles up in it; a whole value in one go is Passwords AutoFill.
         #[method(insertText:)]
         fn insert_text(&self, text: &NSString) {
-            let value = text.to_string();
-            let _: () = unsafe { msg_send![super(self), insertText: text] };
-            if value.chars().count() > 1 {
-                // A whole value in one go is Passwords AutoFill (keystrokes arrive one character at a time): it replaces the
-                // field, it is not typed into it.
-                let value = unsafe { self.text() }.map(|t| t.to_string()).unwrap_or(value);
-                nslog(&format!("gnobbi autofill fields: {} {} chars", if *self.ivars() { "password" } else { "username" }, value.chars().count()));
-                let mut slot = AUTOFILL.lock().unwrap();
-                let (user, pass) = slot.get_or_insert((None, None));
-                if *self.ivars() { *pass = Some(value) } else { *user = Some(value) }
-                drop(slot);
-                unsafe { self.setText(None) };
-                if let Some(view) = self.view() {
-                    // egui reads the credentials in its next frame.
-                    unsafe { let _: () = msg_send![&*view, setNeedsDisplay]; }
-                }
+            if text.to_string().chars().count() > 1 {
+                let _: () = unsafe { msg_send![super(self), insertText: text] };
+                self.collect_soon();
             } else if let Some(view) = self.view() {
                 view.handle_insert_text(text);
             }
+        }
+
+        // AutoFill may fill the OTHER field of the pair with `setText:` instead (seen: password left empty on a real iPhone).
+        #[method(setText:)]
+        fn set_text_override(&self, text: Option<&NSString>) {
+            let _: () = unsafe { msg_send![super(self), setText: text] };
+            if text.is_some_and(|t| t.to_string().chars().count() > 1) {
+                self.collect_soon();
+            }
+        }
+
+        // Test hook, debug builds only: GNOBBI_AF_INJECT=<text> is inserted into the password field once, as one value, 25 s after it
+        // exists (simulates AutoFill delivering username + password together, which the simulator never does).
+        #[method(gnobbiInject)]
+        fn gnobbi_inject(&self) {
+            if cfg!(debug_assertions) && *self.ivars() {
+                if let Ok(value) = std::env::var("GNOBBI_AF_INJECT") {
+                    let _: () = unsafe { msg_send![self, insertText: &*NSString::from_str(&value)] };
+                }
+            }
+        }
+
+        // Runs a moment after a fill, when UIKit has finished writing both fields of the pair.
+        #[method(gnobbiCollect)]
+        fn gnobbi_collect(&self) {
+            self.collect_pair();
         }
 
         #[method(deleteBackward)]
@@ -188,7 +202,62 @@ declare_class!(
     }
 );
 
+/// UIKit's AutoFill pairing reads the field's own stored traits, not the overridden getters; `UITextField` forwards these
+/// setters at run time, which objc2's checked `msg_send!` refuses in debug builds, so call `objc_msgSend` directly.
+fn set_real_traits(field: &WinitAutofillField, secure: bool) {
+    extern "C" {
+        fn objc_msgSend();
+    }
+    unsafe {
+        let obj = field as *const WinitAutofillField as *const AnyObject;
+        let content = if secure { UITextContentTypePassword } else { UITextContentTypeUsername } as *const NSString as *const AnyObject;
+        let set_object: extern "C" fn(*const AnyObject, Sel, *const AnyObject) = std::mem::transmute(objc_msgSend as *const ());
+        set_object(obj, sel!(setTextContentType:), content);
+        let set_bool: extern "C" fn(*const AnyObject, Sel, bool) = std::mem::transmute(objc_msgSend as *const ());
+        set_bool(obj, sel!(setSecureTextEntry:), secure);
+    }
+}
+
 impl WinitAutofillField {
+    fn collect_soon(&self) {
+        let _: () = unsafe { msg_send![self, performSelector: sel!(gnobbiCollect), withObject: None::<&AnyObject>, afterDelay: 0.1f64] };
+    }
+
+    /// Reads what AutoFill left in each hidden field, routes each value to its own sign-in field and empties both.
+    fn collect_pair(&self) {
+        let Some(view) = self.view() else { return };
+        let Some((user, pass)) = view.ivars().autofill.borrow().clone() else { return };
+        let text = |f: &WinitAutofillField| unsafe { f.text() }.map(|t| t.to_string()).filter(|t| !t.is_empty());
+        let (got_user, got_pass) = (text(&user), text(&pass));
+        if got_user.is_none() && got_pass.is_none() {
+            return;
+        }
+        let mut last = LAST_USER.lock().unwrap();
+        let (u, p) = split_autofill(got_user.clone(), got_pass.clone(), Some(last.as_str()));
+        nslog(&format!(
+            "gnobbi autofill fields: username proxy {} chars, password proxy {} chars -> username {} chars, password {} chars",
+            got_user.as_ref().map_or(0, |t| t.chars().count()),
+            got_pass.as_ref().map_or(0, |t| t.chars().count()),
+            u.as_ref().map_or(0, |t| t.chars().count()),
+            p.as_ref().map_or(0, |t| t.chars().count()),
+        ));
+        if let Some(u) = &u {
+            *last = u.clone();
+        }
+        drop(last);
+        unsafe {
+            user.setText(None);
+            pass.setText(None);
+        }
+        let mut slot = AUTOFILL.lock().unwrap();
+        let (slot_user, slot_pass) = slot.get_or_insert((None, None));
+        if u.is_some() { *slot_user = u; }
+        if p.is_some() { *slot_pass = p; }
+        drop(slot);
+        // egui reads the credentials in its next frame.
+        unsafe { let _: () = msg_send![&*view, setNeedsDisplay]; }
+    }
+
     fn view(&self) -> Option<Retained<WinitView>> {
         // Only `WinitView::sync_autofill_fields` adds these fields, always to a `WinitView`.
         unsafe { self.superview().map(|view| Retained::cast::<WinitView>(view)) }
@@ -965,6 +1034,7 @@ declare_class!(
 );
 
 /// What AutoFill put into the sign-in fields: (username, password), `None` for a field it left empty.
+static LAST_USER: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 static AUTOFILL: std::sync::Mutex<Option<(Option<String>, Option<String>)>> = std::sync::Mutex::new(None);
 
 pub(crate) fn take_autofill_credentials() -> Option<(Option<String>, Option<String>)> {
@@ -979,14 +1049,19 @@ impl WinitView {
         let mut fields = self.ivars().autofill.borrow_mut();
         if want && fields.is_none() {
             let mtm = MainThreadMarker::new().unwrap();
+            // One above the other like a real form: UIKit pairs a username with the password field next to it.
             let make = |secure: bool| -> Retained<WinitAutofillField> {
                 unsafe {
                     let this = mtm.alloc().set_ivars(secure);
                     let field: Retained<WinitAutofillField> = msg_send_id![super(this), initWithFrame: CGRect {
-                        origin: CGPoint { x: 0.0, y: 0.0 },
+                        origin: CGPoint { x: 0.0, y: if secure { 40.0 } else { 0.0 } },
                         size: CGSize { width: 120.0, height: 30.0 },
                     }];
                     field.setAlpha(0.02);
+                    set_real_traits(&field, secure);
+                    if cfg!(debug_assertions) && secure && std::env::var_os("GNOBBI_AF_INJECT").is_some() {
+                        let _: () = msg_send![&*field, performSelector: sel!(gnobbiInject), withObject: None::<&AnyObject>, afterDelay: 25.0f64];
+                    }
                     self.addSubview(&field);
                     field
                 }
@@ -997,6 +1072,7 @@ impl WinitView {
                 for field in [user, pass] {
                     unsafe { field.removeFromSuperview(); }
                 }
+                LAST_USER.lock().unwrap().clear();
             }
         }
     }

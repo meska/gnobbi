@@ -33,3 +33,16 @@ pub(super) fn traits(purpose: ImePurpose) -> Traits {
         _ => t(false, false, false, None),
     }
 }
+
+/// Routes what AutoFill left in the two hidden fields to the two sign-in fields: `(username, password)`. Each value goes only to
+/// its own field and is never joined. Seen on a real iPhone: the password field received the username followed by the password;
+/// that username (the one in the username field, else `last_user`) is cut off, and a password field holding only the username gets nothing.
+pub(super) fn split_autofill(user: Option<String>, pass: Option<String>, last_user: Option<&str>) -> (Option<String>, Option<String>) {
+    let known = user.as_deref().or(last_user).filter(|u| !u.is_empty());
+    let pass = pass.and_then(|p| match known {
+        Some(u) if p == u => None,
+        Some(u) => Some(p.strip_prefix(u).map_or(p.clone(), str::to_owned)),
+        None => Some(p),
+    });
+    (user, pass)
+}

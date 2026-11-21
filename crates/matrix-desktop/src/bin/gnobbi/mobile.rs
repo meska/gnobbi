@@ -16,12 +16,26 @@ pub fn set_keyboard(points: f32) {
     KEYBOARD.store(points.max(0.).to_bits(), Ordering::Relaxed);
 }
 
-/// Points of the screen bottom covered by a keyboard whose end frame starts at `frame.0` and is `frame.1` wide, on a screen of
-/// `screen` = (width, height). None for the transient frame iOS posts in the rotated space (width = screen height, y = 67):
-/// a frame that is not as wide as the screen is not the keyboard, keep the previous value.
+/// Points of the window bottom covered by a keyboard whose end frame (already in window coordinates) starts at `frame.0` and is
+/// `frame.1` wide, in a window of `screen` = (width, height). None for the transient frame iOS posts in the rotated space (width =
+/// window height, y = 67): a frame that is not as wide as the window is not the keyboard, keep the previous value.
 #[cfg(any(target_os = "ios", test))]
 fn covered_by_keyboard(screen: (f64, f64), frame: (f64, f64)) -> Option<f32> {
     ((frame.1 - screen.0).abs() <= 1.).then(|| (screen.1 - frame.0).max(0.) as f32)
+}
+
+/// Permanent, cheap trace (Console / `log stream`): iOS NSLog, nothing elsewhere. Never put secrets in it.
+fn nslog(message: &str) {
+    #[cfg(target_os = "ios")]
+    {
+        unsafe extern "C" {
+            fn NSLog(format: &objc2_foundation::NSString, ...);
+        }
+        use objc2_foundation::NSString;
+        unsafe { NSLog(&NSString::from_str("%@"), &*NSString::from_str(message)) }
+    }
+    #[cfg(not(target_os = "ios"))]
+    let _ = message;
 }
 
 /// iOS: follows the on-screen keyboard (frame changes and hide) into `set_keyboard`. Call once at startup, on the main thread.
@@ -30,7 +44,7 @@ pub fn observe_keyboard(ctx: &egui::Context) {
     use objc2::{MainThreadMarker, msg_send, runtime::AnyObject};
     use objc2_core_foundation::CGRect;
     use objc2_foundation::{NSNotification, NSNotificationCenter};
-    use objc2_ui_kit::{UIKeyboardFrameEndUserInfoKey, UIScreen, UIKeyboardWillChangeFrameNotification, UIKeyboardWillHideNotification};
+    use objc2_ui_kit::{UIApplication, UIKeyboardFrameEndUserInfoKey, UIScreen, UIKeyboardWillChangeFrameNotification, UIKeyboardWillHideNotification};
     let Some(mtm) = MainThreadMarker::new() else { return };
     let center = NSNotificationCenter::defaultCenter();
     let on = |name: &objc2_foundation::NSNotificationName, hide: bool| {
@@ -40,14 +54,32 @@ pub fn observe_keyboard(ctx: &egui::Context) {
             let covered = if hide {
                 0.
             } else {
-                // The end frame is in screen coordinates. `keyWindow` is NOT the screen: during keyboard transitions it is a system
-                // window of another size (seen: 402 for 874), so measure against the screen.
+                // The end frame is in SCREEN coordinates, the layout is in the app window's: convert it (rotation, a window that is not
+                // the screen, Display Zoom). `keyWindow` is not that window: during keyboard transitions it is a system window of
+                // another size (seen: 402 for 874), so take the app's own normal-level window.
                 let frame = n.userInfo().and_then(|u| u.objectForKey(unsafe { UIKeyboardFrameEndUserInfoKey }));
-                let screen = UIScreen::mainScreen(mtm).bounds();
                 let Some(v) = frame else { return };
                 let v: &AnyObject = &v;
                 let f: CGRect = unsafe { msg_send![v, CGRectValue] };
-                let Some(covered) = covered_by_keyboard((screen.size.width, screen.max().y), (f.min().y, f.size.width)) else { return };
+                let screen = UIScreen::mainScreen(mtm);
+                let (window, bounds, local) = match UIApplication::sharedApplication(mtm).windows().iter().find(|w| w.windowLevel() == 0. && !w.isHidden()) {
+                    Some(w) => {
+                        let space: *mut AnyObject = unsafe { msg_send![&*screen, coordinateSpace] };
+                        let local: CGRect = unsafe { msg_send![&*w, convertRect: f, fromCoordinateSpace: space] };
+                        (true, w.bounds(), local)
+                    }
+                    None => (false, screen.bounds(), f),
+                };
+                nslog(&format!(
+                    "gnobbi keyboard frame: screen space x {} y {} w {} h {}; {} space x {} y {} w {} h {}; bounds {}x{}",
+                    f.origin.x, f.origin.y, f.size.width, f.size.height, if window { "window" } else { "screen" },
+                    local.origin.x, local.origin.y, local.size.width, local.size.height, bounds.size.width, bounds.size.height
+                ));
+                // Which windows the keyboard lives in, to compare with the notified frame on a device.
+                let windows = UIApplication::sharedApplication(mtm).windows();
+                let listed: Vec<String> = windows.iter().map(|w| { let b = w.frame(); format!("{:?}@{} h{}", w.class(), b.origin.y, b.size.height) }).collect();
+                nslog(&format!("gnobbi keyboard windows: {}", listed.join(", ")));
+                let Some(covered) = covered_by_keyboard((bounds.size.width, bounds.size.height), (local.min().y, local.size.width)) else { return };
                 covered
             };
             set_keyboard(covered);
@@ -172,7 +204,7 @@ fn bottom_reserved(safe_bottom: f32, keyboard: f32) -> f32 {
 
 /// The insets of the last window event, with the keyboard folded into the bottom one.
 #[derive(Default)]
-pub struct Insets(egui::SafeAreaInsets, bool);
+pub struct Insets(egui::SafeAreaInsets, bool, (f32, f32));
 
 impl Insets {
     /// Test hooks: GNOBBI_EGUI_INSETS=<top,left,bottom,right> and GNOBBI_EGUI_KEYBOARD=<points> simulate a phone on desktop.
@@ -203,7 +235,14 @@ impl Insets {
         if landscape && all.0.left + all.0.right == 0. && all.0.top > 40. {
             (all.0.left, all.0.right, all.0.top, all.0.bottom) = (all.0.top, all.0.top, 0., LANDSCAPE_HOME);
         }
-        all.0.bottom = bottom_reserved(all.0.bottom, f32::from_bits(KEYBOARD.load(Ordering::Relaxed)));
+        let keyboard = f32::from_bits(KEYBOARD.load(Ordering::Relaxed));
+        let safe = all.0.bottom;
+        all.0.bottom = bottom_reserved(safe, keyboard);
+        if self.2 != (safe, keyboard) {
+            self.2 = (safe, keyboard);
+            let screen = raw.screen_rect.map_or(egui::Vec2::ZERO, |r| r.size());
+            nslog(&format!("gnobbi keyboard inset: safe bottom {safe} keyboard {keyboard} applied {} (egui screen {}x{})", all.0.bottom, screen.x, screen.y));
+        }
         raw.safe_area_insets = Some(all);
         raw.screen_rect.is_some() && std::mem::replace(&mut self.1, landscape) != landscape
     }
@@ -420,6 +459,7 @@ mod tests {
         assert_eq!(bottom_reserved(34., 0.), 34.);
     }
 
+
     #[test]
     fn phone_list_extends_clip_and_reserves_the_bottom_inset() {
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(393., 852.));
@@ -628,6 +668,19 @@ mod tests {
         assert_eq!(covered_by_keyboard(screen, (539., 402.)), Some(335.), "docked keyboard");
         assert_eq!(covered_by_keyboard(screen, (874., 402.)), Some(0.), "hidden: parked below the screen");
         assert_eq!(covered_by_keyboard(screen, (67., 874.)), None, "transient frame in the rotated space");
+    }
+
+    #[test]
+    fn keyboard_inset_follows_the_window_it_is_converted_into() {
+        // Landscape: the keyboard is as wide as the window (874) and 200 high.
+        assert_eq!(covered_by_keyboard((874., 402.), (202., 874.)), Some(200.));
+        // A window shorter than the screen (frame already converted into it): only the part inside the window counts.
+        assert_eq!(covered_by_keyboard((402., 800.), (539., 402.)), Some(261.));
+        // The composer sits on the keyboard, never above the safe inset of the closed state, with the keyboard of any height.
+        for k in [200., 291., 335., 336.] {
+            assert_eq!(bottom_reserved(34., k), k);
+        }
+        assert_eq!(bottom_reserved(34., 0.), 34.);
     }
 
     #[test]
