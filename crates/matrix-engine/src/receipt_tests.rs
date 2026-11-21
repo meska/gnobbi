@@ -271,3 +271,115 @@ fn disposable_receipt_bob_reads_through_timeline() {
         println!("P282A_BOB_READS {}", serde_json::json!({"room": room, "event": event, "alice_sees_receipt": true, "bob_unread": 0}));
     });
 }
+
+/// Progressive reading: alice sends N messages, bob (never read) moves his marker forward in steps, as the app does while
+/// the user scrolls: each step puts the public or private receipt and `m.fully_read` on that exact event, the server count
+/// goes down, alice sees only the public one, and reaching the newest message leaves nothing unread.
+/// Run: `python3 the auth_smoke script --filter disposable_progressive_read [--server tuwunel]`
+#[test]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_progressive_read_moves_marker_and_counter() {
+    use crate::{RoomListDiff, ViewRequests, room_sync::RoomSync};
+    const N: usize = 15;
+    let config = fixture();
+    runtime().block_on(async {
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
+        let room = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+        let root = std::env::temp_dir().join(format!("gnobbi-test-progress-{}", std::process::id()));
+        crate::fsx::create_private_dir(&root).unwrap();
+        let bob = AccountStore::create(&root, AccountId::new(160)).unwrap()
+            .password_login_with_http(
+                HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+                "@bob:matrix-desktop.test",
+                config["bob_password"].as_str().unwrap(),
+                "long disposable fixture passphrase",
+                http(&config),
+            )
+            .await
+            .expect("fixture login accepted");
+        let mut sync = RoomSync::new(bob);
+        let mut ids = Vec::new();
+        let mut unread = None;
+        let batch = sync.sliding_round_after(async {
+            for i in 0..N {
+                let sent = room_request(&config, "alice", reqwest::Method::PUT,
+                    &format!("rooms/{room}/send/m.room.message/progress-{i}"),
+                    serde_json::json!({"msgtype":"m.text","body":format!("progress {i}")})).await;
+                ids.push(sent["event_id"].as_str().unwrap().to_owned());
+            }
+        }).await.unwrap();
+        for change in batch {
+            if let RoomListDiff::Upsert(s) = change && s.scope.room_id.as_str() == room { unread = Some(s.unread); }
+        }
+        // The room list's count once it is at or below `max` (or after 8 batches).
+        let settle = async |sync: &mut RoomSync, mut unread: Option<u64>, max: u64| {
+            for _ in 0..8 {
+                if unread.is_some_and(|n| n <= max) { break; }
+                for change in sync.sliding_round().await.unwrap() {
+                    if let RoomListDiff::Upsert(s) = change && s.scope.room_id.as_str() == room { unread = Some(s.unread); }
+                }
+            }
+            unread
+        };
+        let before = settle(&mut sync, unread, u64::MAX).await.expect("unread shown before opening");
+        assert!(before >= 1, "precondition: unread messages before opening");
+        let scope = matrix_domain::RoomScope { account_id: AccountId::new(160), room_id: matrix_domain::RoomId::new(room.clone()) };
+        // Opened without the newest message in view: the open itself sends no receipt (the app keeps it back for the first-unread anchor).
+        let away = crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 5000.0, public_receipts: true };
+        let (page, _) = sync.open_history(ViewRequests::new().start(scope.clone()).unwrap(), away).await.unwrap();
+        assert!(page.events.len() >= N, "the room shows the {N} messages");
+        let (client, timelines) = sync.live_handles_for_test();
+        let account = AccountId::new(160);
+        let marks = async || crate::read_progress::markers(&client, &timelines, account, &scope).await.unwrap();
+        let known = |m: &[matrix_domain::EventId], id: &str| m.iter().any(|e| e.as_str() == id);
+        let m0 = marks().await;
+        assert!(!ids.iter().any(|id| known(&m0, id)), "nothing of the {N} is read yet: {}", m0.len());
+        // Alice's independent view of bob's public marker.
+        let calls = std::cell::Cell::new(0);
+        let public_marker = async || {
+            // Synapse caches identical sync requests for minutes: every call carries its own filter.
+            calls.set(calls.get() + 1);
+            let filter = serde_json::json!({"room": {"timeline": {"limit": calls.get()}}}).to_string();
+            let all: serde_json::Value = serde_json::from_str(&http(&config)
+                .get(format!("{}_matrix/client/v3/sync?filter={filter}", config["url"].as_str().unwrap()))
+                .bearer_auth(config["alice_token"].as_str().unwrap())
+                .send().await.unwrap().error_for_status().unwrap().text().await.unwrap()).unwrap();
+            all["rooms"]["join"][&room]["ephemeral"]["events"].as_array().into_iter().flatten()
+                .filter(|e| e["type"] == "m.receipt")
+                .flat_map(|e| e["content"].as_object().into_iter().flatten())
+                .filter(|(_, r)| r["m.read"]["@bob:matrix-desktop.test"].is_object())
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>()
+        };
+        let mut last = before;
+        for (step, (at, public)) in [(4usize, true), (9, true), (12, false)].into_iter().enumerate() {
+            let sent = crate::read_progress::advance(&client, &timelines, account, &scope, &matrix_domain::EventId::new(ids[at].clone()), public).await.unwrap();
+            assert!(sent, "step {step}: a receipt goes out");
+            let now = settle(&mut sync, Some(last), last - 1).await.unwrap();
+            // The own receipt and fully_read come back through sync into the store the markers are read from.
+            let mut stored = known(&marks().await, &ids[at]);
+            for _ in 0..8 {
+                if stored { break; }
+                sync.sliding_round().await.unwrap();
+                stored = known(&marks().await, &ids[at]);
+            }
+            assert!(stored, "step {step}: the marker is on the event");
+            assert!(now < last, "step {step}: the server count goes down ({last} -> {now})");
+            last = now;
+            let seen = public_marker().await;
+            let want = if public { &ids[at] } else { &ids[9] };
+            assert_eq!(seen, [want.clone()], "step {step}: peers see only the public marker (ids: {ids:?})");
+        }
+        // Same event again: nothing sent. Then the newest: everything is read.
+        assert!(!crate::read_progress::advance(&client, &timelines, account, &scope, &matrix_domain::EventId::new(ids[12].clone()), false).await.unwrap());
+        assert!(crate::read_progress::advance(&client, &timelines, account, &scope, &matrix_domain::EventId::new(ids[N - 1].clone()), true).await.unwrap());
+        let end = settle(&mut sync, Some(last), 0).await;
+        assert_eq!(public_marker().await, [ids[N - 1].clone()]);
+        println!("PROGRESS_READ {}", serde_json::json!({"n": N, "before": before, "end": end}));
+        drop(sync);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(end, Some(0), "reaching the newest message leaves nothing unread");
+    });
+}

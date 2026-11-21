@@ -598,6 +598,20 @@ impl Sidebar {
         true
     }
 
+    /// The open room's counter while it is read message by message; the next server projection overwrites it.
+    pub fn set_unread(&mut self, scope: &RoomScope, n: u64) -> bool {
+        if n == 0 {
+            return self.mark_read_optimistic(scope);
+        }
+        match self.rooms.iter_mut().find(|room| room.scope == *scope) {
+            Some(room) if room.unread != n => {
+                room.unread = n;
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn active_space(&self) -> Option<&RoomScope> {
         self.space.as_ref()
     }
@@ -1125,6 +1139,14 @@ mod tests {
         // the next server projection wins
         upsert(&mut sidebar, "a", 1, 0, &[]);
         assert_eq!(counts(&sidebar), [(5, 1), (1, 0)]);
+
+        // reading message by message: the counter goes down step by step (rail and space follow), never touches other rooms or accounts
+        assert!(sidebar.set_unread(&scope(&account, "b"), 2));
+        assert!(!sidebar.set_unread(&scope(&account, "b"), 2));
+        assert!(!sidebar.set_unread(&scope(&other, "b"), 1));
+        assert_eq!(counts(&sidebar), [(3, 1), (1, 0)]);
+        assert!(sidebar.set_unread(&scope(&account, "b"), 0));
+        assert_eq!(counts(&sidebar), [(1, 0), (1, 0)]);
     }
 
     fn pinned(sidebar: &mut Sidebar, account: &AccountId, name: &str, unread: u64, tags: &[&str], order: Option<f64>) {

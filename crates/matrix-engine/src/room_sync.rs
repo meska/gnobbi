@@ -648,6 +648,14 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomMarked { scope, result }
                                 }
+                                OperationCommand::ReadMarkers { scope } => {
+                                    let markers = crate::read_progress::markers(&operation_client, &operation_timelines, account, &scope).await;
+                                    OperationResult::ReadMarkers { scope, markers }
+                                }
+                                OperationCommand::MarkReadTo { scope, target, public } => {
+                                    let result = crate::read_progress::advance(&operation_client, &operation_timelines, account, &scope, &target, public).await;
+                                    OperationResult::ReadAdvanced { scope, result }
+                                }
                                 OperationCommand::StartDm { user_id } => {
                                     let result = crate::operations::start_dm(
                                         &operation_client,

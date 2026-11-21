@@ -250,6 +250,16 @@ pub enum OperationCommand {
         /// Opening the room: receipt `main` only, so unread threads stay unread. The menu reads everything.
         main_only: bool,
     },
+    /// How far the user has read the room's main timeline (opening a room with unread messages).
+    ReadMarkers {
+        scope: RoomScope,
+    },
+    /// Receipt `main` (public or private per the setting) and `m.fully_read` on one event in the middle of the room.
+    MarkReadTo {
+        scope: RoomScope,
+        target: EventId,
+        public: bool,
+    },
     /// New direct chat with `user_id` (reuses an existing one).
     StartDm {
         user_id: String,
@@ -524,6 +534,16 @@ pub enum OperationResult {
     RoomMarked {
         scope: RoomScope,
         result: Result<(), OperationError>,
+    },
+    /// Candidate read markers (`m.fully_read`, own receipts); the UI keeps the newest in its loaded rows.
+    ReadMarkers {
+        scope: RoomScope,
+        markers: Result<Vec<EventId>, OperationError>,
+    },
+    /// `Ok(true)` = a receipt went out, `Ok(false)` = already there.
+    ReadAdvanced {
+        scope: RoomScope,
+        result: Result<bool, OperationError>,
     },
     NotificationModeSet {
         scope: RoomScope,

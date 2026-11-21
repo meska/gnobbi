@@ -44,6 +44,8 @@ pub mod search;
 #[cfg(feature = "sdk")]
 pub mod sliding;
 #[cfg(feature = "sdk")]
+mod read_progress;
+#[cfg(feature = "sdk")]
 pub mod threads;
 #[cfg(feature = "sdk")]
 pub mod user_search;

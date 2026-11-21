@@ -135,6 +135,14 @@ pub struct Heights {
     pub restore_wait: (u8, Option<std::time::Instant>),
     /// The round button was pressed: scroll (smoothly) until the bottom is reached.
     go_bottom: bool,
+    /// `restore` is the first unread row: it opens a quarter of the viewport below the top, with some context above.
+    pub restore_unread: bool,
+    /// The row the «new messages» line stands above (kept until the room is left).
+    pub divider: Option<matrix_domain::EventId>,
+    /// Rows whose bottom edge is in view this frame, as (index, event id): what the read marker may follow.
+    pub visible: Vec<(usize, matrix_domain::EventId)>,
+    /// Unread rows are in view and their receipt is pending: keep drawing until it goes out.
+    pub watching: bool,
 }
 
 impl Heights {
@@ -488,6 +496,25 @@ fn split_id<'a>(label: &'a str, id: &str) -> (&'a str, bool) {
     }
 }
 
+/// «New messages»: accent label and a thin accent line to the right edge, above the first unread row.
+fn new_messages_line(ui: &mut egui::Ui, t: &DesignTokens) {
+    let accent = rgb(t.accent);
+    let label = i18n::t("New messages");
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 28.), egui::Sense::hover());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, label));
+    let text = ui.painter().layout_no_wrap(label.to_owned(), egui::FontId::proportional(11.), accent);
+    let mid = rect.center().y;
+    let (from, to) = (rect.left() + 12., rect.right() - 12.);
+    let line = |a: f32, b: f32| ui.painter().line_segment([egui::pos2(a, mid), egui::pos2(b, mid)], egui::Stroke::new(1., accent));
+    if crate::dir::rtl() {
+        ui.painter().galley(egui::pos2(to - text.size().x, mid - text.size().y / 2.), text.clone(), accent);
+        line(from, to - text.size().x - 8.);
+    } else {
+        ui.painter().galley(egui::pos2(from, mid - text.size().y / 2.), text.clone(), accent);
+        line(from + text.size().x + 8., to);
+    }
+}
+
 /// Older page on top: the measured heights move with their rows, else every row takes a neighbour's height and the scroll jumps.
 /// `ids` are the rows after the `head` pinned ones (a thread's root stays first while older replies arrive below it).
 fn shift_for_prepend<T: PartialEq + Clone>(rows: &mut Vec<f32>, first: &mut Option<T>, ids: &[&T], head: usize) -> usize {
@@ -533,7 +560,8 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         // Saved position: set the offset from the heights known so far, hidden, and re-set it until the rows stop changing; no event in the room yet -> bottom.
         match position(&id) {
             Some(at) => {
-                area = area.vertical_scroll_offset(top_of(&heights.rows, at) + offset);
+                let offset = if heights.restore_unread { -ui.available_height() / 4. } else { offset };
+                area = area.vertical_scroll_offset((top_of(&heights.rows, at) + offset).max(0.));
                 restoring = true;
             }
             None => {
@@ -546,6 +574,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     }
     let go_bottom = heights.go_bottom;
     let mut anchor = None;
+    let mut visible = Vec::new();
     let out = area.stick_to_bottom(!restoring).show_viewport(ui, |ui, view| {
         ui.spacing_mut().item_spacing = Vec2::new(0., 0.);
         if hide {
@@ -568,6 +597,9 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
+                if heights.divider.as_ref().is_some_and(|d| e.id.id == matrix_domain::TimelineId::Server(d.clone())) {
+                    new_messages_line(ui, t);
+                }
                 // Sender name on the first bubble of a group; deleted rows (no bubble) keep the name rule of the history.
                 let label = if e.redacted { history.sender_label(i, members) } else { (members > 2 && !e.outgoing && !glued(i)).then(|| e.sender.as_ref().map(|s| s.name.clone().unwrap_or_else(|| s.id.clone()))).flatten() };
                 let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, label.as_deref(), (glued(i), glued(i + 1)), members > 2, history.day_separator(i).as_deref(), readers.get(&i).map_or(&[][..], Vec::as_slice), t);
@@ -594,6 +626,9 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
                 seen_first = true;
                 anchor = Some((i, view.min.y - y));
             }
+            if heights.ready && !hide && y + h > view.min.y && y + h <= view.max.y && let matrix_domain::TimelineId::Server(id) = &e.id.id {
+                visible.push((i, id.clone()));
+            }
             y += heights.rows[i] + gap;
         }
         ui.add_space(GAP);
@@ -601,6 +636,10 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
             ui.scroll_to_cursor(Some(Align::BOTTOM));
         }
     });
+    heights.visible = visible;
+    if heights.watching {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(150));
+    }
     heights.at_bottom = out.content_size.y - (out.state.offset().y + out.inner_rect.height()) <= matrix_engine::receipts::ReadVisibility::NEAR_BOTTOM_PX;
     if hide {
         heights.passes += 1;

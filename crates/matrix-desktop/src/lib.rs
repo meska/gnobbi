@@ -89,6 +89,7 @@ mod live_media;
 pub use live_media::LiveMedia;
 mod live_operations;
 pub use live_operations::LiveOperations;
+pub mod read_track;
 mod live_history;
 pub use live_history::{HistorySession, HistoryStatus, SETTLE};
 mod history;

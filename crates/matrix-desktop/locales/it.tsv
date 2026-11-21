@@ -86,6 +86,8 @@ banner	Reply	Risposta
 	Encrypted message	Messaggio cifrato
 	Loading…	Caricamento…
 	Go to bottom	Vai in fondo
+	New messages	Nuovi messaggi
+	Unread messages not found	Messaggi non letti non trovati
 	image	immagine
 	video	video
 @plural	{n} reply	{n} risposta|{n} risposte
@@ -257,6 +259,7 @@ banner	Reply	Risposta
 	Quit Gnobbi	Chiudi Gnobbi
 	{name}, active account	{name}, account attivo
 	New messages	Nuovi messaggi
+	Unread messages not found	Messaggi non letti non trovati
 	1 new message	1 nuovo messaggio
 	New message	Nuovo messaggio
 	📷 Photo	📷 Foto

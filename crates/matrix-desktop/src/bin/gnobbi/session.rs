@@ -168,6 +168,8 @@ pub struct Session {
     /// Set by the app each frame: the window has focus, the newest message is in view, the «Conferme di lettura» setting.
     pub reading: (bool, bool, bool),
     read_dirty: bool,
+    /// The shown room was opened with unread messages: first-unread anchor and progressive reading.
+    unread_open: Option<unread::UnreadOpen>,
     /// People picked from the «@» list in the text being written.
     pub mentions: Vec<matrix_engine::sending::Mention>,
     pub aliases: Option<matrix_engine::alias::RoomAliases>,
@@ -342,6 +344,7 @@ impl Session {
             voice: None,
             reading: (false, false, true),
             read_dirty: true,
+            unread_open: None,
             mentions: Vec::new(),
             aliases: None,
             aliases_requested: None,
@@ -765,6 +768,7 @@ impl Session {
             self.search = matrix_engine::operations::MessageSearchState::Idle;
             self.heights = Default::default();
             self.heights.restore = scope.as_ref().and_then(|s| self.scroll.get(s.room_id.as_str()));
+            self.start_unread();
             self.pending = Some(request);
             changed = true;
         } else if scope.is_none() && self.messages.take().is_some() {
@@ -801,7 +805,7 @@ impl Session {
             }
             self.heights.restore_wait.0 = self.heights.restore_wait.0.saturating_add(1);
         }
-        if let (Some((id, _)), Some(messages)) = (&self.heights.restore, &self.messages) {
+        if !self.unread_pending() && let (Some((id, _)), Some(messages)) = (&self.heights.restore, &self.messages) {
             let found = messages.events().iter().any(|e| e.id.id == TimelineId::Server(id.clone()));
             let (pages, since) = &mut self.heights.restore_wait;
             let waited = since.get_or_insert_with(std::time::Instant::now).elapsed();
@@ -887,8 +891,10 @@ impl Session {
             let _ = std::fs::write(&self.last_file, scope.room_id.as_str());
         }
         // Opening or receiving in the room on screen: the read marker goes out once the newest message is in view (main only, so threads stay unread).
+        changed |= self.drive_unread();
         let (focused, at_bottom, public) = self.reading;
         if self.read_dirty
+            && !self.unread_pending()
             && focused
             && at_bottom
             && self.op_pending.is_none()
@@ -1139,6 +1145,11 @@ impl Session {
                     }
                     changed = true;
                 }
+                continue;
+            }
+            if let OperationResult::ReadMarkers { scope, markers } = result {
+                self.unread_markers(&scope, markers);
+                changed = true;
                 continue;
             }
             if let OperationResult::ThreadRead { tag, root, target, result } = &result {
@@ -1851,6 +1862,8 @@ fn accept_user_answer(gate: &mut bool, state: &matrix_engine::operations::Search
     }
     !*gate
 }
+
+mod unread;
 
 /// A saved position whose row is not loaded: wait for the saved page and the full one (both can come after the first), page back up to a cap, give up when history ends or fails.
 fn restore_gave_up(status: matrix_desktop::HistoryStatus, pages: u8, waited: std::time::Duration) -> bool {
