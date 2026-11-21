@@ -1925,15 +1925,20 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         w.bg_stroke = Stroke::NONE;
         w.corner_radius = radius;
     }
+    // iOS Passwords AutoFill (egui-winit hands over what it put in the hidden fields): replaces what the form has.
+    if let Some((user, pass)) = ui.data_mut(|d| d.remove_temp::<(Option<String>, Option<String>)>(egui::Id::new("winit_autofill_credentials"))) {
+        s.user = user.unwrap_or_else(|| std::mem::take(&mut s.user));
+        s.password = pass.unwrap_or_else(|| std::mem::take(&mut s.password));
+    }
     let mut enter = false;
-    let mut field = |ui: &mut egui::Ui, text: &mut String, label: &str, secret: bool, raw: bool| {
+    let mut field = |ui: &mut egui::Ui, text: &mut String, label: &str, secret: bool, purpose: egui::IMEPurpose| {
         ui.label(RichText::new(label).size(m.secondary).color(rgb(t.secondary)));
         ui.add_space(m.gap / 2.);
         let eye_id = egui::Id::new(("signin-eye", label));
         let shown = secret && ui.data(|d| d.get_temp::<bool>(eye_id)).unwrap_or(false);
         let (near, far) = (14, if secret { height as i8 } else { 14 });
         let margin = if dir::rtl() { egui::Margin { left: far, right: near, top: 0, bottom: 0 } } else { egui::Margin { left: near, right: far, top: 0, bottom: 0 } };
-        let r = ui.add_sized([width, height], crate::metrics::line(text).password(secret && !shown).raw_input(raw).margin(margin));
+        let r = ui.add_sized([width, height], crate::metrics::line(text).password(secret && !shown).ime_purpose(purpose).margin(margin));
         if secret {
             let rect = dir::flip(r.rect, egui::Rect::from_center_size(egui::pos2(r.rect.right() - height / 2., r.rect.center().y), egui::vec2(height, height)));
             let (icon, name) = if shown { (icons::Icon::EyeSlash, i18n::t("Hide password")) } else { (icons::Icon::Eye, i18n::t("Show password")) };
@@ -1959,14 +1964,14 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     if let Some(p) = prompt {
         match (p.mode, s.form.vault) {
             (SignInMode::Password, vault) => {
-                field(ui, &mut s.homeserver, i18n::t("Server"), false, true);
-                field(ui, &mut s.user, i18n::t("Matrix ID"), false, true);
-                field(ui, &mut s.password, i18n::t("Password"), true, false);
+                field(ui, &mut s.homeserver, i18n::t("Server"), false, egui::IMEPurpose::Url);
+                field(ui, &mut s.user, i18n::t("Matrix ID"), false, egui::IMEPurpose::Username);
+                field(ui, &mut s.password, i18n::t("Password"), true, egui::IMEPurpose::LoginPassword);
                 if !vault {
-                    field(ui, &mut s.phrase, i18n::t("Local passphrase"), true, false);
+                    field(ui, &mut s.phrase, i18n::t("Local passphrase"), true, egui::IMEPurpose::Password);
                 }
             }
-            (SignInMode::Unlock, _) => field(ui, &mut s.phrase, i18n::t("Local passphrase"), true, false),
+            (SignInMode::Unlock, _) => field(ui, &mut s.phrase, i18n::t("Local passphrase"), true, egui::IMEPurpose::Password),
             (SignInMode::UnlockVault, _) => {}
         }
     }

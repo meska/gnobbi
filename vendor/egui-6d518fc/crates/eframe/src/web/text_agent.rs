@@ -935,7 +935,7 @@ impl InputState {
         if self
             .ime_output
             .as_ref()
-            .is_some_and(|ime| ime.purpose == egui::IMEPurpose::Password)
+            .is_some_and(|ime| ime.purpose.is_secret())
         {
             self.handle_input_event_password(event, events);
             return;

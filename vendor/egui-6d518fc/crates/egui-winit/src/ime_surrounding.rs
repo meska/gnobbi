@@ -415,7 +415,7 @@ impl<'a> NormalizedIme<'a> {
 
         // Password fields never publish text, even if a caller built an `Available` payload by
         // hand. This is the last line of defense against stale password text in public output.
-        let payload = if ime.purpose == IMEPurpose::Password {
+        let payload = if ime.purpose.is_secret() {
             None
         } else {
             ime.surrounding_text

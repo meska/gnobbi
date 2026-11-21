@@ -4,25 +4,34 @@ use std::collections::VecDeque;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject, Sel};
-use objc2::{declare_class, msg_send, msg_send_id, mutability, sel, ClassType, DeclaredClass};
+use objc2::{class, declare_class, msg_send, msg_send_id, mutability, sel, ClassType, DeclaredClass};
 use objc2_foundation::{
     CGFloat, CGPoint, CGRect, CGSize, MainThreadMarker, NSArray, NSAttributedStringKey,
     NSComparisonResult, NSDictionary, NSInteger, NSObject, NSRange, NSSet, NSString,
 };
 use objc2_ui_kit::{
-    UICoordinateSpace, UIEditMenuConfiguration, UIEditMenuInteraction, UIEvent, UIForceTouchCapability,
+    UIControl, UITextField, UICoordinateSpace, UIEditMenuConfiguration, UIEditMenuInteraction, UIEvent, UIForceTouchCapability,
     UIGestureRecognizer, UIGestureRecognizerDelegate, UIGestureRecognizerState, UIKeyInput,
     UILongPressGestureRecognizer, UIPanGestureRecognizer, UIPasteboard,
     UIPinchGestureRecognizer, UIResponder, UIRotationGestureRecognizer, UITapGestureRecognizer,
     UITextAutocapitalizationType, UITextAutocorrectionType, UITextInput, UITextInputDelegate, UITextInputStringTokenizer,
     UITextInputTokenizer, UITextInputTraits, UITextLayoutDirection, UITextPosition, UITextRange,
-    UITextSelectionRect, UITextSpellCheckingType, UITouch, UITouchPhase, UITouchType,
+    UITextContentTypePassword, UITextContentTypeURL, UITextContentTypeUsername, UITextSelectionRect, UITextSpellCheckingType, UITouch, UITouchPhase, UITouchType,
     UITraitEnvironment, UIView,
 };
 
 use super::app_state::{self, EventWrapper};
+
+/// Permanent, cheap trace of the traits handed to UIKit on each focus change (Console / `log stream`).
+fn nslog(message: &str) {
+    extern "C" {
+        fn NSLog(format: &NSString, ...);
+    }
+    unsafe { NSLog(&NSString::from_str("%@"), &*NSString::from_str(message)) }
+}
 use super::ime::{downcast_position, downcast_range, WinitTextPosition, WinitTextRange};
 use super::ime_document::ImeDocument;
+use super::ime_traits::{traits, Credential, Traits};
 use super::window::WinitUIWindow;
 use crate::dpi::PhysicalPosition;
 use crate::event::{ElementState, Event, Force, Ime, KeyEvent, Modifiers, Touch, TouchPhase, WindowEvent};
@@ -30,7 +39,7 @@ use crate::keyboard::ModifiersState;
 use crate::keyboard::{Key, KeyCode, KeyLocation, NamedKey, NativeKeyCode, PhysicalKey};
 use crate::platform_impl::platform::DEVICE_ID;
 use crate::platform_impl::KeyEventExtra;
-use crate::window::{WindowAttributes, WindowId as RootWindowId};
+use crate::window::{ImePurpose, WindowAttributes, WindowId as RootWindowId};
 
 pub struct WinitViewState {
     pinch_gesture_recognizer: RefCell<Option<Retained<UIPinchGestureRecognizer>>>,
@@ -46,10 +55,11 @@ pub struct WinitViewState {
     // `UITextInput`: the text the keyboard sees, driven by its callbacks.
     ime: RefCell<ImeDocument>,
     ime_allowed: Cell<bool>,
-    // Password fields: no suggestions, and the typed text isn't shown to UIKit.
-    ime_secure: Cell<bool>,
-    // URL / user id fields (`ImePurpose::Terminal`): no autocapitalisation, autocorrection or spell checking.
-    ime_raw: Cell<bool>,
+    // What the focused field asks of UIKit (content type, no autocorrection, native field for sign-in): see `ime_traits.rs`.
+    ime_traits: Cell<Traits>,
+    // Real, nearly invisible `UITextField`s (username, password) present while a sign-in field has the focus: UIKit's Passwords
+    // AutoFill finds them in the window and fills them with the saved credential, which one custom `UITextInput` view can't take.
+    autofill: RefCell<Option<(Retained<WinitAutofillField>, Retained<WinitAutofillField>)>>,
     // The cursor area from `Window::set_ime_cursor_area`, in points; empty until set.
     ime_area: Cell<CGRect>,
     ime_delegate: RefCell<Option<Retained<ProtocolObject<dyn UITextInputDelegate>>>>,
@@ -58,6 +68,131 @@ pub struct WinitViewState {
     // System edit menu (Cut/Copy/Paste/Select All) on long press and double tap in a text field.
     edit_menu: RefCell<Option<Retained<UIEditMenuInteraction>>>,
     edit_menu_at: Cell<CGPoint>,
+}
+
+declare_class!(
+    /// A real, nearly invisible `UITextField` that UIKit's Passwords AutoFill finds in the window and fills. Its traits are
+    /// answered by overrides: UIKit resolves the `UITextInputTraits` setters on `UITextField` at run time.
+    pub(crate) struct WinitAutofillField;
+
+    unsafe impl ClassType for WinitAutofillField {
+        #[inherits(UIControl, UIView, UIResponder, NSObject)]
+        type Super = UITextField;
+        type Mutability = mutability::MainThreadOnly;
+        const NAME: &'static str = "WinitAutofillField";
+    }
+
+    impl DeclaredClass for WinitAutofillField {
+        // The password field (secure, content type password); the other one is the username.
+        type Ivars = bool;
+    }
+
+    unsafe impl WinitAutofillField {
+        #[method_id(textContentType)]
+        fn text_content_type(&self) -> Option<Retained<NSString>> {
+            unsafe {
+                let content = if *self.ivars() { UITextContentTypePassword } else { UITextContentTypeUsername };
+                Retained::retain(content as *const NSString as *mut NSString)
+            }
+        }
+
+        #[method(isSecureTextEntry)]
+        fn is_secure_text_entry(&self) -> bool {
+            *self.ivars()
+        }
+
+        #[method(autocorrectionType)]
+        fn autocorrection_type(&self) -> UITextAutocorrectionType {
+            UITextAutocorrectionType::No
+        }
+
+        #[method(autocapitalizationType)]
+        fn autocapitalization_type(&self) -> UITextAutocapitalizationType {
+            UITextAutocapitalizationType::None
+        }
+
+        // Never takes a touch: egui gets them all through the main view.
+        #[method(pointInside:withEvent:)]
+        fn point_inside(&self, _point: CGPoint, _event: Option<&UIEvent>) -> bool {
+            false
+        }
+
+        // What the person types goes to egui through the main view, exactly as for any other field.
+        #[method(insertText:)]
+        fn insert_text(&self, text: &NSString) {
+            let value = text.to_string();
+            let _: () = unsafe { msg_send![super(self), insertText: text] };
+            if value.chars().count() > 1 {
+                // A whole value in one go is Passwords AutoFill (keystrokes arrive one character at a time): it replaces the
+                // field, it is not typed into it.
+                let value = unsafe { self.text() }.map(|t| t.to_string()).unwrap_or(value);
+                nslog(&format!("gnobbi autofill fields: {} {} chars", if *self.ivars() { "password" } else { "username" }, value.chars().count()));
+                let mut slot = AUTOFILL.lock().unwrap();
+                let (user, pass) = slot.get_or_insert((None, None));
+                if *self.ivars() { *pass = Some(value) } else { *user = Some(value) }
+                drop(slot);
+                unsafe { self.setText(None) };
+                if let Some(view) = self.view() {
+                    // egui reads the credentials in its next frame.
+                    unsafe { let _: () = msg_send![&*view, setNeedsDisplay]; }
+                }
+            } else if let Some(view) = self.view() {
+                view.handle_insert_text(text);
+            }
+        }
+
+        #[method(deleteBackward)]
+        fn delete_backward(&self) {
+            if let Some(view) = self.view() {
+                view.handle_delete_backward();
+            }
+            let _: () = unsafe { msg_send![super(self), deleteBackward] };
+        }
+
+        // The system edit menu acts on the egui text through the main view.
+        #[method(canPerformAction:withSender:)]
+        fn can_perform_action(&self, action: Sel, sender: Option<&AnyObject>) -> bool {
+            match self.view() {
+                Some(view) => unsafe { msg_send![&*view, canPerformAction: action, withSender: sender] },
+                None => false,
+            }
+        }
+
+        #[method(paste:)]
+        fn paste(&self, sender: Option<&AnyObject>) {
+            if let Some(view) = self.view() {
+                let _: () = unsafe { msg_send![&*view, paste: sender] };
+            }
+        }
+
+        #[method(copy:)]
+        fn copy(&self, sender: Option<&AnyObject>) {
+            if let Some(view) = self.view() {
+                let _: () = unsafe { msg_send![&*view, copy: sender] };
+            }
+        }
+
+        #[method(cut:)]
+        fn cut(&self, sender: Option<&AnyObject>) {
+            if let Some(view) = self.view() {
+                let _: () = unsafe { msg_send![&*view, cut: sender] };
+            }
+        }
+
+        #[method(selectAll:)]
+        fn select_all(&self, sender: Option<&AnyObject>) {
+            if let Some(view) = self.view() {
+                let _: () = unsafe { msg_send![&*view, selectAll: sender] };
+            }
+        }
+    }
+);
+
+impl WinitAutofillField {
+    fn view(&self) -> Option<Retained<WinitView>> {
+        // Only `WinitView::sync_autofill_fields` adds these fields, always to a `WinitView`.
+        unsafe { self.superview().map(|view| Retained::cast::<WinitView>(view)) }
+    }
 }
 
 declare_class!(
@@ -356,7 +491,7 @@ declare_class!(
                 self.ivars().ime_allowed.get()
             } else if action == sel!(copy:) || action == sel!(cut:) {
                 // Nothing leaves a password field.
-                self.ivars().ime_allowed.get() && !self.ivars().ime_secure.get()
+                self.ivars().ime_allowed.get() && !self.ivars().ime_traits.get().secret
             } else {
                 unsafe { msg_send![super(self), canPerformAction: action, withSender: sender] }
             }
@@ -431,18 +566,26 @@ declare_class!(
     }
 
     unsafe impl UITextInputTraits for WinitView {
-        // Never true: once UIKit has seen `isSecureTextEntry` on this (single) view it keeps the Passwords AutoFill bar on every
-        // field that follows, the chat composer included (measured in the simulator). A password field is protected here by
-        // `ime_secure` instead: no autocorrection or learning, the document stays empty. shortcut: a third-party keyboard is
-        // allowed there; split the password field into its own UIView to get the system's secure keyboard back.
+        // Always false on the main view: once UIKit has seen it true here it keeps the Passwords bar on every later field. The
+        // sign-in password is a real secure `UITextField` (`WinitAutofillField`) while it has the focus.
         #[method(isSecureTextEntry)]
         fn is_secure_text_entry(&self) -> bool {
             false
         }
 
+        #[method_id(textContentType)]
+        fn text_content_type(&self) -> Option<Retained<NSString>> {
+            // Unspecified (nil) except for the server address.
+            if self.ivars().ime_traits.get().url {
+                unsafe { Retained::retain(UITextContentTypeURL as *const NSString as *mut NSString) }
+            } else {
+                None
+            }
+        }
+
         #[method(autocorrectionType)]
         fn autocorrection_type(&self) -> UITextAutocorrectionType {
-            if self.ivars().ime_secure.get() || self.ivars().ime_raw.get() {
+            if self.ivars().ime_traits.get().raw {
                 UITextAutocorrectionType::No
             } else {
                 UITextAutocorrectionType::Default
@@ -451,7 +594,7 @@ declare_class!(
 
         #[method(autocapitalizationType)]
         fn autocapitalization_type(&self) -> UITextAutocapitalizationType {
-            if self.ivars().ime_secure.get() || self.ivars().ime_raw.get() {
+            if self.ivars().ime_traits.get().raw {
                 UITextAutocapitalizationType::None
             } else {
                 UITextAutocapitalizationType::Sentences
@@ -460,7 +603,7 @@ declare_class!(
 
         #[method(spellCheckingType)]
         fn spell_checking_type(&self) -> UITextSpellCheckingType {
-            if self.ivars().ime_secure.get() || self.ivars().ime_raw.get() {
+            if self.ivars().ime_traits.get().raw {
                 UITextSpellCheckingType::No
             } else {
                 UITextSpellCheckingType::Default
@@ -550,7 +693,7 @@ declare_class!(
         unsafe fn text_in_range(&self, range: &UITextRange) -> Option<Retained<NSString>> {
             downcast_range(range).map(|range| {
                 let (start, end) = (range.start_offset().max(0), range.end_offset().max(0));
-                let text = if self.ivars().ime_secure.get() {
+                let text = if self.ivars().ime_traits.get().secret {
                     None
                 } else {
                     self.ivars()
@@ -821,7 +964,69 @@ declare_class!(
     }
 );
 
+/// What AutoFill put into the sign-in fields: (username, password), `None` for a field it left empty.
+static AUTOFILL: std::sync::Mutex<Option<(Option<String>, Option<String>)>> = std::sync::Mutex::new(None);
+
+pub(crate) fn take_autofill_credentials() -> Option<(Option<String>, Option<String>)> {
+    AUTOFILL.lock().unwrap().take()
+}
+
 impl WinitView {
+    /// The sign-in fields are real, hidden `UITextField`s (username, password) while a sign-in field has the focus: UIKit's
+    /// Passwords AutoFill fills a native pair together and offers its suggestions per first responder. They are attached
+    /// when a sign-in field takes the focus and dropped, with their text, when another kind of field does.
+    fn sync_autofill_fields(&self, want: bool) {
+        let mut fields = self.ivars().autofill.borrow_mut();
+        if want && fields.is_none() {
+            let mtm = MainThreadMarker::new().unwrap();
+            let make = |secure: bool| -> Retained<WinitAutofillField> {
+                unsafe {
+                    let this = mtm.alloc().set_ivars(secure);
+                    let field: Retained<WinitAutofillField> = msg_send_id![super(this), initWithFrame: CGRect {
+                        origin: CGPoint { x: 0.0, y: 0.0 },
+                        size: CGSize { width: 120.0, height: 30.0 },
+                    }];
+                    field.setAlpha(0.02);
+                    self.addSubview(&field);
+                    field
+                }
+            };
+            *fields = Some((make(false), make(true)));
+        } else if !want {
+            if let Some((user, pass)) = fields.take() {
+                for field in [user, pass] {
+                    unsafe { field.removeFromSuperview(); }
+                }
+            }
+        }
+    }
+
+    /// The native field that stands in for the focused sign-in field, if one does.
+    fn credential_field(&self) -> Option<Retained<WinitAutofillField>> {
+        let credential = self.ivars().ime_traits.get().credential?;
+        self.ivars().autofill.borrow().as_ref().map(|(user, pass)| if credential == Credential::Username { user } else { pass }.clone())
+    }
+
+    /// Show the keyboard for whichever view takes the input: the native field of a sign-in field, the view itself otherwise.
+    pub(crate) fn become_input_responder(&self) {
+        unsafe {
+            match self.credential_field() {
+                Some(field) => field.becomeFirstResponder(),
+                None => self.becomeFirstResponder(),
+            };
+        }
+    }
+
+    pub(crate) fn resign_input_responder(&self) {
+        unsafe {
+            if let Some((user, pass)) = self.ivars().autofill.borrow().as_ref() {
+                user.resignFirstResponder();
+                pass.resignFirstResponder();
+            }
+            self.resignFirstResponder();
+        }
+    }
+
     pub(crate) fn new(
         mtm: MainThreadMarker,
         window_attributes: &WindowAttributes,
@@ -839,8 +1044,8 @@ impl WinitView {
 
             ime: RefCell::new(ImeDocument::default()),
             ime_allowed: Cell::new(false),
-            ime_secure: Cell::new(false),
-            ime_raw: Cell::new(false),
+            ime_traits: Cell::new(traits(ImePurpose::Normal)),
+            autofill: RefCell::new(None),
             ime_area: Cell::new(CGRect { origin: CGPoint { x: 0.0, y: 0.0 }, size: CGSize { width: 0.0, height: 0.0 } }),
             ime_delegate: RefCell::new(None),
             ime_deletes: RefCell::new(VecDeque::new()),
@@ -880,7 +1085,7 @@ impl WinitView {
 
     fn present_edit_menu(&self, at: CGPoint) {
         self.ivars().edit_menu_at.set(at);
-        unsafe { self.becomeFirstResponder() };
+        self.become_input_responder();
         if let Some(menu) = self.ivars().edit_menu.borrow().as_ref() {
             let mtm = MainThreadMarker::from(self);
             unsafe {
@@ -1181,7 +1386,7 @@ impl WinitView {
 
     /// Text reached the app at the caret.
     fn type_text(&self, text: &str) {
-        if !self.ivars().ime_secure.get() {
+        if !self.ivars().ime_traits.get().secret {
             self.ivars().ime.borrow_mut().insert(text);
         }
     }
@@ -1250,14 +1455,20 @@ impl WinitView {
         }
     }
 
-    pub(crate) fn set_ime_secure(&self, secure: bool, raw: bool) {
-        let changed = self.ivars().ime_raw.replace(raw) != raw;
-        if self.ivars().ime_secure.replace(secure) != secure || changed {
+    /// A field with another purpose took the focus (or the field changed its kind): hand UIKit the new traits. `reloadInputViews`
+    /// only when the traits really change, so a tap in the focused field leaves the keyboard alone.
+    pub(crate) fn set_ime_purpose(&self, purpose: ImePurpose) {
+        let new = traits(purpose);
+        let old = self.ivars().ime_traits.replace(new);
+        if old != new {
+            nslog(&format!("gnobbi ime traits: {purpose:?} -> {new:?}"));
+            self.sync_autofill_fields(new.credential.is_some());
             self.reset_ime();
-            unsafe {
-                if self.isFirstResponder() {
-                    self.reloadInputViews();
-                }
+            if self.ivars().ime_allowed.get() && old.credential != new.credential {
+                // Another view takes the input (the keyboard stays up, UIKit reads its traits).
+                self.become_input_responder();
+            } else if new.credential.is_none() && unsafe { self.isFirstResponder() } {
+                unsafe { self.reloadInputViews() };
             }
         }
     }

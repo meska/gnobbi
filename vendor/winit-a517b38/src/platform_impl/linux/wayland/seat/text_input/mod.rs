@@ -333,8 +333,8 @@ pub(crate) trait TextInputRequests {
 
 fn content_type(purpose: ImePurpose) -> (ContentHint, ContentPurpose) {
     match purpose {
-        ImePurpose::Normal => (ContentHint::None, ContentPurpose::Normal),
-        ImePurpose::Password => (ContentHint::SensitiveData, ContentPurpose::Password),
+        ImePurpose::Normal | ImePurpose::Username | ImePurpose::Url => (ContentHint::None, ContentPurpose::Normal),
+        ImePurpose::Password | ImePurpose::LoginPassword => (ContentHint::SensitiveData, ContentPurpose::Password),
         ImePurpose::Terminal => (ContentHint::None, ContentPurpose::Terminal),
     }
 }

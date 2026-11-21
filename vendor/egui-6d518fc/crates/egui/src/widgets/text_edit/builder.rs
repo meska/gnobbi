@@ -82,6 +82,7 @@ pub struct TextEdit<'t> {
     layouter: Option<LayouterFn<'t>>,
     password: bool,
     raw_input: bool,
+    ime_purpose: Option<IMEPurpose>,
     frame: Option<Frame>,
     margin: Option<Margin>,
     multiline: bool,
@@ -141,6 +142,7 @@ impl<'t> TextEdit<'t> {
             layouter: None,
             password: false,
             raw_input: false,
+            ime_purpose: None,
             frame: None,
             margin: None,
             multiline: true,
@@ -258,6 +260,14 @@ impl<'t> TextEdit<'t> {
     #[inline]
     pub fn raw_input(mut self, raw_input: bool) -> Self {
         self.raw_input = raw_input;
+        self
+    }
+
+    /// Tell the OS what the field is for ([`IMEPurpose::Username`], [`IMEPurpose::LoginPassword`], [`IMEPurpose::Url`]), so it can
+    /// offer saved credentials. Wins over [`Self::password`] and [`Self::raw_input`] for the purpose only; display is unchanged.
+    #[inline]
+    pub fn ime_purpose(mut self, purpose: IMEPurpose) -> Self {
+        self.ime_purpose = Some(purpose);
         self
     }
 
@@ -516,6 +526,7 @@ impl<'t> TextEdit<'t> {
             layouter,
             password,
             raw_input,
+            ime_purpose,
             frame,
             margin,
             multiline,
@@ -639,7 +650,9 @@ impl<'t> TextEdit<'t> {
             state.cursor_purpose = TextEditCursorPurpose::Selection;
             state.note_ime_application_change(ime_frame_nr);
         }
-        let ime_purpose = if password {
+        let ime_purpose = if let Some(purpose) = ime_purpose {
+            purpose
+        } else if password {
             IMEPurpose::Password
         } else if raw_input {
             IMEPurpose::Terminal

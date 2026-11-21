@@ -210,6 +210,8 @@ features = [
     "UILongPressGestureRecognizer",
     "UIPasteboard",
     "UIGestureRecognizer",
+    "UIControl",
+    "UITextField",
     "UITextInput",
     "UITextInputTraits",
     "UIOrientation",

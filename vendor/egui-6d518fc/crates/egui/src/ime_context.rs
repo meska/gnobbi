@@ -570,7 +570,7 @@ impl ImeContextTracker {
         let Some(context) = state.context.as_ref() else {
             return false;
         };
-        if !context.focused || context.target != target || context.purpose == IMEPurpose::Password {
+        if !context.focused || context.target != target || context.purpose.is_secret() {
             return false;
         }
 
@@ -700,14 +700,14 @@ impl ImeContextTracker {
             }
         };
 
-        let mut stamp = if purpose == IMEPurpose::Password {
+        let mut stamp = if purpose.is_secret() {
             // Password text is never retained, and an unavailable revision must not survive
             // the privacy boundary either.
             ImeMutationStamp::unavailable()
         } else {
             committed.map_or_else(ImeMutationStamp::unavailable, |committed| committed.stamp())
         };
-        if purpose != IMEPurpose::Password
+        if !purpose.is_secret()
             && matches!(&stamp.snapshot, IMESurroundingText::Unavailable)
             && let Some(revision) = unavailable_revision
         {

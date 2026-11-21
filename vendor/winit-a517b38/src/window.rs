@@ -1886,6 +1886,13 @@ pub enum ImePurpose {
     ///
     /// For example, that could alter OSK on Wayland to show extra buttons.
     Terminal,
+    /// Account name of a sign-in form (iOS: `UITextContentTypeUsername`, so Passwords AutoFill can fill it).
+    Username,
+    /// Server address (iOS: `UITextContentTypeURL`, no autocapitalisation or autocorrection).
+    Url,
+    /// Password of a sign-in form (iOS: `UITextContentTypePassword` + `isSecureTextEntry`, Passwords AutoFill).
+    /// Elsewhere it is [`ImePurpose::Password`].
+    LoginPassword,
 }
 
 /// An opaque token used to activate the [`Window`].

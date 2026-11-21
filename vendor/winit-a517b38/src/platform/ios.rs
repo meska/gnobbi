@@ -206,6 +206,13 @@ pub trait WindowExtIOS {
     fn take_ime_delete_surrounding(&self) -> Option<ImeDeleteSurrounding>;
 }
 
+/// What Passwords AutoFill put into the sign-in fields since the last call: `(username, password)`, `None` for a field it left
+/// empty. The fill goes to two hidden `UITextField`s that exist only while a field of purpose `ImePurpose::Username` or
+/// `ImePurpose::LoginPassword` has the focus; the view then asks for a redraw.
+pub fn take_autofill_credentials() -> Option<(Option<String>, Option<String>)> {
+    crate::platform_impl::take_autofill_credentials()
+}
+
 /// Text the keyboard asks to delete around the cursor, in bytes of UTF-8 text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ImeDeleteSurrounding {

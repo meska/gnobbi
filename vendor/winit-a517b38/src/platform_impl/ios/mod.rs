@@ -4,6 +4,7 @@ mod app_state;
 mod event_loop;
 mod ime;
 mod ime_document;
+mod ime_traits;
 mod monitor;
 mod notification_center;
 mod view;
@@ -18,6 +19,7 @@ pub(crate) use self::event_loop::{
     ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle,
     PlatformSpecificEventLoopAttributes,
 };
+pub(crate) use self::view::take_autofill_credentials;
 pub(crate) use self::monitor::{MonitorHandle, VideoModeHandle};
 pub(crate) use self::window::{PlatformSpecificWindowAttributes, Window, WindowId};
 pub(crate) use crate::cursor::{

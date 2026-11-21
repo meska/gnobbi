@@ -2071,6 +2071,13 @@ impl State {
         self.install_pending_image_copy(window);
         self.drain_clipboard_pastes(window);
 
+        // iOS Passwords AutoFill: what it put into the hidden sign-in fields (username, password) is handed to the app
+        // through egui's data store under `Id::new("winit_autofill_credentials")`, as `(Option<String>, Option<String>)`.
+        #[cfg(target_os = "ios")]
+        if let Some(credentials) = winit::platform::ios::take_autofill_credentials() {
+            self.egui_ctx.data_mut(|data| data.insert_temp(egui::Id::new("winit_autofill_credentials"), credentials));
+        }
+
         // All events for this batch have been dispatched by now, including any click-to-focus
         // keyboard enter. Capture the final claimable input origin exactly once, using the
         // generation current at preparation. The slot is consumed by platform output below.
@@ -3456,6 +3463,13 @@ impl State {
                 self.pressed_processed_physical_keys.clear();
             }
 
+            // iOS: UIKit reads the AutoFill traits (content type) when the view becomes first responder and ignores a later change
+            // from `reloadInputViews`, so the purpose goes first.
+            #[cfg(target_os = "ios")]
+            if allow_ime && let Some(ime) = &ime && ime.purpose != self.old_ime_purpose {
+                self.old_ime_purpose = ime.purpose;
+                window.set_ime_purpose(to_winit_ime_purpose(ime.purpose));
+            }
             profiling::scope!("set_ime_allowed");
             window.set_ime_allowed(allow_ime);
         }
@@ -4656,6 +4670,17 @@ fn to_winit_ime_purpose(purpose: egui::IMEPurpose) -> winit::window::ImePurpose 
     match purpose {
         egui::IMEPurpose::Password => winit::window::ImePurpose::Password,
         egui::IMEPurpose::Terminal => winit::window::ImePurpose::Terminal,
+        // Only the iOS view tells these apart; every other platform sees the plain secret / terminal field.
+        #[cfg(target_os = "ios")]
+        egui::IMEPurpose::Username => winit::window::ImePurpose::Username,
+        #[cfg(target_os = "ios")]
+        egui::IMEPurpose::Url => winit::window::ImePurpose::Url,
+        #[cfg(target_os = "ios")]
+        egui::IMEPurpose::LoginPassword => winit::window::ImePurpose::LoginPassword,
+        #[cfg(not(target_os = "ios"))]
+        egui::IMEPurpose::Url | egui::IMEPurpose::Username => winit::window::ImePurpose::Terminal,
+        #[cfg(not(target_os = "ios"))]
+        egui::IMEPurpose::LoginPassword => winit::window::ImePurpose::Password,
         egui::IMEPurpose::Normal => winit::window::ImePurpose::Normal,
     }
 }

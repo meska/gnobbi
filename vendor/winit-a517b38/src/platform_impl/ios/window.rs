@@ -390,20 +390,15 @@ impl Inner {
     pub fn set_ime_allowed(&self, allowed: bool) {
         self.view.set_ime_allowed(allowed);
         if allowed {
-            unsafe {
-                self.view.becomeFirstResponder();
-            }
+            self.view.become_input_responder();
         } else {
-            unsafe {
-                self.view.resignFirstResponder();
-            }
+            self.view.resign_input_responder();
         }
     }
 
-    /// `Password`: no suggestions or autocorrection, and the typed text isn't shown to UIKit.
-    /// `Terminal`: no autocapitalisation, autocorrection or spell checking (URL, user id).
+    /// The UIKit traits per purpose are in `ime_traits.rs`.
     pub fn set_ime_purpose(&self, purpose: ImePurpose) {
-        self.view.set_ime_secure(matches!(purpose, ImePurpose::Password), matches!(purpose, ImePurpose::Terminal));
+        self.view.set_ime_purpose(purpose);
     }
 
     pub fn reset_ime(&self) {

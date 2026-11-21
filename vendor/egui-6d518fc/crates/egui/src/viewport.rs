@@ -1033,8 +1033,22 @@ pub enum X11WindowType {
 pub enum IMEPurpose {
     #[default]
     Normal,
+    /// A secret: never published, no suggestions.
     Password,
     Terminal,
+    /// Account name of a sign-in form: lets the OS offer saved credentials (iOS Passwords AutoFill).
+    Username,
+    /// Server address.
+    Url,
+    /// Password of a sign-in form: a secret like [`Self::Password`] that the OS may fill from its saved credentials.
+    LoginPassword,
+}
+
+impl IMEPurpose {
+    /// The text of the field must never leave the app.
+    pub fn is_secret(self) -> bool {
+        matches!(self, Self::Password | Self::LoginPassword)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
