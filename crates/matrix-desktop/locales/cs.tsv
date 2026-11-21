@@ -7,3 +7,595 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of cs in this order, separated by |: one|few|other.
 # See TRANSLATING.md.
+	Pinned	Připnuté
+	Low priority	Nízká priorita
+	New chat	Nový chat
+	Explore public rooms	Procházet veřejné místnosti
+	Search conversations	Hledat v konverzacích
+	Mark as read	Označit jako přečtené
+	Mark as unread	Označit jako nepřečtené
+	Add to a space…	Přidat do prostoru…
+	Leave?	Opustit?
+	Leave	Opustit
+	Add to a space	Přidat do prostoru
+	Add	Přidat
+	Cancel	Zrušit
+	Unpin	Odepnout
+	Pin to top	Připnout nahoru
+	Remove from low priority	Odebrat z nízké priority
+	Mark as low priority	Označit jako nízkou prioritu
+	Remove from {name}	Odebrat z {name}
+	All messages	Všechny zprávy
+	Mentions only	Pouze zmínky
+	Muted	Ztlumeno
+banner	Reply	Odpovědět
+	Edit	Upravit
+	Send note	Odeslat poznámku
+	Reply in thread	Odpovědět ve vlákně
+	Write a message	Napsat zprávu
+	Emoji	Emoji
+	Sticker	Nálepka
+	Poll	Anketa
+	Attach a file	Přiložit soubor
+	Voice note	Hlasová zpráva
+	Send	Odeslat
+	Grinning face	Usmívající se obličej
+	Beaming face	Zářivě se usmívající obličej
+	Face with tears of joy	Obličej se slzami radosti
+	Rolling on the floor laughing	Válející se smíchy po zemi
+	Smiling face with smiling eyes	Usmívající se obličej s usmívajícíma se očima
+	Smiling face with heart eyes	Usmívající se obličej se srdíčkovýma očima
+	Face blowing a kiss	Obličej posílající polibek
+	Smiling face with sunglasses	Usmívající se obličej se slunečními brýlemi
+	Thinking face	Přemýšlející obličej
+	Grinning face with sweat	Usmívající se obličej s potem
+	Winking face	Mrkající obličej
+	Upside-down face	Obličej vzhůru nohama
+	Crying face	Plačící obličej
+	Loudly crying face	Hlasitě plačící obličej
+	Angry face	Rozzlobený obličej
+	Screaming face	Křičící obličej
+	Thumbs up	Palec nahoru
+	Thumbs down	Palec dolů
+	Clapping hands	Tleskající ruce
+	Folded hands	Sepjaté ruce
+	Flexed biceps	Napjatý biceps
+	Waving hand	Mávající ruka
+	Handshake	Podání ruky
+	Raising hands	Zvednuté ruce
+	Party popper	Konfety
+	Fire	Oheň
+	Sparkles	Jiskry
+	Hundred points	Sto bodů
+	Check mark	Zaškrtnutí
+	Cross mark	Křížek
+	Eyes	Oči
+	Cup of coffee	Šálek kávy
+	Today	Dnes
+	Yesterday	Včera
+	Message deleted	Zpráva smazána
+	Message unavailable	Zpráva není dostupná
+	Encrypted message	Zašifrovaná zpráva
+	Loading…	Načítání…
+	Go to bottom	Přejít dolů
+	image	obrázek
+	video	video
+@plural	{n} reply	{n} odpověď|{n} odpovědi|{n} odpovědí
+	Encrypted	Zašifrováno
+	Status messages	Stavové zprávy
+	Same as settings	Stejně jako v nastavení
+	Show	Zobrazit
+	Hide	Skrýt
+@plural	{n} status message hidden	{n} skrytá stavová zpráva|{n} skryté stavové zprávy|{n} skrytých stavových zpráv
+	Search in room	Hledat v místnosti
+	No results	Žádné výsledky
+	Search failed	Hledání se nezdařilo
+	Retry	Zkusit znovu
+	More results	Další výsledky
+	Profile link	Odkaz na profil
+	Verified	Ověřeno
+	Not verified	Neověřeno
+	Message	Zpráva
+	Mention	Zmínit
+	Verify	Ověřit
+	Disconnect	Odpojit
+	Last read	Naposledy přečteno
+	Chat unavailable	Chat není dostupný
+	Ignore	Ignorovat
+	Confirm	Potvrdit
+	Kick	Vyhodit
+	Ban	Zablokovat
+	Failed	Nezdařilo se
+	Thread unavailable	Vlákno není dostupné
+	Thread	Vlákno
+	Reply	Odpovědět
+	Addresses	Adresy
+	main	hlavní
+	Main	Hlavní
+	name	název
+@plural	{n} member	{n} člen|{n} členové|{n} členů
+@plural	Delete {n} message	Smazat {n} zprávu|Smazat {n} zprávy|Smazat {n} zpráv
+	Reply to {name}	Odpovědět uživateli {name}
+	Admin	Správce
+	Moderator	Moderátor
+	Member	Člen
+	Invite	Pozvat
+	Banned	Zablokován
+	Banned list unavailable	Seznam zablokovaných není dostupný
+	Unban	Odblokovat
+	Reason	Důvod
+	Actions for {name}	Akce pro {name}
+	Name	Název
+	Topic	Téma
+	Drop an image here for the photo	Pro fotku sem přetáhněte obrázek
+	Choose photo…	Vybrat fotku…
+	Room photo	Fotka místnosti
+	Save	Uložit
+	Photo: {name}	Fotka: {name}
+	New poll	Nová anketa
+	Question	Otázka
+	Add option	Přidat možnost
+	Multiple choice	Více možností
+	Results visible right away	Výsledky viditelné hned
+	Option {n}	Možnost {n}
+	Video	Video
+	Image	Obrázek
+	Save as	Uložit jako
+	Open	Otevřít
+	Cannot open the content	Obsah nelze otevřít
+	Stickers are not encrypted, like an unencrypted image	Nálepky nejsou šifrované, stejně jako nešifrovaný obrázek
+	No sticker packs	Žádné balíčky nálepek
+	Stickers unavailable	Nálepky nejsou dostupné
+	Settings	Nastavení
+	Account and security	Účet a zabezpečení
+	Account	Účet
+	Devices	Zařízení
+	Appearance	Vzhled
+	Language	Jazyk
+	Theme	Motiv
+	System	Systém
+	Accent	Barva zvýraznění
+	Icon	Ikona
+	Automatic night	Automatický noční režim
+	Chat	Chat
+	Read receipts	Potvrzení o přečtení
+	Hide deleted messages	Skrýt smazané zprávy
+	Show status messages	Zobrazit stavové zprávy
+	Message preview	Náhled zprávy
+	Notifications	Oznámení
+	Close to tray	Zavřít do oznamovací oblasti
+	Add to menu	Přidat do nabídky
+	Added to menu	Přidáno do nabídky
+	Could not add to menu	Nepodařilo se přidat do nabídky
+	Classic	Klasický
+	Day	Den
+	Dark	Tmavý
+	Night	Noc
+	No	Ne
+	Schedule	Plán
+	Minimal mark	Minimální znak
+	Gnome	Gnome
+	Little monster	Příšerka
+	Blue	Modrá
+	Teal	Modrozelená
+	Green	Zelená
+	Orange	Oranžová
+	Red	Červená
+	Pink	Růžová
+	Purple	Fialová
+	A save is already in progress	Ukládání už probíhá
+	Account no longer connected	Účet už není připojen
+	Actions not available for this event	Akce nejsou pro tuto událost dostupné
+	Address already in use	Adresa se už používá
+	Already joined	Už jste připojeni
+	Checking permissions…	Kontrola oprávnění…
+	Choose a file that does not exist yet	Vyberte soubor, který ještě neexistuje
+	Connected	Připojeno
+	Connecting…	Připojování…
+	Connection failed	Připojení se nezdařilo
+	Data folder not available	Složka s daty není dostupná
+	Delete the selected message? This cannot be undone.	Smazat vybranou zprávu? Tuto akci nelze vrátit zpět.
+	File cannot be attached	Soubor nelze přiložit
+	Image cannot be attached	Obrázek nelze přiložit
+	Invalid name	Neplatný název
+	Joining…	Připojování…
+	Message not available	Zpráva není dostupná
+	No audio recorded	Nenahrán žádný zvuk
+	Not allowed	Nepovoleno
+	Not allowed by the server	Server to nepovoluje
+	Operation failed	Operace se nezdařila
+	Operation not confirmed · Retry uses the same ID (even if you change room)	Operace nepotvrzena · Opakování použije stejné ID (i když změníte místnost)
+	Operation pending · no server confirmation	Operace čeká · bez potvrzení serveru
+	Operation refused or unavailable	Operace odmítnuta nebo nedostupná
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Odpověď/úprava: pište do konceptu a pak použijte tlačítko. Enter odešle normálně.
+	Room not found	Místnost nenalezena
+	Saved	Uloženo
+	Saving failed	Uložení se nezdařilo
+	Server unreachable	Server je nedostupný
+	Sign-in failed	Přihlášení se nezdařilo
+	Sticker not sent	Nálepka nebyla odeslána
+	Still joining…	Stále se připojuje…
+	Sync interrupted	Synchronizace přerušena
+	Voice note cannot be played	Hlasovou zprávu nelze přehrát
+	You are offline	Jste offline
+	The name cannot be empty.	Název nesmí být prázdný.
+	The name is too long (256 characters at most).	Název je příliš dlouhý (nejvýše 256 znaků).
+	This server does not allow editing the profile.	Tento server nepovoluje úpravu profilu.
+	Cannot read the chosen file.	Vybraný soubor nelze přečíst.
+	The image is too large (25 MB at most).	Obrázek je příliš velký (nejvýše 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	Vyberte platný obrázek PNG, JPEG nebo WebP.
+	Connection failed: try again shortly.	Připojení se nezdařilo: zkuste to za chvíli znovu.
+	The server rejected the change.	Server změnu odmítl.
+	Space not found	Prostor nenalezen
+	Operation failed, try again	Operace se nezdařila, zkuste to znovu
+	Minimize	Minimalizovat
+	Show Gnobbi	Zobrazit Gnobbi
+	Quit Gnobbi	Ukončit Gnobbi
+	{name}, active account	{name}, aktivní účet
+	New messages	Nové zprávy
+	1 new message	1 nová zpráva
+	New message	Nová zpráva
+	📷 Photo	📷 Fotka
+	🎥 Video	🎥 Video
+	🎤 Voice message	🎤 Hlasová zpráva
+	🎵 Audio	🎵 Zvuk
+	📎 File	📎 Soubor
+	📍 Location	📍 Poloha
+menu	Quit Gnobbi	Ukončit Gnobbi
+menu	About Gnobbi	O aplikaci Gnobbi
+menu	Settings…	Nastavení…
+menu	Services	Služby
+menu	Hide Gnobbi	Skrýt Gnobbi
+menu	Hide Others	Skrýt ostatní
+menu	Show All	Zobrazit vše
+menu	Edit	Úpravy
+menu	Undo	Zpět
+menu	Redo	Znovu
+menu	Cut	Vyjmout
+menu	Copy	Kopírovat
+menu	Paste	Vložit
+menu	Select All	Vybrat vše
+menu	Start Dictation…	Spustit diktování…
+menu	Emoji & Symbols	Emoji a symboly
+menu	Window	Okno
+menu	Minimize	Minimalizovat
+menu	Zoom	Zvětšit
+menu	Bring All to Front	Všechna okna do popředí
+@plural	Gnobbi, {n} unread	Gnobbi, {n} nepřečtená|Gnobbi, {n} nepřečtené|Gnobbi, {n} nepřečtených
+	Customize	Přizpůsobit
+	Sizes	Velikosti
+	Text size	Velikost textu
+	Buttons and icons size	Velikost tlačítek a ikon
+	Follow the system	Podle systému
+	Follow the text	Podle textu
+	Small	Malé
+	Normal	Normální
+	Large	Velké
+	Compact	Kompaktní
+	Comfortable	Pohodlné
+	Restore defaults	Obnovit výchozí
+	Preview	Náhled
+	A sample message	Ukázková zpráva
+	Button	Tlačítko
+	Remove attachment	Odebrat přílohu
+	Cancel reply	Zrušit odpověď
+	Close card	Zavřít kartu
+	Close thread	Zavřít vlákno
+	Remove address	Odebrat adresu
+	Copy	Kopírovat
+	Menu	Nabídka
+	Back	Zpět
+	Chat list	Seznam chatů
+	Info	Informace
+	Copy key	Kopírovat klíč
+	Remove option	Odebrat možnost
+	Pause	Pozastavit
+	Play	Přehrát
+	New	Nový
+	New space	Nový prostor
+	Close	Zavřít
+	Add account	Přidat účet
+	Rename	Přejmenovat
+	Profile photo	Profilová fotka
+	Edit photo	Upravit fotku
+	Apply	Použít
+	Reset	Obnovit
+	Rotate left	Otočit doleva
+	Rotate right	Otočit doprava
+	Mirror	Zrcadlit
+	Zoom	Lupa
+	Rotation	Otočení
+	Brightness	Jas
+	Contrast	Kontrast
+	Saturation	Sytost
+	Original	Originál
+	B&W	Č/B
+	Sepia	Sépie
+	Vivid	Živé
+	Cool	Studené
+	Warm	Teplé
+	Fade	Vyblednutí
+	High contrast	Vysoký kontrast
+	Preview: drag to move the photo	Náhled: přetažením posunete fotku
+	Could not download the current photo.	Aktuální fotku se nepodařilo stáhnout.
+	Could not prepare the photo.	Fotku se nepodařilo připravit.
+	Open link	Otevřít odkaz
+	Could not open the link.	Odkaz se nepodařilo otevřít.
+	Copy link	Kopírovat odkaz
+	Server	Server
+	Matrix ID	ID Matrix
+	Password	Heslo
+	Local passphrase	Místní heslo
+	Sign in	Přihlásit se
+	Unlock	Odemknout
+	Signing in…	Přihlašování…
+	Unlocking…	Odemykání…
+	Show password	Zobrazit heslo
+	Hide password	Skrýt heslo
+	Accept	Přijmout
+	Decline	Odmítnout
+	Edit space	Upravit prostor
+	Edit room	Upravit místnost
+	Start failed	Spuštění se nezdařilo
+	Search	Hledat
+	Conversations	Konverzace
+	Users	Uživatelé
+	Public rooms	Veřejné místnosti
+	React	Reagovat
+	Confirm closing	Potvrdit ukončení
+	Close poll	Ukončit anketu
+	Confirm deletion	Potvrdit smazání
+	Delete	Smazat
+	Encrypted history	Zašifrovaná historie
+	Matrix recovery key	Klíč pro obnovení Matrix
+	I saved the key: continue	Klíč jsem uložil(a): pokračovat
+	Recover encrypted history	Obnovit zašifrovanou historii
+	Try creating the key again	Zkusit klíč vytvořit znovu
+	Create recovery key	Vytvořit klíč pro obnovení
+	Continue without recovery	Pokračovat bez obnovení
+	A space cannot go inside itself	Prostor nemůže být sám v sobě
+	You do not have permission to edit «{name}»	Nemáte oprávnění upravovat «{name}»
+	{label}, {n} unread	{label}, {n} nepřečtených
+	Move {name}	Přesunout {name}
+	Move {name} down	Přesunout {name} dolů
+	Move {name} up	Přesunout {name} nahoru
+	Organise spaces	Uspořádat prostory
+	Unread	Nepřečtené
+	All chats	Všechny chaty
+	Spaces	Prostory
+	No spaces	Žádné prostory
+	Rooms unlinked: {n}	Odpojené místnosti: {n}
+	Rooms not unlinked: {n}	Neodpojené místnosti: {n}
+	Members removed: {n}	Odebraní členové: {n}
+	Not removed: {names}	Neodebráni: {names}
+	Members who will be removed: {n}	Členové, kteří budou odebráni: {n}
+	Rooms unlinked (they stay existing): {n}	Odpojené místnosti (zůstanou existovat): {n}
+	Space menu	Nabídka prostoru
+	Space info	Informace o prostoru
+	Members	Členové
+	Hand over the admin role…	Předat roli správce…
+	Leave space	Opustit prostor
+	Delete space	Smazat prostor
+	Forget	Zapomenout
+	Failed, no change guaranteed: try again	Nezdařilo se, změna není zaručena: zkuste to znovu
+	Member list not read	Seznam členů se nepodařilo načíst
+	Space left and forgotten	Prostor opuštěn a zapomenut
+	Space not left: try again	Prostor nebyl opuštěn: zkuste to znovu
+	Space not left: members remain	Prostor nebyl opuštěn: členové zůstávají
+	This cannot be undone	Tuto akci nelze vrátit zpět
+	You still have rooms in this space.	V tomto prostoru máte stále místnosti.
+	You are the last admin of the space.	Jste poslední správce prostoru.
+	Make admin	Udělat správcem
+	Rooms not available	Místnosti nejsou dostupné
+	Add existing room	Přidat existující místnost
+	No rooms	Žádné místnosti
+	Rooms	Místnosti
+	Remove	Odebrat
+	Search public rooms	Hledat veřejné místnosti
+	Your server	Váš server
+	Other server…	Jiný server…
+	server name	název serveru
+	Already in	Už je v
+	Join	Připojit se
+	Remove photo	Odebrat fotku
+	Active	Aktivní
+	Active account	Aktivní účet
+	Other accounts	Další účty
+	Last active {when}	Naposledy aktivní {when}
+	{text} in {path}	{text} v {path}
+	This device	Toto zařízení
+	Keys	Klíče
+	Export password	Heslo exportu
+	Export keys	Exportovat klíče
+	Regenerate recovery key	Vytvořit nový klíč pro obnovení
+	Recover keys	Obnovit klíče
+	Recovery key	Klíč pro obnovení
+	Recover	Obnovit
+	Other devices	Další zařízení
+	Sign out	Odhlásit se
+	Device name	Název zařízení
+	New recovery key	Nový klíč pro obnovení
+	Done	Hotovo
+	Direct chat	Přímý chat
+	Room	Místnost
+	Space	Prostor
+	Join a room	Připojit se k místnosti
+	Public	Veřejná
+	Create	Vytvořit
+	#room:server or !id:server	#místnost:server nebo !id:server
+	Search people	Hledat lidi
+	Images	Obrázky
+	last message at {when}	poslední zpráva v {when}
+	last message on {when}	poslední zpráva dne {when}
+	last message {when}	poslední zpráva {when}
+	A user	Uživatel
+	{actor} created this room.	{actor} vytvořil(a) tuto místnost.
+	{actor} created this chat.	{actor} vytvořil(a) tento chat.
+	{actor} invited {subject}	{actor} pozval(a) uživatele {subject}
+	{subject} joined the room	{subject} se připojil(a) k místnosti
+	{subject} left the room	{subject} opustil(a) místnost
+	{actor} banned {subject}	{actor} zablokoval(a) uživatele {subject}
+	{actor} unbanned {subject}	{actor} odblokoval(a) uživatele {subject}
+	{actor} removed {subject} from the room	{actor} odebral(a) uživatele {subject} z místnosti
+	{subject} declined the invitation	{subject} odmítl(a) pozvánku
+	{actor} revoked the invitation for {subject}	{actor} zrušil(a) pozvánku pro uživatele {subject}
+	{actor} removed the room name	{actor} odebral(a) název místnosti
+	{actor} changed the room name to «{name}»	{actor} změnil(a) název místnosti na «{name}»
+	{actor} removed the room topic	{actor} odebral(a) téma místnosti
+	{actor} changed the room topic to «{topic}»	{actor} změnil(a) téma místnosti na «{topic}»
+	{actor} changed the room avatar	{actor} změnil(a) avatar místnosti
+	{old} changed their name to {new}	{old} změnil(a) své jméno na {new}
+	{subject} set their name to {new}	{subject} si nastavil(a) jméno {new}
+	{subject} removed their display name	{subject} odebral(a) své zobrazované jméno
+	{subject} changed their avatar	{subject} změnil(a) svůj avatar
+	{text} (reason: {reason})	{text} (důvod: {reason})
+	Audio	Zvuk
+	File	Soubor
+	Photo	Fotka
+	Log out	Odhlásit se
+	Encryption keys on this device not backed up are lost.	Šifrovací klíče na tomto zařízení, které nejsou zálohované, budou ztraceny.
+	The server did not answer. Remove it from this device anyway?	Server neodpověděl. Přesto ho z tohoto zařízení odebrat?
+	Remove from this device	Odebrat z tohoto zařízení
+	Wrong key. Check it and try again.	Nesprávný klíč. Zkontrolujte ho a zkuste to znovu.
+	Server unreachable. Try again later or continue without recovery.	Server je nedostupný. Zkuste to později nebo pokračujte bez obnovení.
+	Recovery took too long. Try again or continue without recovery.	Obnovení trvalo příliš dlouho. Zkuste to znovu nebo pokračujte bez obnovení.
+	No key backup on the server. Continue without recovery.	Na serveru není záloha klíčů. Pokračujte bez obnovení.
+	Recovery failed. Try again or continue without recovery.	Obnovení se nezdařilo. Zkuste to znovu nebo pokračujte bez obnovení.
+	This account has no Matrix secret storage: no recovery key to enter.	Tento účet nemá úložiště tajemství Matrix: není žádný klíč pro obnovení k zadání.
+	The server offers no key backup: no recovery to create. Continue without recovery.	Server nenabízí zálohu klíčů: není co vytvářet. Pokračujte bez obnovení.
+	This account already has a recovery: enter the existing recovery key.	Tento účet už obnovení má: zadejte stávající klíč pro obnovení.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Obnovení tohoto účtu je nastaveno jen napůl: Gnobbi ho nemění. Pokračujte bez obnovení.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	Tento účet už má kryptografickou identitu, kterou toto zařízení nemá: Gnobbi ji nenahrazuje. Pokračujte bez obnovení.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	Server žádá další potvrzení, které Gnobbi nepodporuje. Pokračujte bez obnovení.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	Server je nedostupný: obnovení nebylo vytvořeno. Zkuste to znovu nebo pokračujte bez obnovení.
+	Creation took too long. Try again or continue without recovery.	Vytváření trvalo příliš dlouho. Zkuste to znovu nebo pokračujte bez obnovení.
+	Creating the recovery failed. Try again or continue without recovery.	Vytvoření obnovení se nezdařilo. Zkuste to znovu nebo pokračujte bez obnovení.
+	Enter a server name or a valid HTTPS address.	Zadejte název serveru nebo platnou adresu HTTPS.
+	Enter the full Matrix ID: @name:server.	Zadejte celé ID Matrix: @jméno:server.
+	Enter the profile's local passphrase.	Zadejte místní heslo profilu.
+	Password required; local passphrase of at least 16 characters.	Je vyžadováno heslo; místní heslo o délce alespoň 16 znaků.
+	This server offers no password login. SSO/OIDC are not supported.	Tento server nenabízí přihlášení heslem. SSO/OIDC nejsou podporovány.
+	This server does not support sliding sync	Tento server nepodporuje sliding sync
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	Server odpověděl chybou: zkontrolujte adresu (např. https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	Server je nedostupný nebo má neplatný certifikát TLS.
+	Credentials not accepted. Try again.	Přihlašovací údaje nebyly přijaty. Zkuste to znovu.
+	Too many attempts: try again in a moment.	Příliš mnoho pokusů: zkuste to za chvíli znovu.
+	Sign-in/unlock failed. Check the credentials and try again.	Přihlášení/odemknutí se nezdařilo. Zkontrolujte přihlašovací údaje a zkuste to znovu.
+	System keychain unavailable or locked. Unlock it and try again.	Systémová klíčenka je nedostupná nebo zamčená. Odemkněte ji a zkuste to znovu.
+	The profile key is not in the system keychain. The profile was not changed.	Klíč profilu není v systémové klíčence. Profil nebyl změněn.
+	Profile already open in another instance. Close it and restart.	Profil je už otevřený v jiné instanci. Zavřete ji a spusťte aplikaci znovu.
+	Local profile unavailable. Close and check the profile path.	Místní profil není dostupný. Zavřete aplikaci a zkontrolujte cestu k profilu.
+	Enter the Matrix password.	Zadejte heslo k Matrix.
+	Creating the recovery and backup…	Vytváření obnovení a zálohy…
+@plural	{n} device to sign out	{n} zařízení k odhlášení|{n} zařízení k odhlášení|{n} zařízení k odhlášení
+@plural	{n} device without last activity not included	{n} zařízení bez poslední aktivity nezahrnuto|{n} zařízení bez poslední aktivity nezahrnuta|{n} zařízení bez poslední aktivity nezahrnuto
+	Last activity {time}	Poslední aktivita {time}
+	They match	Shodují se
+	They don't match	Neshodují se
+	Yes	Ano
+	Not available with this account	S tímto účtem není dostupné
+	Incorrect password	Nesprávné heslo
+	Failed. Try again.	Nezdařilo se. Zkuste to znovu.
+	Verification failed	Ověření se nezdařilo
+	Verification request	Žádost o ověření
+	Cancel the verification?	Zrušit ověření?
+	Verification cancelled	Ověření zrušeno
+	The emoji don't match	Emoji se neshodují
+	Verification	Ověření
+@plural	{n} key exported	{n} klíč exportován|{n} klíče exportovány|{n} klíčů exportováno
+	Gnobbi recovery key	Klíč pro obnovení Gnobbi
+	Wrong unlock passphrase	Nesprávné heslo k odemknutí
+	Password too short: at least 12 characters	Heslo je příliš krátké: alespoň 12 znaků
+	Password too long: at most 4096 bytes	Heslo je příliš dlouhé: nejvýše 4096 bajtů
+	The passwords don't match	Hesla se neshodují
+	No keys to export on this device	Na tomto zařízení nejsou žádné klíče k exportu
+	Can't write to this location	Na toto místo nelze zapisovat
+	Export failed: try again	Export se nezdařil: zkuste to znovu
+	Recover the keys on this device first	Nejdřív obnovte klíče na tomto zařízení
+	The server asks for a confirmation that is not supported here	Server žádá potvrzení, které zde není podporováno
+	Server unreachable: try again	Server je nedostupný: zkuste to znovu
+	Regeneration failed: try again	Vytvoření nového klíče se nezdařilo: zkuste to znovu
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	Toto zařízení nemá klíče pro obnovení účtu: zadejte klíč, abyste mohli číst staré zašifrované zprávy
+	This account has no recovery key: without one, encrypted messages are lost with the devices	Tento účet nemá klíč pro obnovení: bez něj se zašifrované zprávy ztratí spolu se zařízeními
+	Restoring…	Obnovování…
+	Restore	Obnovit
+	Not now	Teď ne
+	Don't ask again for this account	Pro tento účet se už neptat
+	Copy recovery key	Kopírovat klíč pro obnovení
+	Save it now: it will not be shown again	Uložte si ho hned: znovu se nezobrazí
+	Save to file	Uložit do souboru
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	Vytváření nového klíče…
+	I kept it elsewhere	Mám ho uložený jinde
+	The server does not respond	Server neodpovídá
+	Not a Matrix server	Není to server Matrix
+	The server does not show its rooms	Server své místnosti nezobrazuje
+	Your server cannot reach this server	Váš server se k tomuto serveru nedokáže připojit
+	Invalid server certificate	Neplatný certifikát serveru
+	Searching	Hledání
+	Partial results	Částečné výsledky
+	Invalid server name	Neplatný název serveru
+	Timed out	Vypršel časový limit
+	Loading	Načítání
+	More results not loaded	Další výsledky nenačteny
+	The server name is needed, for example matrix.org	Je potřeba název serveru, například matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Toto je ID uživatele: je potřeba název serveru, například matrix.org
+	Only https addresses are allowed	Povoleny jsou jen adresy https
+	Write only the server name, without a path	Napište jen název serveru, bez cesty
+	The server name is needed, without user or password	Je potřeba název serveru, bez uživatele a hesla
+	Invalid port	Neplatný port
+	Invalid IP address	Neplatná adresa IP
+	Already present	Už existuje
+	Favorites	Oblíbené
+	All	Vše
+	Demo room {n}	Ukázková místnost {n}
+@plural	{n} unread	{n} nepřečtená|{n} nepřečtené|{n} nepřečtených
+	edited	upraveno
+	[Message deleted]	[Zpráva smazána]
+	Server ack · Reply	Potvrzení serveru · Odpověď
+	Server ack	Potvrzení serveru
+	local	místní
+	Microphone not available	Mikrofon není dostupný
+	Audio playback not available	Přehrávání zvuku není dostupné
+	Public spaces	Veřejné prostory
+	People	Lidé
+	Location	Poloha
+	Message without text	Zpráva bez textu
+	Image.png	Obrázek.png
+	invalid staging	neplatná příprava
+	placement failed and restore failed	umístění selhalo a obnovení selhalo
+	start failed and restore failed	spuštění selhalo a obnovení selhalo
+	another installation in progress	probíhá jiná instalace
+	channel without in-app update	kanál bez aktualizace v aplikaci
+	binary to update not found	aktualizovaný binární soubor nenalezen
+	staging not found	příprava nenalezena
+	staging outside the target folder	příprava mimo cílovou složku
+	previous update pending	předchozí aktualizace čeká
+	staging has a different size	příprava má jinou velikost
+	staging has a different hash	příprava má jiný hash
+	folder not writable	do složky nelze zapisovat
+	staging cannot be verified	přípravu nelze ověřit
+	Update failed: {cause}	Aktualizace se nezdařila: {cause}
+	remove {name}	odebrat {name}
+	error	chyba
+	invalid helper parameters	neplatné parametry pomocníka
+	invalid binary to update	neplatný binární soubor k aktualizaci
+	backup to restore not found	záloha k obnovení nenalezena
+	no pending restore	žádné čekající obnovení
+	Windows update not available	Aktualizace pro Windows není dostupná
+	data folder not found	složka s daty nenalezena
+	the program did not close	program se nezavřel
+	running binary differs from the target	spuštěný binární soubor se liší od cílového
+	helper without channel	pomocník bez kanálu
+	helper not ready	pomocník není připraven
+	Update available · {version}	Dostupná aktualizace · {version}
+	Update available, version {version}	Dostupná aktualizace, verze {version}
+	Updated to {version}	Aktualizováno na {version}
+	Update failed: restored {version}	Aktualizace se nezdařila: obnovena verze {version}
+	Update failed: error	Aktualizace se nezdařila: chyba
+	Update postponed: message not sent	Aktualizace odložena: zpráva nebyla odeslána
+	backup differs from the binary, kept	záloha se liší od binárního souboru, ponechána
+	gnobbi-keys.txt	gnobbi-keys.txt
+	Filter: {label}	Filtr: {label}
+	Sign out inactive	Odhlásit neaktivní
+	helper out of place	pomocník na nesprávném místě
