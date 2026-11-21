@@ -7,3 +7,596 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of ar in this order, separated by |: zero|one|two|few|many|other.
 # See TRANSLATING.md.
+
+	Pinned	مثبتة
+	Low priority	أولوية منخفضة
+	New chat	محادثة جديدة
+	Explore public rooms	استكشف الغرف العامة
+	Search conversations	بحث في المحادثات
+	Mark as read	تحديد كمقروءة
+	Mark as unread	تحديد كغير مقروءة
+	Add to a space…	إضافة إلى مساحة…
+	Leave?	مغادرة؟
+	Leave	مغادرة
+	Add to a space	إضافة إلى مساحة
+	Add	إضافة
+	Cancel	إلغاء
+	Unpin	إلغاء التثبيت
+	Pin to top	تثبيت في الأعلى
+	Remove from low priority	إزالة من الأولوية المنخفضة
+	Mark as low priority	تحديد كأولوية منخفضة
+	Remove from {name}	إزالة من {name}
+	All messages	كل الرسائل
+	Mentions only	الإشارات فقط
+	Muted	مكتومة
+banner	Reply	رد
+	Edit	تعديل
+	Send note	إرسال ملاحظة
+	Reply in thread	الرد في سلسلة المحادثة
+	Write a message	اكتب رسالة
+	Emoji	رموز تعبيرية
+	Sticker	ملصق
+	Poll	استطلاع
+	Attach a file	إرفاق ملف
+	Voice note	رسالة صوتية
+	Send	إرسال
+	Today	اليوم
+	Yesterday	أمس
+	Message deleted	حُذفت الرسالة
+	Message unavailable	الرسالة غير متاحة
+	Encrypted message	رسالة مشفرة
+	Loading…	جارٍ التحميل…
+	Go to bottom	الانتقال إلى الأسفل
+	image	صورة
+	video	فيديو
+@plural	{n} reply	{n} رد|{n} رد|{n} ردّان|{n} ردود|{n} ردًا|{n} رد
+	Encrypted	مشفّرة
+	Status messages	رسائل الحالة
+	Same as settings	حسب الإعدادات
+	Show	إظهار
+	Hide	إخفاء
+	Search in room	البحث في الغرفة
+	No results	لا توجد نتائج
+	Search failed	فشل البحث
+	Retry	إعادة المحاولة
+	More results	المزيد من النتائج
+	Profile link	رابط الملف الشخصي
+	Verified	تم التحقق
+	Not verified	لم يتم التحقق
+	Message	رسالة
+	Mention	إشارة
+	Verify	تحقق
+	Disconnect	قطع الاتصال
+	Last read	آخر قراءة
+	Chat unavailable	المحادثة غير متاحة
+	Ignore	تجاهل
+	Confirm	تأكيد
+	Kick	طرد
+	Ban	حظر
+	Failed	فشل
+	Thread unavailable	سلسلة المحادثة غير متاحة
+	Thread	سلسلة المحادثة
+	Reply	رد
+	Addresses	العناوين
+	main	رئيسي
+	Main	رئيسي
+	name	الاسم
+@plural	{n} member	{n} عضو|{n} عضو|{n} عضوان|{n} أعضاء|{n} عضوًا|{n} عضو
+@plural	Delete {n} message	حذف {n} رسالة|حذف {n} رسالة|حذف {n} رسالتين|حذف {n} رسائل|حذف {n} رسالة|حذف {n} رسالة
+	Reply to {name}	الرد على {name}
+	Admin	مسؤول
+	Moderator	مشرف
+	Member	عضو
+	Invite	دعوة
+	Banned	المحظورون
+	Banned list unavailable	قائمة المحظورين غير متاحة
+	Unban	إلغاء الحظر
+	Reason	السبب
+	Actions for {name}	إجراءات لـ {name}
+	Name	الاسم
+	Topic	الموضوع
+	Drop an image here for the photo	أفلت صورة هنا
+	Choose photo…	اختيار صورة…
+	Room photo	صورة الغرفة
+	Save	حفظ
+	Photo: {name}	الصورة: {name}
+	New poll	استطلاع جديد
+	Question	السؤال
+	Add option	إضافة خيار
+	Multiple choice	اختيارات متعددة
+	Results visible right away	إظهار النتائج فورًا
+	Option {n}	الخيار {n}
+	Video	فيديو
+	Image	صورة
+	Save as	حفظ باسم
+	Open	فتح
+	Cannot open the content	تعذر فتح المحتوى
+	Stickers are not encrypted, like an unencrypted image	الملصقات غير مشفرة، مثل الصور غير المشفرة
+	No sticker packs	لا توجد حزم ملصقات
+	Stickers unavailable	الملصقات غير متاحة
+	Settings	الإعدادات
+	Account and security	الحساب والأمان
+	Account	الحساب
+	Devices	الأجهزة
+	Appearance	المظهر
+	Language	اللغة
+	Theme	السمة
+	System	النظام
+	Accent	لون التمييز
+	Icon	الأيقونة
+	Automatic night	الوضع الليلي التلقائي
+	Chat	المحادثة
+	Read receipts	إيصالات القراءة
+	Hide deleted messages	إخفاء الرسائل المحذوفة
+	Show status messages	إظهار رسائل الحالة
+	Message preview	معاينة الرسائل
+	Notifications	الإشعارات
+	Close to tray	الإغلاق إلى علبة النظام
+	Add to menu	إضافة إلى القائمة
+	Added to menu	تمت الإضافة إلى القائمة
+	Could not add to menu	تعذرت الإضافة إلى القائمة
+	Classic	كلاسيكي
+	Day	نهاري
+	Dark	داكن
+	Night	ليلي
+	No	لا
+	Schedule	الجدول
+	Minimal mark	علامة بسيطة
+	Gnome	قزم
+	Little monster	وحش صغير
+	Blue	أزرق
+	Teal	فيروزي
+	Green	أخضر
+	Orange	برتقالي
+	Red	أحمر
+	Pink	وردي
+	Purple	بنفسجي
+	A save is already in progress	هناك عملية حفظ جارية
+	Account no longer connected	الحساب لم يعد متصلًا
+	Actions not available for this event	الإجراءات غير متاحة لهذا الحدث
+	Address already in use	العنوان مستخدم بالفعل
+	Already joined	تم الانضمام بالفعل
+	Checking permissions…	جارٍ التحقق من الأذونات…
+	Choose a file that does not exist yet	اختر ملفًا غير موجود بعد
+	Connected	متصل
+	Connecting…	جارٍ الاتصال…
+	Connection failed	فشل الاتصال
+	Data folder not available	مجلد البيانات غير متاح
+	Delete the selected message? This cannot be undone.	هل تريد حذف الرسالة المحددة؟ لا يمكن التراجع عن ذلك.
+	File cannot be attached	تعذر إرفاق الملف
+	Image cannot be attached	تعذر إرفاق الصورة
+	Invalid name	اسم غير صالح
+	Joining…	جارٍ الانضمام…
+	Message not available	الرسالة غير متاحة
+	No audio recorded	لم يُسجَّل صوت
+	Not allowed	غير مسموح
+	Not allowed by the server	غير مسموح من الخادم
+	Operation failed	فشلت العملية
+	Operation not confirmed · Retry uses the same ID (even if you change room)	لم تُؤكَّد العملية · تستخدم إعادة المحاولة المعرّف نفسه حتى عند تغيير الغرفة
+	Operation pending · no server confirmation	العملية معلقة · لم يؤكد الخادم
+	Operation refused or unavailable	العملية مرفوضة أو غير متاحة
+	Room not found	لم يتم العثور على الغرفة
+	Saved	تم الحفظ
+	Saving failed	فشل الحفظ
+	Server unreachable	تعذر الوصول إلى الخادم
+	Sign-in failed	فشل تسجيل الدخول
+	Sticker not sent	لم يُرسل الملصق
+	Still joining…	لا يزال الانضمام جاريًا…
+	Sync interrupted	انقطعت المزامنة
+	Voice note cannot be played	تعذر تشغيل الرسالة الصوتية
+	You are offline	أنت غير متصل
+	The name cannot be empty.	لا يمكن ترك الاسم فارغًا.
+	The name is too long (256 characters at most).	الاسم طويل جدًا (الحد الأقصى 256 حرفًا).
+	This server does not allow editing the profile.	لا يسمح هذا الخادم بتعديل الملف الشخصي.
+	Cannot read the chosen file.	تعذرت قراءة الملف المختار.
+	The image is too large (25 MB at most).	الصورة كبيرة جدًا (الحد الأقصى 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	اختر صورة صالحة بصيغة PNG أو JPEG أو WebP.
+	Connection failed: try again shortly.	فشل الاتصال: حاول مجددًا بعد قليل.
+	The server rejected the change.	رفض الخادم التغيير.
+	Space not found	لم يتم العثور على المساحة
+	Operation failed, try again	فشلت العملية، حاول مجددًا
+	Minimize	تصغير
+	Show Gnobbi	إظهار Gnobbi
+	Quit Gnobbi	إنهاء Gnobbi
+	{name}, active account	{name}، الحساب النشط
+	New messages	رسائل جديدة
+	1 new message	رسالة جديدة واحدة
+	New message	رسالة جديدة
+	📷 Photo	📷 صورة
+	🎥 Video	🎥 فيديو
+	🎤 Voice message	🎤 رسالة صوتية
+	🎵 Audio	🎵 صوت
+	📎 File	📎 ملف
+	📍 Location	📍 الموقع
+menu	Quit Gnobbi	إنهاء Gnobbi
+menu	About Gnobbi	حول Gnobbi
+menu	Settings…	الإعدادات…
+menu	Services	الخدمات
+menu	Hide Gnobbi	إخفاء Gnobbi
+menu	Hide Others	إخفاء البقية
+menu	Show All	إظهار الكل
+menu	Edit	تعديل
+menu	Undo	تراجع
+menu	Redo	إعادة
+menu	Cut	قص
+menu	Copy	نسخ
+menu	Paste	لصق
+menu	Select All	تحديد الكل
+menu	Start Dictation…	بدء الإملاء…
+menu	Emoji & Symbols	الرموز التعبيرية والرموز
+menu	Window	نافذة
+menu	Minimize	تصغير
+menu	Zoom	تكبير
+menu	Bring All to Front	إحضار الكل إلى المقدمة
+	Customize	تخصيص
+	Sizes	الأحجام
+	Text size	حجم النص
+	Buttons and icons size	حجم الأزرار والأيقونات
+	Follow the system	اتباع النظام
+	Follow the text	اتباع النص
+	Small	صغير
+	Normal	عادي
+	Large	كبير
+	Compact	مضغوط
+	Comfortable	مريح
+	Restore defaults	استعادة الإعدادات الافتراضية
+	Preview	معاينة
+	A sample message	رسالة نموذجية
+	Button	زر
+	Remove attachment	إزالة المرفق
+	Cancel reply	إلغاء الرد
+	Close card	إغلاق البطاقة
+	Close thread	إغلاق سلسلة المحادثة
+	Remove address	إزالة العنوان
+	Copy	نسخ
+	Menu	القائمة
+	Back	رجوع
+	Chat list	قائمة المحادثات
+	Info	معلومات
+	Copy key	نسخ المفتاح
+	Remove option	إزالة الخيار
+	Pause	إيقاف مؤقت
+	Play	تشغيل
+	New	جديد
+	New space	مساحة جديدة
+	Close	إغلاق
+	Add account	إضافة حساب
+	Rename	إعادة تسمية
+	Profile photo	صورة الملف الشخصي
+	Edit photo	تعديل الصورة
+	Apply	تطبيق
+	Reset	إعادة تعيين
+	Rotate left	تدوير لليسار
+	Rotate right	تدوير لليمين
+	Mirror	عكس
+	Zoom	تكبير
+	Rotation	التدوير
+	Brightness	السطوع
+	Contrast	التباين
+	Saturation	التشبع
+	Original	الأصل
+	B&W	أبيض وأسود
+	Sepia	بني داكن
+	Vivid	زاهٍ
+	Cool	بارد
+	Warm	دافئ
+	Fade	تلاشي
+	High contrast	تباين عالٍ
+	Preview: drag to move the photo	معاينة: اسحب لتحريك الصورة
+	Could not download the current photo.	تعذر تنزيل الصورة الحالية.
+	Could not prepare the photo.	تعذر تجهيز الصورة.
+	Open link	فتح الرابط
+	Could not open the link.	تعذر فتح الرابط.
+	Copy link	نسخ الرابط
+	Server	الخادم
+	Matrix ID	معرّف Matrix
+	Password	كلمة المرور
+	Local passphrase	عبارة المرور المحلية
+	Sign in	تسجيل الدخول
+	Unlock	فتح القفل
+	Signing in…	جارٍ تسجيل الدخول…
+	Unlocking…	جارٍ فتح القفل…
+	Show password	إظهار كلمة المرور
+	Hide password	إخفاء كلمة المرور
+	Accept	قبول
+	Decline	رفض
+	Edit space	تعديل المساحة
+	Edit room	تعديل الغرفة
+	Start failed	فشل البدء
+	Search	بحث
+	Conversations	المحادثات
+	Users	المستخدمون
+	Public rooms	الغرف العامة
+	React	إضافة تفاعل
+	Confirm closing	تأكيد الإغلاق
+	Close poll	إغلاق الاستطلاع
+	Confirm deletion	تأكيد الحذف
+	Delete	حذف
+	Encrypted history	السجل المشفر
+	Matrix recovery key	مفتاح استرداد Matrix
+	I saved the key: continue	حفظت المفتاح: متابعة
+	Recover encrypted history	استرداد السجل المشفر
+	Try creating the key again	حاول إنشاء المفتاح مجددًا
+	Create recovery key	إنشاء مفتاح استرداد
+	Continue without recovery	المتابعة دون استرداد
+	A space cannot go inside itself	لا يمكن وضع مساحة داخل نفسها
+	You do not have permission to edit «{name}»	ليس لديك إذن لتعديل «{name}»
+	{label}, {n} unread	{label}، {n} غير مقروء
+	Move {name}	نقل {name}
+	Move {name} down	نقل {name} للأسفل
+	Move {name} up	نقل {name} للأعلى
+	Organise spaces	تنظيم المساحات
+	Unread	غير مقروءة
+	All chats	كل المحادثات
+	Spaces	المساحات
+	No spaces	لا توجد مساحات
+	Rooms unlinked: {n}	الغرف المفصولة: {n}
+	Rooms not unlinked: {n}	الغرف التي لم تُفصل: {n}
+	Members removed: {n}	الأعضاء الذين أُزيلوا: {n}
+	Not removed: {names}	لم يُزل: {names}
+	Members who will be removed: {n}	الأعضاء الذين ستتم إزالتهم: {n}
+	Rooms unlinked (they stay existing): {n}	الغرف المفصولة (ستبقى موجودة): {n}
+	Space menu	قائمة المساحة
+	Space info	معلومات المساحة
+	Members	الأعضاء
+	Hand over the admin role…	نقل دور المسؤول…
+	Leave space	مغادرة المساحة
+	Delete space	حذف المساحة
+	Forget	نسيان
+	Failed, no change guaranteed: try again	فشل، لم يُضمن إجراء التغيير: حاول مجددًا
+	Member list not read	لم تُقرأ قائمة الأعضاء
+	Space left and forgotten	تمت مغادرة المساحة ونسيانها
+	Space not left: try again	لم تتم مغادرة المساحة: حاول مجددًا
+	Space not left: members remain	لم تتم مغادرة المساحة: لا يزال هناك أعضاء
+	This cannot be undone	لا يمكن التراجع عن هذا
+	You still have rooms in this space.	لا تزال لديك غرف في هذه المساحة.
+	You are the last admin of the space.	أنت آخر مسؤول في المساحة.
+	Make admin	تعيين مسؤول
+	Rooms not available	الغرف غير متاحة
+	Add existing room	إضافة غرفة موجودة
+	No rooms	لا توجد غرف
+	Rooms	الغرف
+	Remove	إزالة
+	Search public rooms	البحث عن غرف عامة
+	Your server	خادمك
+	Other server…	خادم آخر…
+	server name	اسم الخادم
+	Already in	منضم بالفعل
+	Join	انضمام
+	Remove photo	إزالة الصورة
+	Active	نشط
+	Active account	الحساب النشط
+	Other accounts	حسابات أخرى
+	Last active {when}	آخر نشاط {when}
+	{text} in {path}	{text} في {path}
+	This device	هذا الجهاز
+	Keys	المفاتيح
+	Export password	كلمة مرور التصدير
+	Export keys	تصدير المفاتيح
+	Regenerate recovery key	إعادة إنشاء مفتاح الاسترداد
+	Recover keys	استرداد المفاتيح
+	Recovery key	مفتاح الاسترداد
+	Recover	استرداد
+	Other devices	الأجهزة الأخرى
+	Sign out	تسجيل الخروج
+	Device name	اسم الجهاز
+	New recovery key	مفتاح استرداد جديد
+	Done	تم
+	Direct chat	محادثة مباشرة
+	Room	غرفة
+	Space	مساحة
+	Join a room	الانضمام إلى غرفة
+	Public	عام
+	Create	إنشاء
+	#room:server or !id:server	#room:server أو !id:server
+	Search people	البحث عن أشخاص
+	Images	الصور
+	last message at {when}	آخر رسالة الساعة {when}
+	last message on {when}	آخر رسالة في {when}
+	last message {when}	آخر رسالة {when}
+	A user	مستخدم
+	{actor} created this room.	أنشأ {actor} هذه الغرفة.
+	{actor} created this chat.	أنشأ {actor} هذه المحادثة.
+	{actor} invited {subject}	دعا {actor} {subject}
+	{subject} joined the room	انضم {subject} إلى الغرفة
+	{subject} left the room	غادر {subject} الغرفة
+	{actor} banned {subject}	حظر {actor} {subject}
+	{actor} unbanned {subject}	ألغى {actor} حظر {subject}
+	{actor} removed {subject} from the room	أزال {actor} {subject} من الغرفة
+	{subject} declined the invitation	رفض {subject} الدعوة
+	{actor} revoked the invitation for {subject}	ألغى {actor} دعوة {subject}
+	{actor} removed the room name	أزال {actor} اسم الغرفة
+	{actor} changed the room name to «{name}»	غيّر {actor} اسم الغرفة إلى «{name}»
+	{actor} removed the room topic	أزال {actor} موضوع الغرفة
+	{actor} changed the room topic to «{topic}»	غيّر {actor} موضوع الغرفة إلى «{topic}»
+	{actor} changed the room avatar	غيّر {actor} صورة الغرفة
+	{old} changed their name to {new}	غيّر {old} الاسم إلى {new}
+	{subject} set their name to {new}	عيّن {subject} الاسم إلى {new}
+	{subject} removed their display name	أزال {subject} اسم العرض
+	{subject} changed their avatar	غيّر {subject} الصورة الشخصية
+	{text} (reason: {reason})	{text} (السبب: {reason})
+	Audio	صوت
+	File	ملف
+	Photo	صورة
+	Log out	تسجيل الخروج
+	Encryption keys on this device not backed up are lost.	ستُفقد مفاتيح التشفير على هذا الجهاز التي لم تُنسخ احتياطيًا.
+	The server did not answer. Remove it from this device anyway?	لم يستجب الخادم. هل تريد إزالته من هذا الجهاز رغم ذلك؟
+	Remove from this device	إزالة من هذا الجهاز
+	Angry face	وجه غاضب
+	Beaming face	وجه مبتسم ببشاشة
+	Check mark	علامة صح
+	Clapping hands	تصفيق
+	Cross mark	علامة خطأ
+	Crying face	وجه باكٍ
+	Cup of coffee	فنجان قهوة
+	Eyes	عينان
+	Face blowing a kiss	وجه يرسل قبلة
+	Face with tears of joy	وجه يضحك حتى البكاء
+	Fire	نار
+	Flexed biceps	عضلة مفتولة
+	Folded hands	يدان مضمومتان
+	Grinning face	وجه مبتسم
+	Grinning face with sweat	وجه مبتسم مع عرق
+	Handshake	مصافحة
+	Hundred points	مئة نقطة
+	Loudly crying face	وجه يبكي بشدة
+	Party popper	مفرقعة احتفالية
+	Raising hands	يدان مرفوعتان
+	Rolling on the floor laughing	يتدحرج ضاحكًا
+	Screaming face	وجه يصرخ
+	Smiling face with heart eyes	وجه مبتسم بعينين على شكل قلب
+	Smiling face with smiling eyes	وجه مبتسم بعينين مبتسمتين
+	Smiling face with sunglasses	وجه مبتسم بنظارة شمسية
+	Sparkles	بريق
+	Thinking face	وجه مفكر
+	Thumbs down	إبهام للأسفل
+	Thumbs up	إبهام للأعلى
+	Upside-down face	وجه مقلوب
+	Waving hand	يد تلوّح
+	Winking face	وجه يغمز
+	Wrong key. Check it and try again.	المفتاح غير صحيح. تحقّق منه وحاول مجددًا.
+	Server unreachable. Try again later or continue without recovery.	تعذر الوصول إلى الخادم. حاول لاحقًا أو تابع دون استرداد.
+	Recovery took too long. Try again or continue without recovery.	استغرق الاسترداد وقتًا طويلًا. حاول مجددًا أو تابع دون استرداد.
+	No key backup on the server. Continue without recovery.	لا توجد نسخة احتياطية للمفاتيح على الخادم. تابع دون استرداد.
+	Recovery failed. Try again or continue without recovery.	فشل الاسترداد. حاول مجددًا أو تابع دون استرداد.
+	This account has no Matrix secret storage: no recovery key to enter.	لا يحتوي هذا الحساب على مخزن أسرار Matrix: لا يوجد مفتاح استرداد لإدخاله.
+	The server offers no key backup: no recovery to create. Continue without recovery.	لا يوفر الخادم نسخ المفاتيح احتياطيًا، فلا يمكن إنشاء استرداد. تابع دون استرداد.
+	This account already has a recovery: enter the existing recovery key.	لدى هذا الحساب استرداد بالفعل: أدخل مفتاح الاسترداد الموجود.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	إعداد الاسترداد لهذا الحساب غير مكتمل: لن يغيّره Gnobbi. تابع دون استرداد.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	للحساب هوية تشفير لا يملكها هذا الجهاز: لن يستبدلها Gnobbi. تابع دون استرداد.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	يطلب الخادم تأكيدًا إضافيًا لا يدعمه Gnobbi. تابع دون استرداد.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	تعذر الوصول إلى الخادم: لم يُنشأ الاسترداد. حاول مجددًا أو تابع دونه.
+	Creation took too long. Try again or continue without recovery.	استغرق الإنشاء وقتًا طويلًا. حاول مجددًا أو تابع دون استرداد.
+	Creating the recovery failed. Try again or continue without recovery.	فشل إنشاء الاسترداد. حاول مجددًا أو تابع دونه.
+	Enter a server name or a valid HTTPS address.	أدخل اسم خادم أو عنوان HTTPS صالحًا.
+	Enter the full Matrix ID: @name:server.	أدخل معرّف Matrix كاملًا: @name:server.
+	Enter the profile's local passphrase.	أدخل عبارة المرور المحلية للملف الشخصي.
+	Password required; local passphrase of at least 16 characters.	كلمة المرور مطلوبة؛ يجب ألا تقل عبارة المرور المحلية عن 16 حرفًا.
+	This server offers no password login. SSO/OIDC are not supported.	لا يوفر الخادم تسجيل الدخول بكلمة مرور. لا يدعم SSO/OIDC.
+	This server does not support sliding sync	لا يدعم هذا الخادم المزامنة المنزلقة
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	أعاد الخادم خطأً: تحقق من العنوان (مثل https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	تعذر الوصول إلى الخادم أو شهادة TLS غير صالحة.
+	Credentials not accepted. Try again.	لم تُقبل بيانات الاعتماد. حاول مجددًا.
+	Too many attempts: try again in a moment.	محاولات كثيرة جدًا: حاول مجددًا بعد قليل.
+	Sign-in/unlock failed. Check the credentials and try again.	فشل تسجيل الدخول أو فتح القفل. تحقق من البيانات وحاول مجددًا.
+	System keychain unavailable or locked. Unlock it and try again.	سلسلة مفاتيح النظام غير متاحة أو مقفلة. افتحها وحاول مجددًا.
+	The profile key is not in the system keychain. The profile was not changed.	مفتاح الملف الشخصي غير موجود في سلسلة مفاتيح النظام. لم يتغير الملف الشخصي.
+	Profile already open in another instance. Close it and restart.	الملف الشخصي مفتوح بالفعل في نسخة أخرى. أغلقها وأعد التشغيل.
+	Local profile unavailable. Close and check the profile path.	الملف الشخصي المحلي غير متاح. أغلق التطبيق وتحقق من مساره.
+	Enter the Matrix password.	أدخل كلمة مرور Matrix.
+	Creating the recovery and backup…	جارٍ إنشاء الاسترداد والنسخة الاحتياطية…
+	Last activity {time}	آخر نشاط {time}
+	They match	متطابقة
+	They don't match	غير متطابقة
+	Yes	نعم
+	Not available with this account	غير متاح لهذا الحساب
+	Incorrect password	كلمة المرور غير صحيحة
+	Failed. Try again.	فشل. حاول مجددًا.
+	Verification failed	فشل التحقق
+	Verification request	طلب تحقق
+	Cancel the verification?	إلغاء التحقق؟
+	Verification cancelled	أُلغي التحقق
+	The emoji don't match	الرموز التعبيرية غير متطابقة
+	Verification	التحقق
+	Gnobbi recovery key	مفتاح استرداد Gnobbi
+	Wrong unlock passphrase	عبارة فتح القفل غير صحيحة
+	Password too short: at least 12 characters	كلمة المرور قصيرة جدًا: 12 حرفًا على الأقل
+	Password too long: at most 4096 bytes	كلمة المرور طويلة جدًا: 4096 بايت كحد أقصى
+	The passwords don't match	كلمتا المرور غير متطابقتين
+	No keys to export on this device	لا توجد مفاتيح لتصديرها على هذا الجهاز
+	Can't write to this location	تعذرت الكتابة في هذا الموقع
+	Export failed: try again	فشل التصدير: حاول مجددًا
+	Recover the keys on this device first	استرد المفاتيح على هذا الجهاز أولًا
+	The server asks for a confirmation that is not supported here	يطلب الخادم تأكيدًا غير مدعوم هنا
+	Server unreachable: try again	تعذر الوصول إلى الخادم: حاول مجددًا
+	Regeneration failed: try again	فشلت إعادة الإنشاء: حاول مجددًا
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	لا يملك هذا الجهاز مفاتيح استرداد الحساب: أدخل المفتاح لقراءة الرسائل المشفرة القديمة
+	This account has no recovery key: without one, encrypted messages are lost with the devices	ليس لهذا الحساب مفتاح استرداد: بدونه تضيع الرسائل المشفرة عند فقدان الأجهزة
+	Restoring…	جارٍ الاستعادة…
+	Restore	استعادة
+	Not now	ليس الآن
+	Don't ask again for this account	لا تسأل مجددًا لهذا الحساب
+	Copy recovery key	نسخ مفتاح الاسترداد
+	Save it now: it will not be shown again	احفظه الآن: لن يظهر مجددًا
+	Save to file	حفظ في ملف
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	جارٍ إعادة الإنشاء…
+	I kept it elsewhere	احتفظت به في مكان آخر
+	The server does not respond	الخادم لا يستجيب
+	Not a Matrix server	ليس خادم Matrix
+	The server does not show its rooms	لا يعرض الخادم غرفه
+	Your server cannot reach this server	لا يستطيع خادمك الوصول إلى هذا الخادم
+	Invalid server certificate	شهادة الخادم غير صالحة
+	Searching	جارٍ البحث
+	Partial results	نتائج جزئية
+	Invalid server name	اسم الخادم غير صالح
+	Timed out	انتهت المهلة
+	Loading	جارٍ التحميل
+	More results not loaded	لم تُحمّل نتائج إضافية
+	The server name is needed, for example matrix.org	اسم الخادم مطلوب، مثل matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	هذا معرّف مستخدم: اسم الخادم مطلوب، مثل matrix.org
+	Only https addresses are allowed	يُسمح فقط بعناوين https
+	Write only the server name, without a path	اكتب اسم الخادم فقط، دون مسار
+	The server name is needed, without user or password	اسم الخادم مطلوب دون اسم مستخدم أو كلمة مرور
+	Invalid IP address	عنوان IP غير صالح
+	Invalid port	منفذ غير صالح
+	Already present	موجود بالفعل
+	All	الكل
+	Favorites	المفضلة
+	Filter: {label}	تصفية: {label}
+	People	الأشخاص
+	Public spaces	المساحات العامة
+	Location	الموقع
+	Message without text	رسالة بلا نص
+	Audio playback not available	تشغيل الصوت غير متاح
+	Microphone not available	الميكروفون غير متاح
+	Sign out inactive	تسجيل خروج الأجهزة غير النشطة
+	Server ack	تأكيد الخادم
+	Server ack · Reply	تأكيد الخادم · رد
+	Demo room {n}	غرفة تجريبية {n}
+	Image.png	Image.png
+	[Message deleted]	[حُذفت الرسالة]
+	Update available · {version}	يتوفر تحديث · {version}
+	Update available, version {version}	يتوفر تحديث، الإصدار {version}
+	Update failed: error	فشل التحديث: خطأ
+	Update failed: restored {version}	فشل التحديث: تمت استعادة {version}
+	Update failed: {cause}	فشل التحديث: {cause}
+	Update postponed: message not sent	تأجل التحديث: لم تُرسل الرسالة
+	Updated to {version}	تم التحديث إلى {version}
+	Windows update not available	تحديث Windows غير متاح
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	للرد أو التعديل: اكتب في المسودة ثم استخدم الزر. يرسل Enter كالمعتاد.
+	another installation in progress	تثبيت آخر قيد التنفيذ
+	backup differs from the binary, kept	النسخة الاحتياطية تختلف عن الملف التنفيذي، تم الاحتفاظ بها
+	backup to restore not found	لم يتم العثور على النسخة الاحتياطية للاستعادة
+	binary to update not found	لم يتم العثور على الملف التنفيذي للتحديث
+	channel without in-app update	قناة بلا تحديث داخل التطبيق
+	data folder not found	لم يتم العثور على مجلد البيانات
+	edited	معدّلة
+	error	خطأ
+	folder not writable	المجلد غير قابل للكتابة
+	gnobbi-keys.txt	gnobbi-keys.txt
+	helper not ready	البرنامج المساعد غير جاهز
+	helper out of place	البرنامج المساعد في موقع خاطئ
+	helper without channel	البرنامج المساعد بلا قناة
+	invalid binary to update	ملف تنفيذي غير صالح للتحديث
+	invalid helper parameters	معاملات البرنامج المساعد غير صالحة
+	invalid staging	ملفات التحديث المرحلية غير صالحة
+	local	محلي
+	no pending restore	لا توجد استعادة معلقة
+	placement failed and restore failed	فشل وضع الملف وفشلت الاستعادة
+	previous update pending	تحديث سابق معلق
+	remove {name}	إزالة {name}
+	running binary differs from the target	الملف التنفيذي الجاري يختلف عن الهدف
+	staging cannot be verified	تعذر التحقق من ملفات التحديث المرحلية
+	staging has a different hash	بصمة ملفات التحديث المرحلية مختلفة
+	staging has a different size	حجم ملفات التحديث المرحلية مختلف
+	staging not found	لم يتم العثور على ملفات التحديث المرحلية
+	staging outside the target folder	ملفات التحديث المرحلية خارج المجلد الهدف
+	start failed and restore failed	فشل البدء وفشلت الاستعادة
+	the program did not close	لم يُغلق البرنامج
+@plural	{n} device to sign out	{n} جهاز لتسجيل الخروج|{n} جهاز لتسجيل الخروج|{n} جهازان لتسجيل الخروج|{n} أجهزة لتسجيل الخروج|{n} جهازًا لتسجيل الخروج|{n} جهاز لتسجيل الخروج
+@plural	{n} device without last activity not included	{n} جهاز بلا نشاط أخير غير مشمول|{n} جهاز بلا نشاط أخير غير مشمول|{n} جهازان بلا نشاط أخير غير مشمولين|{n} أجهزة بلا نشاط أخير غير مشمولة|{n} جهازًا بلا نشاط أخير غير مشمول|{n} جهاز بلا نشاط أخير غير مشمول
+@plural	{n} key exported	تم تصدير {n} مفتاح|تم تصدير {n} مفتاح|تم تصدير {n} مفتاحين|تم تصدير {n} مفاتيح|تم تصدير {n} مفتاحًا|تم تصدير {n} مفتاح
+@plural	{n} status message hidden	{n} رسالة حالة مخفية|{n} رسالة حالة مخفية|{n} رسالتا حالة مخفيتان|{n} رسائل حالة مخفية|{n} رسالة حالة مخفية|{n} رسالة حالة مخفية
+@plural	{n} unread	{n} غير مقروء|{n} غير مقروء|{n} غير مقروءين|{n} غير مقروءة|{n} غير مقروءة|{n} غير مقروء
+@plural	Gnobbi, {n} unread	Gnobbi، {n} غير مقروء|Gnobbi، {n} غير مقروء|Gnobbi، {n} غير مقروءين|Gnobbi، {n} غير مقروءة|Gnobbi، {n} غير مقروءة|Gnobbi، {n} غير مقروء

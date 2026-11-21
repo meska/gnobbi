@@ -7,3 +7,596 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of he in this order, separated by |: one|two|other.
 # See TRANSLATING.md.
+
+	Pinned	נעוצה
+	Low priority	עדיפות נמוכה
+	New chat	שיחה חדשה
+	Explore public rooms	גילוי חדרים ציבוריים
+	Search conversations	חיפוש בשיחות
+	Mark as read	סימון כנקראה
+	Mark as unread	סימון כלא נקראה
+	Add to a space…	הוספה למרחב…
+	Leave?	לצאת?
+	Leave	יציאה
+	Add to a space	הוספה למרחב
+	Add	הוספה
+	Cancel	ביטול
+	Unpin	ביטול נעיצה
+	Pin to top	נעיצה למעלה
+	Remove from low priority	הסרה מעדיפות נמוכה
+	Mark as low priority	סימון בעדיפות נמוכה
+	Remove from {name}	הסרה מתוך {name}
+	All messages	כל ההודעות
+	Mentions only	אזכורים בלבד
+	Muted	מושתקת
+banner	Reply	תגובה
+	Edit	עריכה
+	Send note	שליחת פתק
+	Reply in thread	תגובה בשרשור
+	Write a message	כתיבת הודעה
+	Emoji	אמוג׳י
+	Sticker	מדבקה
+	Poll	סקר
+	Attach a file	צירוף קובץ
+	Voice note	הודעה קולית
+	Send	שליחה
+	Today	היום
+	Yesterday	אתמול
+	Message deleted	ההודעה נמחקה
+	Message unavailable	ההודעה אינה זמינה
+	Encrypted message	הודעה מוצפנת
+	Loading…	בטעינה…
+	Go to bottom	מעבר לתחתית
+	image	תמונה
+	video	וידאו
+@plural	{n} reply	תגובה {n}|{n} תגובות|{n} תגובות
+	Encrypted	מוצפנת
+	Status messages	הודעות מצב
+	Same as settings	לפי ההגדרות
+	Show	הצגה
+	Hide	הסתרה
+	Search in room	חיפוש בחדר
+	No results	אין תוצאות
+	Search failed	החיפוש נכשל
+	Retry	ניסיון חוזר
+	More results	תוצאות נוספות
+	Profile link	קישור לפרופיל
+	Verified	מאומת
+	Not verified	לא מאומת
+	Message	הודעה
+	Mention	אזכור
+	Verify	אימות
+	Disconnect	ניתוק
+	Last read	נקרא לאחרונה
+	Chat unavailable	השיחה אינה זמינה
+	Ignore	התעלמות
+	Confirm	אישור
+	Kick	הרחקה
+	Ban	חסימה
+	Failed	נכשל
+	Thread unavailable	השרשור אינו זמין
+	Thread	שרשור
+	Reply	תגובה
+	Addresses	כתובות
+	main	ראשי
+	Main	ראשי
+	name	שם
+@plural	{n} member	חבר אחד ({n})|{n} חברים|{n} חברים
+@plural	Delete {n} message	מחיקת הודעה אחת ({n})|מחיקת {n} הודעות|מחיקת {n} הודעות
+	Reply to {name}	תגובה אל {name}
+	Admin	מנהל
+	Moderator	מנחה
+	Member	חבר
+	Invite	הזמנה
+	Banned	חסומים
+	Banned list unavailable	רשימת החסומים אינה זמינה
+	Unban	ביטול חסימה
+	Reason	סיבה
+	Actions for {name}	פעולות עבור {name}
+	Name	שם
+	Topic	נושא
+	Drop an image here for the photo	יש לגרור תמונה לכאן
+	Choose photo…	בחירת תמונה…
+	Room photo	תמונת החדר
+	Save	שמירה
+	Photo: {name}	תמונה: {name}
+	New poll	סקר חדש
+	Question	שאלה
+	Add option	הוספת אפשרות
+	Multiple choice	בחירה מרובה
+	Results visible right away	הצגת תוצאות מיד
+	Option {n}	אפשרות {n}
+	Video	וידאו
+	Image	תמונה
+	Save as	שמירה בשם
+	Open	פתיחה
+	Cannot open the content	לא ניתן לפתוח את התוכן
+	Stickers are not encrypted, like an unencrypted image	מדבקות אינן מוצפנות, כמו תמונה לא מוצפנת
+	No sticker packs	אין חבילות מדבקות
+	Stickers unavailable	המדבקות אינן זמינות
+	Settings	הגדרות
+	Account and security	חשבון ואבטחה
+	Account	חשבון
+	Devices	מכשירים
+	Appearance	מראה
+	Language	שפה
+	Theme	ערכת נושא
+	System	מערכת
+	Accent	צבע הדגשה
+	Icon	סמל
+	Automatic night	מצב לילה אוטומטי
+	Chat	שיחה
+	Read receipts	אישורי קריאה
+	Hide deleted messages	הסתרת הודעות שנמחקו
+	Show status messages	הצגת הודעות מצב
+	Message preview	תצוגה מקדימה של הודעות
+	Notifications	התראות
+	Close to tray	סגירה למגש המערכת
+	Add to menu	הוספה לתפריט
+	Added to menu	נוסף לתפריט
+	Could not add to menu	לא ניתן להוסיף לתפריט
+	Classic	קלאסי
+	Day	יום
+	Dark	כהה
+	Night	לילה
+	No	לא
+	Schedule	תזמון
+	Minimal mark	סימן מינימלי
+	Gnome	גמד
+	Little monster	מפלצת קטנה
+	Blue	כחול
+	Teal	טורקיז
+	Green	ירוק
+	Orange	כתום
+	Red	אדום
+	Pink	ורוד
+	Purple	סגול
+	A save is already in progress	שמירה כבר מתבצעת
+	Account no longer connected	החשבון אינו מחובר עוד
+	Actions not available for this event	פעולות אינן זמינות לאירוע זה
+	Address already in use	הכתובת כבר בשימוש
+	Already joined	כבר הצטרפת
+	Checking permissions…	בודק הרשאות…
+	Choose a file that does not exist yet	יש לבחור קובץ שעדיין אינו קיים
+	Connected	מחובר
+	Connecting…	מתחבר…
+	Connection failed	החיבור נכשל
+	Data folder not available	תיקיית הנתונים אינה זמינה
+	Delete the selected message? This cannot be undone.	למחוק את ההודעה שנבחרה? לא ניתן לבטל פעולה זו.
+	File cannot be attached	לא ניתן לצרף את הקובץ
+	Image cannot be attached	לא ניתן לצרף את התמונה
+	Invalid name	שם לא תקין
+	Joining…	מצטרף…
+	Message not available	ההודעה אינה זמינה
+	No audio recorded	לא הוקלט שמע
+	Not allowed	לא מורשה
+	Not allowed by the server	השרת אינו מאפשר זאת
+	Operation failed	הפעולה נכשלה
+	Operation not confirmed · Retry uses the same ID (even if you change room)	הפעולה לא אושרה · ניסיון חוזר משתמש באותו מזהה גם במעבר חדר
+	Operation pending · no server confirmation	הפעולה ממתינה · אין אישור מהשרת
+	Operation refused or unavailable	הפעולה נדחתה או אינה זמינה
+	Room not found	החדר לא נמצא
+	Saved	נשמר
+	Saving failed	השמירה נכשלה
+	Server unreachable	לא ניתן להגיע לשרת
+	Sign-in failed	הכניסה נכשלה
+	Sticker not sent	המדבקה לא נשלחה
+	Still joining…	ההצטרפות עדיין מתבצעת…
+	Sync interrupted	הסנכרון נקטע
+	Voice note cannot be played	לא ניתן לנגן את ההודעה הקולית
+	You are offline	אין חיבור לרשת
+	The name cannot be empty.	השם לא יכול להיות ריק.
+	The name is too long (256 characters at most).	השם ארוך מדי (עד 256 תווים).
+	This server does not allow editing the profile.	השרת הזה אינו מאפשר לערוך את הפרופיל.
+	Cannot read the chosen file.	לא ניתן לקרוא את הקובץ שנבחר.
+	The image is too large (25 MB at most).	התמונה גדולה מדי (עד 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	יש לבחור תמונת PNG, JPEG או WebP תקינה.
+	Connection failed: try again shortly.	החיבור נכשל: יש לנסות שוב בעוד רגע.
+	The server rejected the change.	השרת דחה את השינוי.
+	Space not found	המרחב לא נמצא
+	Operation failed, try again	הפעולה נכשלה, יש לנסות שוב
+	Minimize	מזעור
+	Show Gnobbi	הצגת Gnobbi
+	Quit Gnobbi	יציאה מ-Gnobbi
+	{name}, active account	{name}, חשבון פעיל
+	New messages	הודעות חדשות
+	1 new message	הודעה חדשה אחת
+	New message	הודעה חדשה
+	📷 Photo	📷 תמונה
+	🎥 Video	🎥 וידאו
+	🎤 Voice message	🎤 הודעה קולית
+	🎵 Audio	🎵 שמע
+	📎 File	📎 קובץ
+	📍 Location	📍 מיקום
+menu	Quit Gnobbi	יציאה מ-Gnobbi
+menu	About Gnobbi	על Gnobbi
+menu	Settings…	הגדרות…
+menu	Services	שירותים
+menu	Hide Gnobbi	הסתרת Gnobbi
+menu	Hide Others	הסתרת האחרים
+menu	Show All	הצגת הכול
+menu	Edit	עריכה
+menu	Undo	ביטול
+menu	Redo	ביצוע חוזר
+menu	Cut	גזירה
+menu	Copy	העתקה
+menu	Paste	הדבקה
+menu	Select All	בחירת הכול
+menu	Start Dictation…	התחלת הכתבה…
+menu	Emoji & Symbols	אמוג׳י וסמלים
+menu	Window	חלון
+menu	Minimize	מזעור
+menu	Zoom	שינוי גודל
+menu	Bring All to Front	העברת הכול לחזית
+	Customize	התאמה אישית
+	Sizes	גדלים
+	Text size	גודל טקסט
+	Buttons and icons size	גודל כפתורים וסמלים
+	Follow the system	לפי המערכת
+	Follow the text	לפי הטקסט
+	Small	קטן
+	Normal	רגיל
+	Large	גדול
+	Compact	צפוף
+	Comfortable	מרווח
+	Restore defaults	שחזור ברירות מחדל
+	Preview	תצוגה מקדימה
+	A sample message	הודעה לדוגמה
+	Button	כפתור
+	Remove attachment	הסרת קובץ מצורף
+	Cancel reply	ביטול תגובה
+	Close card	סגירת כרטיס
+	Close thread	סגירת שרשור
+	Remove address	הסרת כתובת
+	Copy	העתקה
+	Menu	תפריט
+	Back	חזרה
+	Chat list	רשימת שיחות
+	Info	מידע
+	Copy key	העתקת מפתח
+	Remove option	הסרת אפשרות
+	Pause	השהיה
+	Play	ניגון
+	New	חדש
+	New space	מרחב חדש
+	Close	סגירה
+	Add account	הוספת חשבון
+	Rename	שינוי שם
+	Profile photo	תמונת פרופיל
+	Edit photo	עריכת תמונה
+	Apply	החלה
+	Reset	איפוס
+	Rotate left	סיבוב שמאלה
+	Rotate right	סיבוב ימינה
+	Mirror	שיקוף
+	Zoom	שינוי גודל
+	Rotation	סיבוב
+	Brightness	בהירות
+	Contrast	ניגודיות
+	Saturation	רוויה
+	Original	מקור
+	B&W	שחור ולבן
+	Sepia	ספיה
+	Vivid	חי
+	Cool	קר
+	Warm	חם
+	Fade	דהייה
+	High contrast	ניגודיות גבוהה
+	Preview: drag to move the photo	תצוגה מקדימה: גרירה להזזת התמונה
+	Could not download the current photo.	לא ניתן להוריד את התמונה הנוכחית.
+	Could not prepare the photo.	לא ניתן להכין את התמונה.
+	Open link	פתיחת קישור
+	Could not open the link.	לא ניתן לפתוח את הקישור.
+	Copy link	העתקת קישור
+	Server	שרת
+	Matrix ID	מזהה Matrix
+	Password	סיסמה
+	Local passphrase	ביטוי סיסמה מקומי
+	Sign in	כניסה
+	Unlock	ביטול נעילה
+	Signing in…	מתחבר…
+	Unlocking…	מבטל נעילה…
+	Show password	הצגת סיסמה
+	Hide password	הסתרת סיסמה
+	Accept	קבלה
+	Decline	דחייה
+	Edit space	עריכת מרחב
+	Edit room	עריכת חדר
+	Start failed	ההפעלה נכשלה
+	Search	חיפוש
+	Conversations	שיחות
+	Users	משתמשים
+	Public rooms	חדרים ציבוריים
+	React	הוספת תגובה
+	Confirm closing	אישור סגירה
+	Close poll	סגירת סקר
+	Confirm deletion	אישור מחיקה
+	Delete	מחיקה
+	Encrypted history	היסטוריה מוצפנת
+	Matrix recovery key	מפתח שחזור של Matrix
+	I saved the key: continue	המפתח נשמר: המשך
+	Recover encrypted history	שחזור היסטוריה מוצפנת
+	Try creating the key again	ניסיון נוסף ליצור את המפתח
+	Create recovery key	יצירת מפתח שחזור
+	Continue without recovery	המשך ללא שחזור
+	A space cannot go inside itself	לא ניתן להכניס מרחב לתוך עצמו
+	You do not have permission to edit «{name}»	אין לך הרשאה לערוך את «{name}»
+	{label}, {n} unread	{label}, {n} לא נקראו
+	Move {name}	העברת {name}
+	Move {name} down	העברת {name} למטה
+	Move {name} up	העברת {name} למעלה
+	Organise spaces	ארגון מרחבים
+	Unread	לא נקראו
+	All chats	כל השיחות
+	Spaces	מרחבים
+	No spaces	אין מרחבים
+	Rooms unlinked: {n}	חדרים שנותקו: {n}
+	Rooms not unlinked: {n}	חדרים שלא נותקו: {n}
+	Members removed: {n}	חברים שהוסרו: {n}
+	Not removed: {names}	לא הוסרו: {names}
+	Members who will be removed: {n}	חברים שיוסרו: {n}
+	Rooms unlinked (they stay existing): {n}	חדרים שנותקו (הם נשארים קיימים): {n}
+	Space menu	תפריט המרחב
+	Space info	פרטי המרחב
+	Members	חברים
+	Hand over the admin role…	העברת תפקיד המנהל…
+	Leave space	יציאה מהמרחב
+	Delete space	מחיקת המרחב
+	Forget	שכחה
+	Failed, no change guaranteed: try again	הפעולה נכשלה, לא מובטח שבוצע שינוי: יש לנסות שוב
+	Member list not read	רשימת החברים לא נקראה
+	Space left and forgotten	היציאה מהמרחב והשכחה הושלמו
+	Space not left: try again	לא בוצעה יציאה מהמרחב: יש לנסות שוב
+	Space not left: members remain	לא בוצעה יציאה מהמרחב: נותרו חברים
+	This cannot be undone	לא ניתן לבטל פעולה זו
+	You still have rooms in this space.	עדיין יש לך חדרים במרחב הזה.
+	You are the last admin of the space.	אתה המנהל האחרון של המרחב.
+	Make admin	מינוי למנהל
+	Rooms not available	החדרים אינם זמינים
+	Add existing room	הוספת חדר קיים
+	No rooms	אין חדרים
+	Rooms	חדרים
+	Remove	הסרה
+	Search public rooms	חיפוש חדרים ציבוריים
+	Your server	השרת שלך
+	Other server…	שרת אחר…
+	server name	שם השרת
+	Already in	כבר הצטרפת
+	Join	הצטרפות
+	Remove photo	הסרת תמונה
+	Active	פעיל
+	Active account	חשבון פעיל
+	Other accounts	חשבונות אחרים
+	Last active {when}	פעילות אחרונה {when}
+	{text} in {path}	{text} בתוך {path}
+	This device	המכשיר הזה
+	Keys	מפתחות
+	Export password	סיסמת ייצוא
+	Export keys	ייצוא מפתחות
+	Regenerate recovery key	יצירה מחדש של מפתח שחזור
+	Recover keys	שחזור מפתחות
+	Recovery key	מפתח שחזור
+	Recover	שחזור
+	Other devices	מכשירים אחרים
+	Sign out	יציאה מהחשבון
+	Device name	שם המכשיר
+	New recovery key	מפתח שחזור חדש
+	Done	סיום
+	Direct chat	שיחה ישירה
+	Room	חדר
+	Space	מרחב
+	Join a room	הצטרפות לחדר
+	Public	ציבורי
+	Create	יצירה
+	#room:server or !id:server	#room:server או !id:server
+	Search people	חיפוש אנשים
+	Images	תמונות
+	last message at {when}	הודעה אחרונה בשעה {when}
+	last message on {when}	הודעה אחרונה בתאריך {when}
+	last message {when}	הודעה אחרונה {when}
+	A user	משתמש
+	{actor} created this room.	{actor} יצר את החדר הזה.
+	{actor} created this chat.	{actor} יצר את השיחה הזאת.
+	{actor} invited {subject}	{actor} הזמין את {subject}
+	{subject} joined the room	{subject} הצטרף לחדר
+	{subject} left the room	{subject} יצא מהחדר
+	{actor} banned {subject}	{actor} חסם את {subject}
+	{actor} unbanned {subject}	{actor} ביטל את החסימה של {subject}
+	{actor} removed {subject} from the room	{actor} הסיר את {subject} מהחדר
+	{subject} declined the invitation	{subject} דחה את ההזמנה
+	{actor} revoked the invitation for {subject}	{actor} ביטל את ההזמנה של {subject}
+	{actor} removed the room name	{actor} הסיר את שם החדר
+	{actor} changed the room name to «{name}»	{actor} שינה את שם החדר ל-«{name}»
+	{actor} removed the room topic	{actor} הסיר את נושא החדר
+	{actor} changed the room topic to «{topic}»	{actor} שינה את נושא החדר ל-«{topic}»
+	{actor} changed the room avatar	{actor} שינה את תמונת החדר
+	{old} changed their name to {new}	{old} שינה את השם ל-{new}
+	{subject} set their name to {new}	{subject} הגדיר את שמו כ-{new}
+	{subject} removed their display name	{subject} הסיר את שם התצוגה
+	{subject} changed their avatar	{subject} שינה את תמונת הפרופיל
+	{text} (reason: {reason})	{text} (סיבה: {reason})
+	Audio	שמע
+	File	קובץ
+	Photo	תמונה
+	Log out	יציאה מהחשבון
+	Encryption keys on this device not backed up are lost.	מפתחות ההצפנה במכשיר הזה שלא גובו יאבדו.
+	The server did not answer. Remove it from this device anyway?	השרת לא השיב. להסיר אותו מהמכשיר בכל זאת?
+	Remove from this device	הסרה מהמכשיר הזה
+	Angry face	פנים כועסות
+	Beaming face	פנים מחייכות בקורנות
+	Check mark	סימן וי
+	Clapping hands	מחיאות כפיים
+	Cross mark	סימן איקס
+	Crying face	פנים בוכות
+	Cup of coffee	כוס קפה
+	Eyes	עיניים
+	Face blowing a kiss	פנים שולחות נשיקה
+	Face with tears of joy	פנים עם דמעות שמחה
+	Fire	אש
+	Flexed biceps	שריר זרוע מכווץ
+	Folded hands	כפות ידיים צמודות
+	Grinning face	פנים מחייכות
+	Grinning face with sweat	פנים מחייכות עם זיעה
+	Handshake	לחיצת יד
+	Hundred points	מאה נקודות
+	Loudly crying face	פנים בוכות בקול
+	Party popper	קונפטי למסיבה
+	Raising hands	ידיים מורמות
+	Rolling on the floor laughing	מתגלגל מצחוק
+	Screaming face	פנים צורחות
+	Smiling face with heart eyes	פנים מחייכות עם עיני לב
+	Smiling face with smiling eyes	פנים מחייכות עם עיניים מחייכות
+	Smiling face with sunglasses	פנים מחייכות עם משקפי שמש
+	Sparkles	ניצוצות
+	Thinking face	פנים חושבות
+	Thumbs down	אגודל למטה
+	Thumbs up	אגודל למעלה
+	Upside-down face	פנים הפוכות
+	Waving hand	יד מנופפת
+	Winking face	פנים קורצות
+	Wrong key. Check it and try again.	מפתח שגוי. יש לבדוק ולנסות שוב.
+	Server unreachable. Try again later or continue without recovery.	לא ניתן להגיע לשרת. יש לנסות שוב מאוחר יותר או להמשיך ללא שחזור.
+	Recovery took too long. Try again or continue without recovery.	השחזור ארך זמן רב מדי. יש לנסות שוב או להמשיך ללא שחזור.
+	No key backup on the server. Continue without recovery.	אין גיבוי מפתחות בשרת. יש להמשיך ללא שחזור.
+	Recovery failed. Try again or continue without recovery.	השחזור נכשל. יש לנסות שוב או להמשיך ללא שחזור.
+	This account has no Matrix secret storage: no recovery key to enter.	לחשבון הזה אין אחסון סודות של Matrix: אין מפתח שחזור להזנה.
+	The server offers no key backup: no recovery to create. Continue without recovery.	השרת אינו מציע גיבוי מפתחות ולכן לא ניתן ליצור שחזור. יש להמשיך ללא שחזור.
+	This account already has a recovery: enter the existing recovery key.	לחשבון כבר יש שחזור: יש להזין את מפתח השחזור הקיים.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	השחזור של החשבון הוגדר חלקית בלבד: Gnobbi לא ישנה אותו. יש להמשיך ללא שחזור.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	לחשבון כבר יש זהות הצפנה שאינה נמצאת במכשיר: Gnobbi לא יחליף אותה. יש להמשיך ללא שחזור.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	השרת מבקש אישור נוסף ש-Gnobbi אינו תומך בו. יש להמשיך ללא שחזור.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	לא ניתן להגיע לשרת: השחזור לא נוצר. יש לנסות שוב או להמשיך בלעדיו.
+	Creation took too long. Try again or continue without recovery.	היצירה ארכה זמן רב מדי. יש לנסות שוב או להמשיך ללא שחזור.
+	Creating the recovery failed. Try again or continue without recovery.	יצירת השחזור נכשלה. יש לנסות שוב או להמשיך בלעדיו.
+	Enter a server name or a valid HTTPS address.	יש להזין שם שרת או כתובת HTTPS תקינה.
+	Enter the full Matrix ID: @name:server.	יש להזין מזהה Matrix מלא: @name:server.
+	Enter the profile's local passphrase.	יש להזין את ביטוי הסיסמה המקומי של הפרופיל.
+	Password required; local passphrase of at least 16 characters.	נדרשת סיסמה; ביטוי הסיסמה המקומי חייב להכיל לפחות 16 תווים.
+	This server offers no password login. SSO/OIDC are not supported.	השרת אינו מציע כניסה בסיסמה. אין תמיכה ב-SSO/OIDC.
+	This server does not support sliding sync	השרת אינו תומך בסנכרון מדורג
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	השרת החזיר שגיאה: יש לבדוק את הכתובת (למשל https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	לא ניתן להגיע לשרת או שתעודת TLS אינה תקינה.
+	Credentials not accepted. Try again.	פרטי ההתחברות לא התקבלו. יש לנסות שוב.
+	Too many attempts: try again in a moment.	יותר מדי ניסיונות: יש לנסות שוב בעוד רגע.
+	Sign-in/unlock failed. Check the credentials and try again.	הכניסה או ביטול הנעילה נכשלו. יש לבדוק את הפרטים ולנסות שוב.
+	System keychain unavailable or locked. Unlock it and try again.	צרור המפתחות של המערכת אינו זמין או נעול. יש לבטל את נעילתו ולנסות שוב.
+	The profile key is not in the system keychain. The profile was not changed.	מפתח הפרופיל אינו בצרור המפתחות של המערכת. הפרופיל לא שונה.
+	Profile already open in another instance. Close it and restart.	הפרופיל כבר פתוח במופע אחר. יש לסגור אותו ולהפעיל מחדש.
+	Local profile unavailable. Close and check the profile path.	הפרופיל המקומי אינו זמין. יש לסגור ולבדוק את נתיב הפרופיל.
+	Enter the Matrix password.	יש להזין את סיסמת Matrix.
+	Creating the recovery and backup…	יוצר שחזור וגיבוי…
+	Last activity {time}	פעילות אחרונה {time}
+	They match	תואמים
+	They don't match	לא תואמים
+	Yes	כן
+	Not available with this account	לא זמין בחשבון הזה
+	Incorrect password	סיסמה שגויה
+	Failed. Try again.	נכשל. יש לנסות שוב.
+	Verification failed	האימות נכשל
+	Verification request	בקשת אימות
+	Cancel the verification?	לבטל את האימות?
+	Verification cancelled	האימות בוטל
+	The emoji don't match	האמוג׳י אינם תואמים
+	Verification	אימות
+	Gnobbi recovery key	מפתח שחזור של Gnobbi
+	Wrong unlock passphrase	ביטוי סיסמה שגוי לביטול נעילה
+	Password too short: at least 12 characters	הסיסמה קצרה מדי: לפחות 12 תווים
+	Password too long: at most 4096 bytes	הסיסמה ארוכה מדי: עד 4096 בתים
+	The passwords don't match	הסיסמאות אינן תואמות
+	No keys to export on this device	אין מפתחות לייצוא במכשיר הזה
+	Can't write to this location	לא ניתן לכתוב במיקום הזה
+	Export failed: try again	הייצוא נכשל: יש לנסות שוב
+	Recover the keys on this device first	יש לשחזר תחילה את המפתחות במכשיר הזה
+	The server asks for a confirmation that is not supported here	השרת מבקש אישור שאינו נתמך כאן
+	Server unreachable: try again	לא ניתן להגיע לשרת: יש לנסות שוב
+	Regeneration failed: try again	היצירה מחדש נכשלה: יש לנסות שוב
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	למכשיר הזה אין מפתחות שחזור לחשבון: יש להזין את המפתח לקריאת הודעות מוצפנות ישנות
+	This account has no recovery key: without one, encrypted messages are lost with the devices	לחשבון הזה אין מפתח שחזור: בלעדיו הודעות מוצפנות יאבדו עם המכשירים
+	Restoring…	משחזר…
+	Restore	שחזור
+	Not now	לא עכשיו
+	Don't ask again for this account	לא לשאול שוב בחשבון הזה
+	Copy recovery key	העתקת מפתח שחזור
+	Save it now: it will not be shown again	יש לשמור עכשיו: הוא לא יוצג שוב
+	Save to file	שמירה לקובץ
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	יוצר מחדש…
+	I kept it elsewhere	שמרתי אותו במקום אחר
+	The server does not respond	השרת אינו מגיב
+	Not a Matrix server	זה אינו שרת Matrix
+	The server does not show its rooms	השרת אינו מציג את החדרים שלו
+	Your server cannot reach this server	השרת שלך אינו יכול להגיע לשרת הזה
+	Invalid server certificate	תעודת השרת אינה תקינה
+	Searching	מחפש
+	Partial results	תוצאות חלקיות
+	Invalid server name	שם שרת לא תקין
+	Timed out	הזמן הקצוב הסתיים
+	Loading	טוען
+	More results not loaded	תוצאות נוספות לא נטענו
+	The server name is needed, for example matrix.org	נדרש שם שרת, למשל matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	זהו מזהה משתמש: נדרש שם שרת, למשל matrix.org
+	Only https addresses are allowed	מותרות רק כתובות https
+	Write only the server name, without a path	יש לכתוב רק את שם השרת, ללא נתיב
+	The server name is needed, without user or password	נדרש שם השרת, ללא משתמש או סיסמה
+	Invalid IP address	כתובת IP לא תקינה
+	Invalid port	פורט לא תקין
+	Already present	כבר קיים
+	All	הכול
+	Favorites	מועדפים
+	Filter: {label}	סינון: {label}
+	People	אנשים
+	Public spaces	מרחבים ציבוריים
+	Location	מיקום
+	Message without text	הודעה ללא טקסט
+	Audio playback not available	ניגון שמע אינו זמין
+	Microphone not available	המיקרופון אינו זמין
+	Sign out inactive	ניתוק מכשירים לא פעילים
+	Server ack	אישור שרת
+	Server ack · Reply	אישור שרת · תגובה
+	Demo room {n}	חדר לדוגמה {n}
+	Image.png	Image.png
+	[Message deleted]	[ההודעה נמחקה]
+	Update available · {version}	קיים עדכון · {version}
+	Update available, version {version}	קיים עדכון, גרסה {version}
+	Update failed: error	העדכון נכשל: שגיאה
+	Update failed: restored {version}	העדכון נכשל: גרסה {version} שוחזרה
+	Update failed: {cause}	העדכון נכשל: {cause}
+	Update postponed: message not sent	העדכון נדחה: ההודעה לא נשלחה
+	Updated to {version}	עודכן לגרסה {version}
+	Windows update not available	עדכון Windows אינו זמין
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	לתגובה או עריכה: יש לכתוב בטיוטה ואז להשתמש בכפתור. Enter שולח כרגיל.
+	another installation in progress	התקנה אחרת מתבצעת
+	backup differs from the binary, kept	הגיבוי שונה מקובץ ההפעלה ונשמר
+	backup to restore not found	לא נמצא גיבוי לשחזור
+	binary to update not found	לא נמצא קובץ הפעלה לעדכון
+	channel without in-app update	ערוץ ללא עדכון מתוך היישום
+	data folder not found	תיקיית הנתונים לא נמצאה
+	edited	נערכה
+	error	שגיאה
+	folder not writable	לא ניתן לכתוב בתיקייה
+	gnobbi-keys.txt	gnobbi-keys.txt
+	helper not ready	תוכנית העזר אינה מוכנה
+	helper out of place	תוכנית העזר אינה במקומה
+	helper without channel	תוכנית העזר ללא ערוץ
+	invalid binary to update	קובץ הפעלה לא תקין לעדכון
+	invalid helper parameters	פרמטרים לא תקינים לתוכנית העזר
+	invalid staging	קובצי העדכון הזמניים אינם תקינים
+	local	מקומי
+	no pending restore	אין שחזור ממתין
+	placement failed and restore failed	הצבת הקובץ והשחזור נכשלו
+	previous update pending	עדכון קודם ממתין
+	remove {name}	הסרת {name}
+	running binary differs from the target	קובץ ההפעלה הפעיל שונה מהיעד
+	staging cannot be verified	לא ניתן לאמת את קובצי העדכון הזמניים
+	staging has a different hash	גיבוב קובצי העדכון הזמניים שונה
+	staging has a different size	גודל קובצי העדכון הזמניים שונה
+	staging not found	קובצי העדכון הזמניים לא נמצאו
+	staging outside the target folder	קובצי העדכון הזמניים מחוץ לתיקיית היעד
+	start failed and restore failed	ההפעלה והשחזור נכשלו
+	the program did not close	התוכנית לא נסגרה
+@plural	{n} device to sign out	מכשיר אחד לניתוק ({n})|{n} מכשירים לניתוק|{n} מכשירים לניתוק
+@plural	{n} device without last activity not included	מכשיר אחד ללא פעילות אחרונה לא נכלל ({n})|{n} מכשירים ללא פעילות אחרונה לא נכללו|{n} מכשירים ללא פעילות אחרונה לא נכללו
+@plural	{n} key exported	מפתח אחד יוצא ({n})|{n} מפתחות יוצאו|{n} מפתחות יוצאו
+@plural	{n} status message hidden	הודעת מצב אחת הוסתרה ({n})|{n} הודעות מצב הוסתרו|{n} הודעות מצב הוסתרו
+@plural	{n} unread	הודעה אחת לא נקראה ({n})|{n} הודעות לא נקראו|{n} הודעות לא נקראו
+@plural	Gnobbi, {n} unread	Gnobbi, הודעה אחת לא נקראה ({n})|Gnobbi, {n} הודעות לא נקראו|Gnobbi, {n} הודעות לא נקראו
