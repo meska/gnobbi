@@ -7,3 +7,681 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of sv in this order, separated by |: one|other.
 # See TRANSLATING.md.
+
+# list
+	Pinned	Fäst
+	Low priority	Låg prioritet
+	New chat	Ny chatt
+	Explore public rooms	Utforska offentliga rum
+	Search conversations	Sök i konversationer
+	Mark as read	Markera som läst
+	Mark as unread	Markera som oläst
+	Add to a space…	Lägg till i ett utrymme …
+	Leave?	Lämna?
+	Leave	Lämna
+	Add to a space	Lägg till i ett utrymme
+	Add	Lägg till
+	Cancel	Avbryt
+	Unpin	Lossa
+	Pin to top	Fäst överst
+	Remove from low priority	Ta bort från låg prioritet
+	Mark as low priority	Markera som låg prioritet
+	Remove from {name}	Ta bort från {name}
+	All messages	Alla meddelanden
+	Mentions only	Endast omnämnanden
+	Muted	Ljudlös
+
+# composer
+banner	Reply	Svara
+	Edit	Redigera
+	Send note	Skicka anteckning
+	Reply in thread	Svara i tråd
+	Write a message	Skriv ett meddelande
+	Emoji	Emoji
+	Sticker	Klistermärke
+	Poll	Omröstning
+	Attach a file	Bifoga en fil
+	Voice note	Röstmeddelande
+	Send	Skicka
+
+# composer (emoji names)
+	Grinning face	Flinande ansikte
+	Beaming face	Strålande ansikte
+	Face with tears of joy	Ansikte med glädjetårar
+	Rolling on the floor laughing	Rullar på golvet av skratt
+	Smiling face with smiling eyes	Leende ansikte med leende ögon
+	Smiling face with heart eyes	Leende ansikte med hjärtögon
+	Face blowing a kiss	Ansikte som blåser en kyss
+	Smiling face with sunglasses	Leende ansikte med solglasögon
+	Thinking face	Funderande ansikte
+	Grinning face with sweat	Flinande ansikte med svettdroppe
+	Winking face	Blinkande ansikte
+	Upside-down face	Upp-och-nedvänt ansikte
+	Crying face	Gråtande ansikte
+	Loudly crying face	Högljutt gråtande ansikte
+	Angry face	Argt ansikte
+	Screaming face	Skrikande ansikte
+	Thumbs up	Tummen upp
+	Thumbs down	Tummen ner
+	Clapping hands	Applåderande händer
+	Folded hands	Hopknäppta händer
+	Flexed biceps	Spänd biceps
+	Waving hand	Viftande hand
+	Handshake	Handslag
+	Raising hands	Upphöjda händer
+	Party popper	Partysmällare
+	Fire	Eld
+	Sparkles	Gnistor
+	Hundred points	Hundra poäng
+	Check mark	Bockmarkering
+	Cross mark	Kryss
+	Eyes	Ögon
+	Cup of coffee	Kaffekopp
+
+# timeline
+	Today	Idag
+	Yesterday	Igår
+	Message deleted	Meddelandet raderades
+	Message unavailable	Meddelandet är inte tillgängligt
+	Encrypted message	Krypterat meddelande
+	Loading…	Läser in …
+	Go to bottom	Gå till slutet
+	image	bild
+	video	video
+@plural	{n} reply	{n} svar|{n} svar
+
+# info
+	Encrypted	Krypterad
+	Status messages	Statusmeddelanden
+	Same as settings	Som i inställningarna
+	Show	Visa
+	Hide	Dölj
+@plural	{n} status message hidden	{n} statusmeddelande dolt|{n} statusmeddelanden dolda
+	Search in room	Sök i rummet
+	No results	Inga resultat
+	Search failed	Sökningen misslyckades
+	Retry	Försök igen
+	More results	Fler resultat
+	Profile link	Profillänk
+	Verified	Verifierad
+	Not verified	Inte verifierad
+	Message	Meddelande
+	Mention	Nämn
+	Verify	Verifiera
+	Disconnect	Koppla från
+	Last read	Senast läst
+	Chat unavailable	Chatten är inte tillgänglig
+	Ignore	Ignorera
+	Confirm	Bekräfta
+	Kick	Ta bort
+	Ban	Bannlys
+	Failed	Misslyckades
+	Thread unavailable	Tråden är inte tillgänglig
+	Thread	Tråd
+	Reply	Svara
+	Addresses	Adresser
+	main	huvud
+	Main	Huvud
+	name	namn
+@plural	{n} member	{n} medlem|{n} medlemmar
+@plural	Delete {n} message	Radera {n} meddelande|Radera {n} meddelanden
+	Reply to {name}	Svara {name}
+
+# members
+	Admin	Admin
+	Moderator	Moderator
+	Member	Medlem
+	Invite	Bjud in
+	Banned	Bannlyst
+	Banned list unavailable	Listan över bannlysta är inte tillgänglig
+	Unban	Häv bannlysning
+	Reason	Orsak
+	Actions for {name}	Åtgärder för {name}
+
+# roomedit
+	Name	Namn
+	Topic	Ämne
+	Drop an image here for the photo	Släpp en bild här för fotot
+	Choose photo…	Välj foto …
+	Room photo	Rumsfoto
+	Save	Spara
+	Photo: {name}	Foto: {name}
+
+# poll
+	New poll	Ny omröstning
+	Question	Fråga
+	Add option	Lägg till alternativ
+	Multiple choice	Flera val
+	Results visible right away	Resultat synliga direkt
+	Option {n}	Alternativ {n}
+
+# viewer
+	Video	Video
+	Image	Bild
+	Save as	Spara som
+	Open	Öppna
+	Cannot open the content	Innehållet kan inte öppnas
+
+# stickers
+	Stickers are not encrypted, like an unencrypted image	Klistermärken är inte krypterade, precis som en okrypterad bild
+	No sticker packs	Inga klistermärkespaket
+	Stickers unavailable	Klistermärken är inte tillgängliga
+
+# settings
+	Settings	Inställningar
+	Account and security	Konto och säkerhet
+	Account	Konto
+	Devices	Enheter
+	Appearance	Utseende
+	Language	Språk
+	Theme	Tema
+	System	System
+	Accent	Accent
+	Icon	Ikon
+	Automatic night	Automatiskt nattläge
+	Chat	Chatt
+	Read receipts	Läskvitton
+	Hide deleted messages	Dölj raderade meddelanden
+	Show status messages	Visa statusmeddelanden
+	Message preview	Förhandsvisning av meddelanden
+	Notifications	Aviseringar
+	Close to tray	Stäng till systemfältet
+	Add to menu	Lägg till i menyn
+	Added to menu	Tillagd i menyn
+	Could not add to menu	Kunde inte läggas till i menyn
+	Classic	Klassiskt
+	Day	Dag
+	Dark	Mörkt
+	Night	Natt
+	No	Nej
+	Schedule	Schema
+	Minimal mark	Minimal markering
+	Gnome	Tomte
+	Little monster	Litet monster
+	Blue	Blå
+	Teal	Turkos
+	Green	Grön
+	Orange	Orange
+	Red	Röd
+	Pink	Rosa
+	Purple	Lila
+
+# notifications, tray, menu bar, errors
+	A save is already in progress	En sparning pågår redan
+	Account no longer connected	Kontot är inte längre anslutet
+	Actions not available for this event	Åtgärder är inte tillgängliga för den här händelsen
+	Address already in use	Adressen används redan
+	Already joined	Redan med
+	Checking permissions…	Kontrollerar behörigheter …
+	Choose a file that does not exist yet	Välj en fil som inte finns ännu
+	Connected	Ansluten
+	Connecting…	Ansluter …
+	Connection failed	Anslutningen misslyckades
+	Data folder not available	Datamappen är inte tillgänglig
+	Delete the selected message? This cannot be undone.	Radera det markerade meddelandet? Det kan inte ångras.
+	File cannot be attached	Filen kan inte bifogas
+	Image cannot be attached	Bilden kan inte bifogas
+	Invalid name	Ogiltigt namn
+	Joining…	Går med …
+	Message not available	Meddelandet är inte tillgängligt
+	No audio recorded	Inget ljud spelades in
+	Not allowed	Inte tillåtet
+	Not allowed by the server	Inte tillåtet av servern
+	Operation failed	Åtgärden misslyckades
+	Operation not confirmed · Retry uses the same ID (even if you change room)	Åtgärden är inte bekräftad · Försök igen använder samma ID (även om du byter rum)
+	Operation pending · no server confirmation	Åtgärden väntar · ingen bekräftelse från servern
+	Operation refused or unavailable	Åtgärden nekades eller är inte tillgänglig
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Svara/redigera: skriv i utkastet och använd sedan knappen. Enter skickar som vanligt.
+	Room not found	Rummet hittades inte
+	Saved	Sparat
+	Saving failed	Det gick inte att spara
+	Server unreachable	Servern kan inte nås
+	Sign-in failed	Inloggningen misslyckades
+	Sticker not sent	Klistermärket skickades inte
+	Still joining…	Går fortfarande med …
+	Sync interrupted	Synkroniseringen avbröts
+	Voice note cannot be played	Röstmeddelandet kan inte spelas upp
+	You are offline	Du är offline
+	The name cannot be empty.	Namnet får inte vara tomt.
+	The name is too long (256 characters at most).	Namnet är för långt (högst 256 tecken).
+	This server does not allow editing the profile.	Servern tillåter inte redigering av profilen.
+	Cannot read the chosen file.	Den valda filen kan inte läsas.
+	The image is too large (25 MB at most).	Bilden är för stor (högst 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	Välj en giltig PNG-, JPEG- eller WebP-bild.
+	Connection failed: try again shortly.	Anslutningen misslyckades: försök igen om en stund.
+	The server rejected the change.	Servern avvisade ändringen.
+	Space not found	Utrymmet hittades inte
+	Operation failed, try again	Åtgärden misslyckades, försök igen
+	Minimize	Minimera
+	Show Gnobbi	Visa Gnobbi
+	Quit Gnobbi	Avsluta Gnobbi
+	{name}, active account	{name}, aktivt konto
+	New messages	Nya meddelanden
+	1 new message	1 nytt meddelande
+	New message	Nytt meddelande
+	📷 Photo	📷 Foto
+	🎥 Video	🎥 Video
+	🎤 Voice message	🎤 Röstmeddelande
+	🎵 Audio	🎵 Ljud
+	📎 File	📎 Fil
+	📍 Location	📍 Plats
+menu	Quit Gnobbi	Avsluta Gnobbi
+menu	About Gnobbi	Om Gnobbi
+menu	Settings…	Inställningar …
+menu	Services	Tjänster
+menu	Hide Gnobbi	Dölj Gnobbi
+menu	Hide Others	Dölj övriga
+menu	Show All	Visa alla
+menu	Edit	Redigera
+menu	Undo	Ångra
+menu	Redo	Gör om
+menu	Cut	Klipp ut
+menu	Copy	Kopiera
+menu	Paste	Klistra in
+menu	Select All	Markera allt
+menu	Start Dictation…	Starta diktering …
+menu	Emoji & Symbols	Emoji och symboler
+menu	Window	Fönster
+menu	Minimize	Minimera
+menu	Zoom	Zooma
+menu	Bring All to Front	Lägg alla överst
+@plural	Gnobbi, {n} unread	Gnobbi, {n} oläst|Gnobbi, {n} olästa
+
+# Phosphor icons, sizes and Personalizza
+	Customize	Anpassa
+	Sizes	Storlekar
+	Text size	Textstorlek
+	Buttons and icons size	Storlek på knappar och ikoner
+	Follow the system	Följ systemet
+	Follow the text	Följ texten
+	Small	Liten
+	Normal	Normal
+	Large	Stor
+	Compact	Kompakt
+	Comfortable	Bekväm
+	Restore defaults	Återställ standard
+	Preview	Förhandsvisning
+	A sample message	Ett exempelmeddelande
+	Button	Knapp
+	Remove attachment	Ta bort bilaga
+	Cancel reply	Avbryt svar
+	Close card	Stäng kortet
+	Close thread	Stäng tråden
+	Remove address	Ta bort adress
+	Copy	Kopiera
+	Menu	Meny
+	Back	Tillbaka
+	Chat list	Chattlista
+	Info	Info
+	Copy key	Kopiera nyckel
+	Remove option	Ta bort alternativ
+	Pause	Pausa
+	Play	Spela upp
+	New	Ny
+	New space	Nytt utrymme
+	Close	Stäng
+	Add account	Lägg till konto
+	Rename	Byt namn
+
+# avatar editor
+	Profile photo	Profilbild
+	Edit photo	Redigera foto
+	Apply	Tillämpa
+	Reset	Återställ
+	Rotate left	Rotera åt vänster
+	Rotate right	Rotera åt höger
+	Mirror	Spegla
+	Zoom	Zoom
+	Rotation	Rotation
+	Brightness	Ljusstyrka
+	Contrast	Kontrast
+	Saturation	Mättnad
+	Original	Original
+	B&W	Svartvitt
+	Sepia	Sepia
+	Vivid	Livfull
+	Cool	Kall
+	Warm	Varm
+	Fade	Blekt
+	High contrast	Hög kontrast
+	Preview: drag to move the photo	Förhandsvisning: dra för att flytta fotot
+	Could not download the current photo.	Det gick inte att hämta det aktuella fotot.
+	Could not prepare the photo.	Det gick inte att förbereda fotot.
+	Open link	Öppna länk
+	Could not open the link.	Det gick inte att öppna länken.
+	Copy link	Kopiera länk
+	Server	Server
+	Matrix ID	Matrix-ID
+	Password	Lösenord
+	Local passphrase	Lokal lösenfras
+	Sign in	Logga in
+	Unlock	Lås upp
+	Signing in…	Loggar in …
+	Unlocking…	Låser upp …
+	Show password	Visa lösenord
+	Hide password	Dölj lösenord
+# main
+	Accept	Godkänn
+	Decline	Avböj
+	Edit space	Redigera utrymme
+	Edit room	Redigera rum
+	Start failed	Starten misslyckades
+	Search	Sök
+	Conversations	Konversationer
+	Users	Användare
+	Public rooms	Offentliga rum
+	React	Reagera
+	Confirm closing	Bekräfta stängning
+	Close poll	Avsluta omröstning
+	Confirm deletion	Bekräfta radering
+	Delete	Radera
+	Encrypted history	Krypterad historik
+	Matrix recovery key	Matrix återställningsnyckel
+	I saved the key: continue	Jag har sparat nyckeln: fortsätt
+	Recover encrypted history	Återställ krypterad historik
+	Try creating the key again	Försök skapa nyckeln igen
+	Create recovery key	Skapa återställningsnyckel
+	Continue without recovery	Fortsätt utan återställning
+# rail
+	A space cannot go inside itself	Ett utrymme kan inte ligga i sig självt
+	You do not have permission to edit «{name}»	Du har inte behörighet att redigera «{name}»
+	{label}, {n} unread	{label}, {n} olästa
+	Move {name}	Flytta {name}
+	Move {name} down	Flytta {name} nedåt
+	Move {name} up	Flytta {name} uppåt
+	Organise spaces	Ordna utrymmen
+	Unread	Olästa
+	All chats	Alla chattar
+	Spaces	Utrymmen
+	No spaces	Inga utrymmen
+# space
+	Rooms unlinked: {n}	Rum som kopplats loss: {n}
+	Rooms not unlinked: {n}	Rum som inte kopplats loss: {n}
+	Members removed: {n}	Borttagna medlemmar: {n}
+	Not removed: {names}	Inte borttagna: {names}
+	Members who will be removed: {n}	Medlemmar som tas bort: {n}
+	Rooms unlinked (they stay existing): {n}	Rum som kopplas loss (de finns kvar): {n}
+	Space menu	Utrymmesmeny
+	Space info	Utrymmesinfo
+	Members	Medlemmar
+	Hand over the admin role…	Lämna över adminrollen …
+	Leave space	Lämna utrymmet
+	Delete space	Radera utrymmet
+	Forget	Glöm
+	Failed, no change guaranteed: try again	Misslyckades, ingen ändring garanteras: försök igen
+	Member list not read	Medlemslistan lästes inte
+	Space left and forgotten	Utrymmet lämnades och glömdes
+	Space not left: try again	Utrymmet lämnades inte: försök igen
+	Space not left: members remain	Utrymmet lämnades inte: medlemmar finns kvar
+	This cannot be undone	Det kan inte ångras
+	You still have rooms in this space.	Du har fortfarande rum i det här utrymmet.
+	You are the last admin of the space.	Du är utrymmets sista admin.
+	Make admin	Gör till admin
+	Rooms not available	Rummen är inte tillgängliga
+	Add existing room	Lägg till befintligt rum
+	No rooms	Inga rum
+	Rooms	Rum
+	Remove	Ta bort
+# explore
+	Search public rooms	Sök offentliga rum
+	Your server	Din server
+	Other server…	Annan server …
+	server name	servernamn
+	Already in	Redan med
+	Join	Gå med
+# accounts
+	Remove photo	Ta bort foto
+	Active	Aktivt
+	Active account	Aktivt konto
+	Other accounts	Andra konton
+# devices
+	Last active {when}	Senast aktiv {when}
+	{text} in {path}	{text} i {path}
+	This device	Den här enheten
+	Keys	Nycklar
+	Export password	Exportlösenord
+	Export keys	Exportera nycklar
+	Regenerate recovery key	Skapa ny återställningsnyckel
+	Recover keys	Återställ nycklar
+	Recovery key	Återställningsnyckel
+	Recover	Återställ
+	Other devices	Andra enheter
+	Sign out	Logga ut
+	Device name	Enhetsnamn
+	New recovery key	Ny återställningsnyckel
+	Done	Klart
+# newchat
+	Direct chat	Direktchatt
+	Room	Rum
+	Space	Utrymme
+	Join a room	Gå med i ett rum
+	Public	Offentligt
+	Create	Skapa
+	#room:server or !id:server	#rum:server eller !id:server
+	Search people	Sök personer
+# pick
+	Images	Bilder
+# time_fmt
+	last message at {when}	senaste meddelande kl. {when}
+	last message on {when}	senaste meddelande {when}
+	last message {when}	senaste meddelande {when}
+# engine text (status rows, attachment labels)
+	A user	En användare
+	{actor} created this room.	{actor} skapade det här rummet.
+	{actor} created this chat.	{actor} skapade den här chatten.
+	{actor} invited {subject}	{actor} bjöd in {subject}
+	{subject} joined the room	{subject} gick med i rummet
+	{subject} left the room	{subject} lämnade rummet
+	{actor} banned {subject}	{actor} bannlyste {subject}
+	{actor} unbanned {subject}	{actor} hävde bannlysningen av {subject}
+	{actor} removed {subject} from the room	{actor} tog bort {subject} från rummet
+	{subject} declined the invitation	{subject} avböjde inbjudan
+	{actor} revoked the invitation for {subject}	{actor} återkallade inbjudan till {subject}
+	{actor} removed the room name	{actor} tog bort rummets namn
+	{actor} changed the room name to «{name}»	{actor} ändrade rummets namn till «{name}»
+	{actor} removed the room topic	{actor} tog bort rummets ämne
+	{actor} changed the room topic to «{topic}»	{actor} ändrade rummets ämne till «{topic}»
+	{actor} changed the room avatar	{actor} ändrade rummets bild
+	{old} changed their name to {new}	{old} ändrade sitt namn till {new}
+	{subject} set their name to {new}	{subject} satte sitt namn till {new}
+	{subject} removed their display name	{subject} tog bort sitt visningsnamn
+	{subject} changed their avatar	{subject} ändrade sin profilbild
+	{text} (reason: {reason})	{text} (orsak: {reason})
+	Audio	Ljud
+	File	Fil
+	Photo	Foto
+	Log out	Logga ut
+	Encryption keys on this device not backed up are lost.	Krypteringsnycklar på den här enheten som inte är säkerhetskopierade går förlorade.
+	The server did not answer. Remove it from this device anyway?	Servern svarade inte. Ta bort den från den här enheten ändå?
+	Remove from this device	Ta bort från den här enheten
+
+# src/signin_form.rs
+	Wrong key. Check it and try again.	Fel nyckel. Kontrollera den och försök igen.
+	Server unreachable. Try again later or continue without recovery.	Servern kan inte nås. Försök igen senare eller fortsätt utan återställning.
+	Recovery took too long. Try again or continue without recovery.	Återställningen tog för lång tid. Försök igen eller fortsätt utan återställning.
+	No key backup on the server. Continue without recovery.	Ingen nyckelsäkerhetskopia på servern. Fortsätt utan återställning.
+	Recovery failed. Try again or continue without recovery.	Återställningen misslyckades. Försök igen eller fortsätt utan återställning.
+	This account has no Matrix secret storage: no recovery key to enter.	Kontot har ingen hemlig Matrix-lagring: ingen återställningsnyckel att ange.
+	The server offers no key backup: no recovery to create. Continue without recovery.	Servern erbjuder ingen nyckelsäkerhetskopia: ingen återställning att skapa. Fortsätt utan återställning.
+	This account already has a recovery: enter the existing recovery key.	Kontot har redan en återställning: ange den befintliga återställningsnyckeln.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Kontots återställning är bara halvt konfigurerad: Gnobbi ändrar den inte. Fortsätt utan återställning.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	Kontot har redan en kryptografisk identitet som den här enheten inte har: Gnobbi ersätter den inte. Fortsätt utan återställning.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	Servern kräver en extra bekräftelse som Gnobbi inte stöder. Fortsätt utan återställning.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	Servern kan inte nås: återställningen skapades inte. Försök igen eller fortsätt utan återställning.
+	Creation took too long. Try again or continue without recovery.	Skapandet tog för lång tid. Försök igen eller fortsätt utan återställning.
+	Creating the recovery failed. Try again or continue without recovery.	Det gick inte att skapa återställningen. Försök igen eller fortsätt utan återställning.
+	Enter a server name or a valid HTTPS address.	Ange ett servernamn eller en giltig HTTPS-adress.
+	Enter the full Matrix ID: @name:server.	Ange hela Matrix-ID:t: @namn:server.
+	Enter the profile's local passphrase.	Ange profilens lokala lösenfras.
+	Password required; local passphrase of at least 16 characters.	Lösenord krävs; lokal lösenfras på minst 16 tecken.
+	This server offers no password login. SSO/OIDC are not supported.	Servern erbjuder ingen lösenordsinloggning. SSO/OIDC stöds inte.
+	This server does not support sliding sync	Servern stöder inte sliding sync
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	Servern svarade med ett fel: kontrollera adressen (t.ex. https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	Servern kan inte nås eller har ett ogiltigt TLS-certifikat.
+	Credentials not accepted. Try again.	Inloggningsuppgifterna godtogs inte. Försök igen.
+	Too many attempts: try again in a moment.	För många försök: försök igen om en stund.
+	Sign-in/unlock failed. Check the credentials and try again.	Inloggning/upplåsning misslyckades. Kontrollera uppgifterna och försök igen.
+	System keychain unavailable or locked. Unlock it and try again.	Systemets nyckelring är inte tillgänglig eller är låst. Lås upp den och försök igen.
+	The profile key is not in the system keychain. The profile was not changed.	Profilnyckeln finns inte i systemets nyckelring. Profilen ändrades inte.
+	Profile already open in another instance. Close it and restart.	Profilen är redan öppen i en annan instans. Stäng den och starta om.
+	Local profile unavailable. Close and check the profile path.	Den lokala profilen är inte tillgänglig. Stäng och kontrollera profilsökvägen.
+	Enter the Matrix password.	Ange Matrix-lösenordet.
+
+# signin
+	Creating the recovery and backup…	Skapar återställning och säkerhetskopia …
+
+# devices
+@plural	{n} device to sign out	{n} enhet att logga ut|{n} enheter att logga ut
+@plural	{n} device without last activity not included	{n} enhet utan senaste aktivitet ingår inte|{n} enheter utan senaste aktivitet ingår inte
+
+# devices
+	Last activity {time}	Senaste aktivitet {time}
+	They match	De stämmer
+	They don't match	De stämmer inte
+	Yes	Ja
+	Not available with this account	Inte tillgängligt med det här kontot
+	Incorrect password	Fel lösenord
+	Failed. Try again.	Misslyckades. Försök igen.
+	Verification failed	Verifieringen misslyckades
+	Verification request	Verifieringsbegäran
+	Cancel the verification?	Avbryta verifieringen?
+	Verification cancelled	Verifieringen avbröts
+	The emoji don't match	Emojierna stämmer inte
+	Verification	Verifiering
+
+# key export
+@plural	{n} key exported	{n} nyckel exporterad|{n} nycklar exporterade
+
+# key export
+	Gnobbi recovery key	Gnobbi återställningsnyckel
+	Wrong unlock passphrase	Fel upplåsningslösenfras
+	Password too short: at least 12 characters	Lösenordet är för kort: minst 12 tecken
+	Password too long: at most 4096 bytes	Lösenordet är för långt: högst 4096 byte
+	The passwords don't match	Lösenorden stämmer inte överens
+	No keys to export on this device	Inga nycklar att exportera på den här enheten
+	Can't write to this location	Det går inte att skriva till den här platsen
+	Export failed: try again	Exporten misslyckades: försök igen
+	Recover the keys on this device first	Återställ först nycklarna på den här enheten
+	The server asks for a confirmation that is not supported here	Servern kräver en bekräftelse som inte stöds här
+	Server unreachable: try again	Servern kan inte nås: försök igen
+	Regeneration failed: try again	Det gick inte att skapa en ny: försök igen
+
+# key export
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	Den här enheten har inte kontots återställningsnycklar: ange nyckeln för att läsa gamla krypterade meddelanden
+	This account has no recovery key: without one, encrypted messages are lost with the devices	Kontot har ingen återställningsnyckel: utan en går krypterade meddelanden förlorade med enheterna
+	Restoring…	Återställer …
+	Restore	Återställ
+	Not now	Inte nu
+	Don't ask again for this account	Fråga inte igen för det här kontot
+	Copy recovery key	Kopiera återställningsnyckel
+	Save it now: it will not be shown again	Spara den nu: den visas inte igen
+	Save to file	Spara till fil
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	Skapar ny …
+	I kept it elsewhere	Jag har sparat den någon annanstans
+
+# search list and add server
+	The server does not respond	Servern svarar inte
+	Not a Matrix server	Inte en Matrix-server
+	The server does not show its rooms	Servern visar inte sina rum
+	Your server cannot reach this server	Din server kan inte nå den här servern
+	Invalid server certificate	Ogiltigt servercertifikat
+	Searching	Söker
+	Partial results	Delvisa resultat
+	Invalid server name	Ogiltigt servernamn
+	Timed out	Tidsgränsen överskreds
+	Loading	Läser in
+	More results not loaded	Fler resultat har inte lästs in
+
+# search list and add server
+	The server name is needed, for example matrix.org	Servernamnet behövs, till exempel matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Det här är ett användar-ID: servernamnet behövs, till exempel matrix.org
+	Only https addresses are allowed	Endast https-adresser är tillåtna
+	Write only the server name, without a path	Skriv bara servernamnet, utan sökväg
+	The server name is needed, without user or password	Servernamnet behövs, utan användare eller lösenord
+	Invalid port	Ogiltig port
+	Invalid IP address	Ogiltig IP-adress
+	Already present	Finns redan
+
+# sidebar
+	Favorites	Favoriter
+	All	Alla
+	Demo room {n}	Demorum {n}
+
+# history
+@plural	{n} unread	{n} oläst|{n} olästa
+
+# history
+	edited	redigerad
+	[Message deleted]	[Meddelandet raderades]
+	Server ack · Reply	Server-ack · Svar
+	Server ack	Server-ack
+	local	lokal
+
+# audio
+	Microphone not available	Mikrofonen är inte tillgänglig
+
+# audio
+	Audio playback not available	Ljuduppspelning är inte tillgänglig
+
+# search
+	Public spaces	Offentliga utrymmen
+	People	Personer
+
+# engine placeholders
+	Location	Plats
+	Message without text	Meddelande utan text
+	Image.png	Bild.png
+
+# update
+	invalid staging	ogiltig mellanlagring
+	placement failed and restore failed	placeringen och återställningen misslyckades
+	start failed and restore failed	starten och återställningen misslyckades
+	another installation in progress	en annan installation pågår
+	channel without in-app update	kanal utan uppdatering i appen
+	binary to update not found	programfilen att uppdatera hittades inte
+	staging not found	mellanlagringen hittades inte
+	staging outside the target folder	mellanlagringen ligger utanför målmappen
+	previous update pending	föregående uppdatering väntar
+	staging has a different size	mellanlagringen har en annan storlek
+	staging has a different hash	mellanlagringen har en annan hash
+	folder not writable	mappen är inte skrivbar
+	staging cannot be verified	mellanlagringen kan inte verifieras
+	Update failed: {cause}	Uppdateringen misslyckades: {cause}
+	remove {name}	ta bort {name}
+	error	fel
+
+# update
+	invalid helper parameters	ogiltiga hjälpparametrar
+	invalid binary to update	ogiltig programfil att uppdatera
+	backup to restore not found	säkerhetskopian att återställa hittades inte
+	no pending restore	ingen väntande återställning
+	Windows update not available	Windows-uppdatering är inte tillgänglig
+	data folder not found	datamappen hittades inte
+	the program did not close	programmet stängdes inte
+	running binary differs from the target	den körande programfilen skiljer sig från målet
+	helper without channel	hjälpprogram utan kanal
+	helper not ready	hjälpprogrammet är inte redo
+
+# update
+	Update available · {version}	Uppdatering tillgänglig · {version}
+	Update available, version {version}	Uppdatering tillgänglig, version {version}
+	Updated to {version}	Uppdaterad till {version}
+	Update failed: restored {version}	Uppdateringen misslyckades: {version} återställdes
+	Update failed: error	Uppdateringen misslyckades: fel
+	Update postponed: message not sent	Uppdateringen sköts upp: meddelandet skickades inte
+
+# update
+	backup differs from the binary, kept	säkerhetskopian skiljer sig från programfilen, behölls
+
+# key export
+	gnobbi-keys.txt	gnobbi-keys.txt
+
+# search
+	Filter: {label}	Filter: {label}
+
+# devices
+	Sign out inactive	Logga ut inaktiva
+
+# update
+	helper out of place	hjälpprogrammet ligger på fel plats
