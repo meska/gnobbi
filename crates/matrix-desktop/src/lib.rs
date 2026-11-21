@@ -38,6 +38,7 @@ pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_
 mod account_catalog;
 mod account_list;
 mod app_dirs;
+pub mod app_group;
 pub mod desktop_entry;
 // Linux only: the uid comes from /proc/self, and on macOS nothing calls it (the OS opens links itself).
 #[cfg(target_os = "linux")]

@@ -52,9 +52,14 @@ pub fn app_dirs(platform: Platform, env: impl Fn(&str) -> Option<String>) -> Opt
         Platform::MacOs => {
             let library = absolute(&env, "HOME")?.join("Library");
             let support = library.join("Application Support").join("Gnobbi");
+            // iOS with the App Group: the account stores live in the shared container (`app_group::migrate` moves them there).
+            #[cfg(all(target_os = "ios", not(target_abi = "sim")))]
+            let data = crate::app_group::data_dir().unwrap_or_else(|| support.clone());
+            #[cfg(not(all(target_os = "ios", not(target_abi = "sim"))))]
+            let data = support.clone();
             Some(AppDirs {
-                config: support.clone(),
-                data: support,
+                config: support,
+                data,
                 cache: library.join("Caches").join("Gnobbi"),
             })
         }

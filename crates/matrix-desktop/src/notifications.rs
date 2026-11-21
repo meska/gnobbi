@@ -279,6 +279,18 @@ fn parse_target(key: &str) -> Option<(Option<AccountId>, RoomScope)> {
     Some(((catalog != 0).then(|| AccountId::new(catalog)), scope))
 }
 
+/// A tap on a remote push the extension did not rewrite: the payload carries `gnobbi_account` (`<catalog>:<worker>:<dir>`,
+/// see `matrix_engine::push`) and Sygnal's `room_id`.
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
+fn parse_remote(account: &str, room: &str) -> Option<(Option<AccountId>, RoomScope)> {
+    let mut parts = account.splitn(3, ':');
+    let (catalog, worker) = (parts.next()?, parts.next()?);
+    if !room.starts_with('!') || catalog.parse::<u64>().ok()? == 0 {
+        return None;
+    }
+    parse_target(&format!("{catalog}:{worker}:{room}"))
+}
+
 /// A click that reached the process before (or without) the session that owns it: kept here until that account polls.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 static EARLY_CLICK: Mutex<Option<(Option<AccountId>, RoomScope)>> = Mutex::new(None);
@@ -343,10 +355,14 @@ mod macos {
             #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
             fn did_receive(&self, _: &UNUserNotificationCenter, response: &UNNotificationResponse, done: &DynBlock<dyn Fn()>) {
                 let info = response.notification().request().content().userInfo();
-                let key = info.objectForKey(&NSString::from_str(KEY)).and_then(|v| v.downcast::<NSString>().ok()).map(|k| k.to_string());
-                if let Some(key) = key
-                    && let Some((catalog, scope)) = parse_target(&key)
-                {
+                let text = |name: &str| info.objectForKey(&NSString::from_str(name)).and_then(|v| v.downcast::<NSString>().ok()).map(|k| k.to_string());
+                let key = text(KEY);
+                let target = match &key {
+                    Some(key) => parse_target(key),
+                    None => text("gnobbi_account").zip(text("room_id")).and_then(|(account, room)| parse_remote(&account, &room)),
+                };
+                if let Some((catalog, scope)) = target {
+                    let key = target_key(catalog, &scope);
                     let slot = SLOTS.lock().ok().and_then(|slots| slots.as_ref()?.get(&key).cloned());
                     match slot.as_ref().map(|slot| slot.lock()) {
                         Some(Ok(mut slot)) => *slot = Some((catalog, scope)),
@@ -358,9 +374,10 @@ mod macos {
             // The window decides upstream (`reading`) whether an alert is wanted: when it is, show it even in the foreground.
             #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
             fn will_present(&self, _: &UNUserNotificationCenter, notification: &UNNotification, done: &DynBlock<dyn Fn(UNNotificationPresentationOptions)>) {
-                // A remote push (no key of ours) in the foreground duplicates the alert the sync raises itself: drop it.
+                // A remote push (it has a push trigger; our own alerts have none) in the foreground duplicates the alert
+                // the sync raises itself, or shows a room the user is looking at: drop it, extension-rewritten or not.
                 #[cfg(target_os = "ios")]
-                if notification.request().content().userInfo().objectForKey(&NSString::from_str(KEY)).is_none() {
+                if notification.request().trigger().is_some() {
                     done.call((UNNotificationPresentationOptions::empty(),));
                     return;
                 }

@@ -365,6 +365,10 @@ impl eframe::App for App {
             for (s, root) in std::iter::once((&mut *session, &self.root)).chain(self.parked.iter_mut().map(|p| (&mut p.session, &p.root))) {
                 if s.catalog_id.is_none() && s.account.is_some() {
                     s.catalog_id = catalog.get_or_insert_with(|| matrix_desktop::AccountCatalog::load(d)).id_for_root(d, root);
+                    // The pusher of this account says which store the notification extension must open.
+                    if let Some(id) = s.catalog_id && let Ok(dir) = root.strip_prefix(&d.data) {
+                        matrix_engine::push::set_account(root.clone(), matrix_engine::push::AccountTag { catalog: id, dir: dir.to_string_lossy().into_owned() });
+                    }
                 }
             }
             let names: Vec<String> = std::iter::once(&session.account_name).chain(self.parked.iter().map(|p| &p.session.account_name)).cloned().collect();
@@ -2089,7 +2093,17 @@ fn main() -> eframe::Result {
     // A `matrix:` link is not an option: taken out first, validated by the engine, carried out once the rooms are there.
     let (args, raw_link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
     let link = raw_link.clone().and_then(|raw| matrix_engine::matrix_link::parse_matrix_link(&raw).map_err(|_| eprintln!("Gnobbi: ignored matrix link")).ok());
-    let dirs = matrix_desktop::app_dirs(Platform::CURRENT, |k| std::env::var(k).ok());
+    #[allow(unused_mut)]
+    let mut dirs = matrix_desktop::app_dirs(Platform::CURRENT, |k| std::env::var(k).ok());
+    // iOS: the stores move to the App Group container; if that fails, keep working from where they were.
+    #[cfg(all(target_os = "ios", not(target_abi = "sim")))]
+    if let Some(d) = &mut dirs
+        && d.data != d.config
+        && matrix_desktop::app_group::migrate(&d.config, &d.data).is_err()
+    {
+        eprintln!("Gnobbi: store migration failed");
+        d.data = d.config.clone();
+    }
     let default_root = dirs.as_ref().map(|d| d.data.join("profile"));
     // `--signin <folder>` runs another account's profile; the default profile is the first install's.
     let mut trust = None;

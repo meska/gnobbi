@@ -197,3 +197,17 @@ fn a_click_key_names_account_and_room_and_survives_a_restart() {
     assert_eq!(parse_target("x:3:!r:fixture.invalid"), None);
     assert_eq!(parse_target("7:x:!r:fixture.invalid"), None);
 }
+
+#[test]
+fn tap_on_a_plain_remote_push_opens_that_account_and_room() {
+    // Two accounts: the payload of each pusher names its own catalog id and worker.
+    let (catalog, scope) = parse_remote("3:7:accounts/3", "!r:fixture.invalid").unwrap();
+    assert_eq!(catalog, Some(AccountId::new(3)));
+    assert_eq!((scope.account_id, scope.room_id.as_str()), (AccountId::new(7), "!r:fixture.invalid"));
+    assert_eq!(parse_remote("4:7:profile", "!r:fixture.invalid").unwrap().0, Some(AccountId::new(4)));
+    // Same key as the extension's rewritten alert: both ways of tapping land on one room.
+    assert_eq!(parse_remote("3:7:accounts/3", "!r:s").map(|(c, s)| target_key(c, &s)), Some("3:7:!r:s".into()));
+    for bad in [("x:7:d", "!r:s"), ("0:7:d", "!r:s"), ("3:x:d", "!r:s"), ("3", "!r:s"), ("3:7:d", ""), ("3:7:d", "notaroom")] {
+        assert_eq!(parse_remote(bad.0, bad.1), None, "{bad:?}");
+    }
+}

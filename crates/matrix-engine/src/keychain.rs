@@ -11,6 +11,9 @@ use security_framework::os::macos::keychain::SecKeychain;
 pub use crate::signin::VaultError;
 
 const SERVICE: &str = "gnobbi.sdk-protection-v1";
+/// Keychain access group of the app and its notification extension: the app's own id group, always entitled.
+#[cfg(all(target_os = "ios", not(target_abi = "sim")))]
+const SHARED_GROUP: &str = "T4RJLVSR79.net.meskatech.gnobbi";
 // Keychain OSStatus codes (Security/SecBase.h).
 const ITEM_NOT_FOUND: i32 = -25300;
 const INTERACTION_NOT_ALLOWED: i32 = -25308;
@@ -138,10 +141,26 @@ impl AccountKeychain {
         Self {}
     }
 
+    /// Device builds read from the shared group first; an item that predates it (default group) is
+    /// found by the plain lookup and copied into the group, the original stays.
     fn find(&self, account: &str) -> Result<zeroize::Zeroizing<Vec<u8>>, VaultError> {
-        security_framework::passwords::get_generic_password(SERVICE, account)
+        use security_framework::passwords::{generic_password, PasswordOptions};
+        #[cfg(not(target_abi = "sim"))]
+        {
+            let mut options = PasswordOptions::new_generic_password(SERVICE, account);
+            options.set_access_group(SHARED_GROUP);
+            match generic_password(options) {
+                Ok(v) => return Ok(zeroize::Zeroizing::new(v)),
+                Err(e) if e.code() != ITEM_NOT_FOUND => return Err(classify(&e)),
+                Err(_) => {}
+            }
+        }
+        let value = generic_password(PasswordOptions::new_generic_password(SERVICE, account))
             .map(zeroize::Zeroizing::new)
-            .map_err(|e| classify(&e))
+            .map_err(|e| classify(&e))?;
+        #[cfg(not(target_abi = "sim"))]
+        let _ = self.add(account, &value); // best effort: the extension reads only the shared group
+        Ok(value)
     }
 
     fn add(&self, account: &str, value: &[u8]) -> Result<(), VaultError> {
@@ -158,6 +177,9 @@ impl AccountKeychain {
         )
         .map_err(|e| classify(&e))?;
         options.set_access_control(access);
+        // The notification extension shares this group (the app-id group: the simulator has no entitlements for it).
+        #[cfg(not(target_abi = "sim"))]
+        options.set_access_group(SHARED_GROUP);
         set_generic_password_options(value, options).map_err(|e| classify(&e))
     }
 

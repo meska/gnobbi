@@ -175,7 +175,12 @@ impl RoomListWorker {
                     let client = sync.session.client.as_ref().unwrap().clone();
                     let account = sync.session.account_id();
                     let media_client = client.clone();
-                    let push_task = tokio::spawn(crate::push::keep_registered(client.clone(), crate::auth::DEVICE_NAME));
+                    let push_task = tokio::spawn(crate::push::keep_registered(
+                        client.clone(),
+                        crate::auth::DEVICE_NAME,
+                        sync.session.store.as_ref().and_then(|s| s.path.parent()).map(std::path::Path::to_path_buf),
+                        account,
+                    ));
                     if let Some(fetcher) = crate::avatar_cache::AvatarFetcher::new(
                         &sync.session,
                         tokio::runtime::Handle::current(),

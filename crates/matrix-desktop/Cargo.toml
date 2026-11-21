@@ -43,7 +43,7 @@ oslog = "0.2"
 robius-file-picker = "=0.3.1"
 objc2 = "0.6"
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["CFCGTypes"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["NSArray", "NSURL", "NSBundle", "NSString", "NSError", "NSObject", "NSDictionary", "NSNotification", "NSOperation", "NSValue", "block2"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSArray", "NSURL", "NSBundle", "NSString", "NSError", "NSObject", "NSDictionary", "NSNotification", "NSOperation", "NSValue", "NSFileManager", "block2"] }
 # Local notifications (UNUserNotificationCenter) and the microphone permission/session (AVAudioSession; cpal only opens the unit).
 objc2-user-notifications = { version = "0.3", features = ["block2"] }
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "block2", "AVAudioSession", "AVAudioSessionTypes"] }
