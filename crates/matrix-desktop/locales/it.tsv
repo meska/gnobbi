@@ -355,6 +355,7 @@ menu	Bring All to Front	Porta tutto in primo piano
 	Copy link	Copia link
 	Server	Server
 	Matrix ID	ID Matrix
+	Username or Matrix ID	Nome utente o ID Matrix
 	Password	Password
 	Local passphrase	Frase locale
 	Sign in	Accedi
@@ -515,6 +516,7 @@ menu	Bring All to Front	Porta tutto in primo piano
 	Creating the recovery failed. Try again or continue without recovery.	Creazione del recupero non riuscita. Riprova o continua senza recupero.
 	Enter a server name or a valid HTTPS address.	Inserisci un nome server o un indirizzo HTTPS valido.
 	Enter the full Matrix ID: @name:server.	Inserisci l’ID Matrix completo: @nome:server.
+	Enter a valid username or Matrix ID.	Inserisci un nome utente o un ID Matrix valido.
 	Enter the profile's local passphrase.	Inserisci la frase locale del profilo.
 	Password required; local passphrase of at least 16 characters.	Password richiesta; frase locale di almeno 16 caratteri.
 	This server offers no password login. SSO/OIDC are not supported.	Questo server non offre login password. SSO/OIDC non supportati.

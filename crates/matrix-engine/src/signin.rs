@@ -190,6 +190,18 @@ impl PasswordSignIn {
             homeserver
         })
         .map_err(|_| SignInError::InvalidHomeserver)?;
+        let user = user.trim();
+        let user = if user.contains(':') {
+            if user.starts_with('@') { user.to_owned() } else { format!("@{user}") }
+        } else if !user.starts_with('@') && !user.is_empty() {
+            // shortcut: URL host may differ from Matrix server name; use a full ID in that case.
+            let url = url::Url::parse(homeserver.as_str()).map_err(|_| SignInError::InvalidHomeserver)?;
+            let host = url.host_str().ok_or(SignInError::InvalidHomeserver)?;
+            let server = match url.port() { Some(port) => format!("{host}:{port}"), None => host.to_owned() };
+            format!("@{user}:{server}")
+        } else {
+            user.to_owned()
+        };
         matrix_sdk::ruma::UserId::parse(&user).map_err(|_| SignInError::InvalidUserId)?;
         Ok(Self {
             root,
@@ -1158,6 +1170,21 @@ mod homeserver_input_tests {
             None,
         )
         .map(|login| login.homeserver.as_str().to_owned())
+    }
+
+    #[test]
+    fn signin_accepts_localpart_and_full_ids() {
+        let login = |user: &str| PasswordSignIn::new(
+            "/tmp/gnobbi-homeserver-input".into(), AccountId::new(1),
+            "https://example.org".into(), user.into(), Secret::new("password".into()).unwrap(),
+            Secret::new("x".repeat(16)).unwrap(), None,
+        ).map(|login| login.user);
+        assert_eq!(login("marco").unwrap(), "@marco:example.org");
+        assert_eq!(login("marco:example.org").unwrap(), "@marco:example.org");
+        assert_eq!(login("@marco:example.org").unwrap(), "@marco:example.org");
+        assert_eq!(login("  @marco:other.example  ").unwrap(), "@marco:other.example");
+        assert!(matches!(login("@marco"), Err(SignInError::InvalidUserId)));
+        assert!(matches!(login(""), Err(SignInError::InvalidUserId)));
     }
 
     #[test]

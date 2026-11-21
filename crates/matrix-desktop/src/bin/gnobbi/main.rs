@@ -1943,7 +1943,7 @@ impl App {
                 let top = ui.cursor().top();
                 ui.vertical_centered(|ui| {
                     ui.allocate_ui_with_layout(egui::vec2(width, 0.), dir::col(), |ui| match &mut self.session {
-                        Some(session) => sign_in_form(ui, session, t),
+                        Some(session) => sign_in_form(ui, session, t, self.prefs.icon),
                         None if self.reopening.is_some() => { ui.spinner(); }
                         None => { ui.label(i18n::t("Start failed")); }
                     });
@@ -2130,7 +2130,7 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
 }
 
 /// The form for the flow the backend asked for: new profile (server, user, password) or unlock.
-fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
+fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens, icon: matrix_desktop::IconChoice) {
     use matrix_engine::signin::SignInMode;
     if s.recovering() {
         recovery_form(ui, s, t);
@@ -2156,12 +2156,20 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     let (width, height) = (ui.available_width(), crate::metrics::button());
     let radius = CornerRadius::same(m.radius.max(12.) as u8);
     {
-        // The logo: the accent square with the app's chat glyph, then the name.
         let side = (height * 1.5).max(64.);
+        let id = egui::Id::unique(("signin-icon", format!("{icon:?}")));
+        let texture = ui.data(|d| d.get_temp::<egui::TextureHandle>(id)).or_else(|| {
+            let image = app_icon(icon).or_else(|| app_icon(matrix_desktop::IconChoice::default()))?;
+            let pixels = egui::ColorImage::from_rgba_unmultiplied([image.width as usize, image.height as usize], &image.rgba);
+            let texture = ui.ctx().load_texture(format!("signin-icon-{icon:?}"), pixels, Default::default());
+            ui.data_mut(|d| d.insert_temp(id, texture.clone()));
+            Some(texture)
+        });
         ui.vertical_centered(|ui| {
             let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
-            ui.painter().rect_filled(rect, CornerRadius::same((side / 4.) as u8), rgb(t.accent));
-            icons::paint(ui.painter(), rect.center(), icons::Icon::ChatCircleDots, true, side * 0.58, rgb(t.on_accent));
+            if let Some(texture) = &texture {
+                egui::Image::new(texture).corner_radius(CornerRadius::same((side / 4.) as u8)).paint_at(ui, rect);
+            }
             ui.add_space(m.gap * 1.5);
             ui.label(RichText::new("Gnobbi").size(m.title * 1.5).strong().color(rgb(t.text)));
         });
@@ -2206,6 +2214,11 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
             }
         });
         if r.gained_focus() {
+            if matches!(purpose, egui::IMEPurpose::Url) && text == "https://" {
+                let mut state = egui::TextEdit::load_state(ui.ctx(), r.id).unwrap_or_default();
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(text.chars().count()))));
+                state.store(ui.ctx(), r.id);
+            }
             r.scroll_to_me(None);
         }
         enter |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -2215,7 +2228,7 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         match (p.mode, s.form.vault) {
             (SignInMode::Password, vault) => {
                 field(ui, &mut s.homeserver, i18n::t("Server"), false, egui::IMEPurpose::Url);
-                field(ui, &mut s.user, i18n::t("Matrix ID"), false, egui::IMEPurpose::Username);
+                field(ui, &mut s.user, i18n::t("Username or Matrix ID"), false, egui::IMEPurpose::Username);
                 field(ui, &mut s.password, i18n::t("Password"), true, egui::IMEPurpose::LoginPassword);
                 if !vault {
                     field(ui, &mut s.phrase, i18n::t("Local passphrase"), true, egui::IMEPurpose::Password);
@@ -2241,12 +2254,13 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     };
     let fill = if busy { rgb(t.accent).gamma_multiply(0.6) } else { rgb(t.accent) };
     let button = egui::Button::new(RichText::new(label).strong().color(rgb(t.on_accent))).fill(fill).corner_radius(radius);
-    let r = ui.add_sized([width, height + 4.], button);
+    let ready = !busy && (unlock || matrix_desktop::SignInForm::server_entered(&s.homeserver));
+    let r = ui.add_enabled_ui(ready, |ui| ui.add_sized([width, height + 4.], button)).inner;
     if busy {
         // Loading: a spinner at the left edge of the (inert) button.
         let rect = dir::flip(r.rect, egui::Rect::from_center_size(egui::pos2(r.rect.left() + height / 2. + 4., r.rect.center().y), egui::Vec2::splat(m.icon)));
         egui::Spinner::new().color(rgb(t.on_accent)).paint_at(ui, rect);
-    } else if r.clicked() || enter {
+    } else if ready && (r.clicked() || enter) {
         s.submit();
     }
 }

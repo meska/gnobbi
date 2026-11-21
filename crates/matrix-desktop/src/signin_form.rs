@@ -97,7 +97,7 @@ impl FormStatus {
         };
         Some(match error {
             InvalidHomeserver => t("Enter a server name or a valid HTTPS address."),
-            InvalidUserId => t("Enter the full Matrix ID: @name:server."),
+            InvalidUserId => t("Enter a valid username or Matrix ID."),
             InvalidSecret if matches!(self, Self::Prompt(prompt) if prompt.mode == SignInMode::Unlock) => {
                 t("Enter the profile's local passphrase.")
             }
@@ -160,7 +160,7 @@ pub struct SignInForm {
 impl Default for SignInForm {
     fn default() -> Self {
         Self {
-            homeserver: String::new(),
+            homeserver: "https://".to_owned(),
             user: String::new(),
             password: LoginInput::secret(),
             phrase: LoginInput::secret(),
@@ -174,6 +174,11 @@ impl Default for SignInForm {
     }
 }
 impl SignInForm {
+    pub fn server_entered(server: &str) -> bool {
+        let server = server.trim();
+        !server.is_empty() && !server.eq_ignore_ascii_case("https://")
+    }
+
     pub fn status(&self) -> FormStatus {
         self.status
     }

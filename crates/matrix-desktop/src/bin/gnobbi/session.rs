@@ -441,7 +441,7 @@ impl Session {
             space_report: None,
             admin: None,
             sync: None,
-            homeserver: String::new(),
+            homeserver: SignInForm::default().homeserver,
             user: String::new(),
             password: String::new(),
             phrase: String::new(),
