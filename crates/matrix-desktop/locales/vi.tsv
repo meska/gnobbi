@@ -7,3 +7,682 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of vi in this order, separated by |: one|other (0 and 1 are one).
 # See TRANSLATING.md.
+
+# list
+	Pinned	Đã ghim
+	Low priority	Ưu tiên thấp
+	New chat	Cuộc trò chuyện mới
+	Explore public rooms	Khám phá phòng công khai
+	Search conversations	Tìm cuộc trò chuyện
+	Mark as read	Đánh dấu đã đọc
+	Mark as unread	Đánh dấu chưa đọc
+	Add to a space…	Thêm vào không gian…
+	Leave?	Rời khỏi?
+	Leave	Rời khỏi
+	Add to a space	Thêm vào không gian
+	Add	Thêm
+	Cancel	Hủy
+	Unpin	Bỏ ghim
+	Pin to top	Ghim lên đầu
+	Remove from low priority	Bỏ ưu tiên thấp
+	Mark as low priority	Đánh dấu ưu tiên thấp
+	Remove from {name}	Xóa khỏi {name}
+	All messages	Tất cả tin nhắn
+	Mentions only	Chỉ lượt nhắc
+	Muted	Đã tắt tiếng
+
+# composer
+banner	Reply	Trả lời
+	Edit	Chỉnh sửa
+	Send note	Gửi ghi chú
+	Reply in thread	Trả lời trong luồng
+	Write a message	Viết tin nhắn
+	Emoji	Biểu tượng cảm xúc
+	Sticker	Nhãn dán
+	Poll	Bình chọn
+	Attach a file	Đính kèm tệp
+	Voice note	Tin nhắn thoại
+	Send	Gửi
+
+# composer (emoji names)
+	Grinning face	Mặt cười toe
+	Beaming face	Mặt rạng rỡ
+	Face with tears of joy	Mặt cười ra nước mắt
+	Rolling on the floor laughing	Cười lăn lộn
+	Smiling face with smiling eyes	Mặt cười mắt cười
+	Smiling face with heart eyes	Mặt cười mắt trái tim
+	Face blowing a kiss	Mặt gửi nụ hôn
+	Smiling face with sunglasses	Mặt cười đeo kính râm
+	Thinking face	Mặt đang suy nghĩ
+	Grinning face with sweat	Mặt cười toát mồ hôi
+	Winking face	Mặt nháy mắt
+	Upside-down face	Mặt lộn ngược
+	Crying face	Mặt khóc
+	Loudly crying face	Mặt khóc lớn
+	Angry face	Mặt giận dữ
+	Screaming face	Mặt hét lên
+	Thumbs up	Giơ ngón cái lên
+	Thumbs down	Giơ ngón cái xuống
+	Clapping hands	Vỗ tay
+	Folded hands	Chắp tay
+	Flexed biceps	Gồng bắp tay
+	Waving hand	Vẫy tay
+	Handshake	Bắt tay
+	Raising hands	Giơ hai tay
+	Party popper	Pháo giấy mừng tiệc
+	Fire	Lửa
+	Sparkles	Lấp lánh
+	Hundred points	Một trăm điểm
+	Check mark	Dấu tích
+	Cross mark	Dấu x
+	Eyes	Đôi mắt
+	Cup of coffee	Tách cà phê
+
+# timeline
+	Today	Hôm nay
+	Yesterday	Hôm qua
+	Message deleted	Tin nhắn đã bị xóa
+	Message unavailable	Không có tin nhắn
+	Encrypted message	Tin nhắn được mã hóa
+	Loading…	Đang tải…
+	Go to bottom	Xuống cuối
+	image	ảnh
+	video	video
+@plural	{n} reply	{n} phản hồi|{n} phản hồi
+
+# info
+	Encrypted	Đã mã hóa
+	Status messages	Tin nhắn trạng thái
+	Same as settings	Theo cài đặt
+	Show	Hiện
+	Hide	Ẩn
+@plural	{n} status message hidden	Đã ẩn {n} tin nhắn trạng thái|Đã ẩn {n} tin nhắn trạng thái
+	Search in room	Tìm trong phòng
+	No results	Không có kết quả
+	Search failed	Tìm kiếm thất bại
+	Retry	Thử lại
+	More results	Thêm kết quả
+	Profile link	Liên kết hồ sơ
+	Verified	Đã xác minh
+	Not verified	Chưa xác minh
+	Message	Nhắn tin
+	Mention	Nhắc đến
+	Verify	Xác minh
+	Disconnect	Ngắt kết nối
+	Last read	Đọc lần cuối
+	Chat unavailable	Cuộc trò chuyện không khả dụng
+	Ignore	Bỏ qua
+	Confirm	Xác nhận
+	Kick	Đuổi
+	Ban	Cấm
+	Failed	Thất bại
+	Thread unavailable	Luồng không khả dụng
+	Thread	Luồng
+	Reply	Trả lời
+	Addresses	Địa chỉ
+	main	chính
+	Main	Chính
+	name	tên
+@plural	{n} member	{n} thành viên|{n} thành viên
+@plural	Delete {n} message	Xóa {n} tin nhắn|Xóa {n} tin nhắn
+	Reply to {name}	Trả lời {name}
+
+# members
+	Admin	Quản trị viên
+	Moderator	Điều hành viên
+	Member	Thành viên
+	Invite	Mời
+	Banned	Đã bị cấm
+	Banned list unavailable	Không có danh sách bị cấm
+	Unban	Bỏ cấm
+	Reason	Lý do
+	Actions for {name}	Thao tác cho {name}
+
+# roomedit
+	Name	Tên
+	Topic	Chủ đề
+	Drop an image here for the photo	Thả ảnh vào đây để làm ảnh
+	Choose photo…	Chọn ảnh…
+	Room photo	Ảnh phòng
+	Save	Lưu
+	Photo: {name}	Ảnh: {name}
+
+# poll
+	New poll	Bình chọn mới
+	Question	Câu hỏi
+	Add option	Thêm lựa chọn
+	Multiple choice	Nhiều lựa chọn
+	Results visible right away	Hiển thị kết quả ngay
+	Option {n}	Lựa chọn {n}
+
+# viewer
+	Video	Video
+	Image	Ảnh
+	Save as	Lưu thành
+	Open	Mở
+	Cannot open the content	Không thể mở nội dung
+
+# stickers
+	Stickers are not encrypted, like an unencrypted image	Nhãn dán không được mã hóa, giống như ảnh không mã hóa
+	No sticker packs	Không có bộ nhãn dán
+	Stickers unavailable	Không có nhãn dán
+
+# settings
+	Settings	Cài đặt
+	Account and security	Tài khoản và bảo mật
+	Account	Tài khoản
+	Devices	Thiết bị
+	Appearance	Giao diện
+	Language	Ngôn ngữ
+	Theme	Chủ đề giao diện
+	System	Hệ thống
+	Accent	Màu nhấn
+	Icon	Biểu tượng
+	Automatic night	Ban đêm tự động
+	Chat	Trò chuyện
+	Read receipts	Xác nhận đã đọc
+	Hide deleted messages	Ẩn tin nhắn đã xóa
+	Show status messages	Hiện tin nhắn trạng thái
+	Message preview	Xem trước tin nhắn
+	Notifications	Thông báo
+	Close to tray	Đóng xuống khay hệ thống
+	Add to menu	Thêm vào menu
+	Added to menu	Đã thêm vào menu
+	Could not add to menu	Không thể thêm vào menu
+	Classic	Cổ điển
+	Day	Ban ngày
+	Dark	Tối
+	Night	Ban đêm
+	No	Không
+	Schedule	Theo lịch
+	Minimal mark	Dấu tối giản
+	Gnome	Gnome
+	Little monster	Quái vật nhỏ
+	Blue	Xanh dương
+	Teal	Xanh mòng két
+	Green	Xanh lá
+	Orange	Cam
+	Red	Đỏ
+	Pink	Hồng
+	Purple	Tím
+
+# notifications, tray, menu bar, errors
+	A save is already in progress	Đang có một thao tác lưu
+	Account no longer connected	Tài khoản không còn kết nối
+	Actions not available for this event	Không có thao tác nào cho sự kiện này
+	Address already in use	Địa chỉ đã được sử dụng
+	Already joined	Đã tham gia
+	Checking permissions…	Đang kiểm tra quyền…
+	Choose a file that does not exist yet	Chọn một tệp chưa tồn tại
+	Connected	Đã kết nối
+	Connecting…	Đang kết nối…
+	Connection failed	Kết nối thất bại
+	Data folder not available	Không có thư mục dữ liệu
+	Delete the selected message? This cannot be undone.	Xóa tin nhắn đã chọn? Không thể hoàn tác.
+	File cannot be attached	Không thể đính kèm tệp
+	Image cannot be attached	Không thể đính kèm ảnh
+	Invalid name	Tên không hợp lệ
+	Joining…	Đang tham gia…
+	Message not available	Không có tin nhắn
+	No audio recorded	Chưa ghi âm thanh nào
+	Not allowed	Không được phép
+	Not allowed by the server	Máy chủ không cho phép
+	Operation failed	Thao tác thất bại
+	Operation not confirmed · Retry uses the same ID (even if you change room)	Thao tác chưa được xác nhận · Thử lại dùng cùng ID (kể cả khi đổi phòng)
+	Operation pending · no server confirmation	Thao tác đang chờ · máy chủ chưa xác nhận
+	Operation refused or unavailable	Thao tác bị từ chối hoặc không khả dụng
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Trả lời/chỉnh sửa: viết trong bản nháp rồi bấm nút. Enter vẫn gửi như bình thường.
+	Room not found	Không tìm thấy phòng
+	Saved	Đã lưu
+	Saving failed	Lưu thất bại
+	Server unreachable	Không thể kết nối máy chủ
+	Sign-in failed	Đăng nhập thất bại
+	Sticker not sent	Chưa gửi được nhãn dán
+	Still joining…	Vẫn đang tham gia…
+	Sync interrupted	Đồng bộ bị gián đoạn
+	Voice note cannot be played	Không thể phát tin nhắn thoại
+	You are offline	Bạn đang ngoại tuyến
+	The name cannot be empty.	Tên không được để trống.
+	The name is too long (256 characters at most).	Tên quá dài (tối đa 256 ký tự).
+	This server does not allow editing the profile.	Máy chủ này không cho phép chỉnh sửa hồ sơ.
+	Cannot read the chosen file.	Không thể đọc tệp đã chọn.
+	The image is too large (25 MB at most).	Ảnh quá lớn (tối đa 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	Chọn ảnh PNG, JPEG hoặc WebP hợp lệ.
+	Connection failed: try again shortly.	Kết nối thất bại: hãy thử lại sau ít phút.
+	The server rejected the change.	Máy chủ đã từ chối thay đổi.
+	Space not found	Không tìm thấy không gian
+	Operation failed, try again	Thao tác thất bại, hãy thử lại
+	Minimize	Thu nhỏ
+	Show Gnobbi	Hiện Gnobbi
+	Quit Gnobbi	Thoát Gnobbi
+	{name}, active account	{name}, tài khoản đang dùng
+	New messages	Tin nhắn mới
+	1 new message	1 tin nhắn mới
+	New message	Tin nhắn mới
+	📷 Photo	📷 Ảnh
+	🎥 Video	🎥 Video
+	🎤 Voice message	🎤 Tin nhắn thoại
+	🎵 Audio	🎵 Âm thanh
+	📎 File	📎 Tệp
+	📍 Location	📍 Vị trí
+menu	Quit Gnobbi	Thoát Gnobbi
+menu	About Gnobbi	Giới thiệu Gnobbi
+menu	Settings…	Cài đặt…
+menu	Services	Dịch vụ
+menu	Hide Gnobbi	Ẩn Gnobbi
+menu	Hide Others	Ẩn các ứng dụng khác
+menu	Show All	Hiện tất cả
+menu	Edit	Chỉnh sửa
+menu	Undo	Hoàn tác
+menu	Redo	Làm lại
+menu	Cut	Cắt
+menu	Copy	Sao chép
+menu	Paste	Dán
+menu	Select All	Chọn tất cả
+menu	Start Dictation…	Bắt đầu đọc chính tả…
+menu	Emoji & Symbols	Biểu tượng cảm xúc và ký hiệu
+menu	Window	Cửa sổ
+menu	Minimize	Thu nhỏ
+menu	Zoom	Thu phóng
+menu	Bring All to Front	Đưa tất cả lên trước
+@plural	Gnobbi, {n} unread	Gnobbi, {n} chưa đọc|Gnobbi, {n} chưa đọc
+
+# Phosphor icons, sizes and Personalizza
+	Customize	Tùy chỉnh
+	Sizes	Kích thước
+	Text size	Cỡ chữ
+	Buttons and icons size	Kích thước nút và biểu tượng
+	Follow the system	Theo hệ thống
+	Follow the text	Theo cỡ chữ
+	Small	Nhỏ
+	Normal	Vừa
+	Large	Lớn
+	Compact	Gọn
+	Comfortable	Thoải mái
+	Restore defaults	Khôi phục mặc định
+	Preview	Xem trước
+	A sample message	Tin nhắn mẫu
+	Button	Nút
+	Remove attachment	Xóa tệp đính kèm
+	Cancel reply	Hủy trả lời
+	Close card	Đóng thẻ
+	Close thread	Đóng luồng
+	Remove address	Xóa địa chỉ
+	Copy	Sao chép
+	Menu	Menu
+	Back	Quay lại
+	Chat list	Danh sách trò chuyện
+	Info	Thông tin
+	Copy key	Sao chép khóa
+	Remove option	Xóa lựa chọn
+	Pause	Tạm dừng
+	Play	Phát
+	New	Mới
+	New space	Không gian mới
+	Close	Đóng
+	Add account	Thêm tài khoản
+	Rename	Đổi tên
+
+# avatar editor
+	Profile photo	Ảnh hồ sơ
+	Edit photo	Chỉnh sửa ảnh
+	Apply	Áp dụng
+	Reset	Đặt lại
+	Rotate left	Xoay trái
+	Rotate right	Xoay phải
+	Mirror	Lật gương
+	Zoom	Thu phóng
+	Rotation	Xoay
+	Brightness	Độ sáng
+	Contrast	Độ tương phản
+	Saturation	Độ bão hòa
+	Original	Gốc
+	B&W	Đen trắng
+	Sepia	Nâu đỏ
+	Vivid	Rực rỡ
+	Cool	Lạnh
+	Warm	Ấm
+	Fade	Nhạt màu
+	High contrast	Tương phản cao
+	Preview: drag to move the photo	Xem trước: kéo để di chuyển ảnh
+	Could not download the current photo.	Không thể tải ảnh hiện tại.
+	Could not prepare the photo.	Không thể chuẩn bị ảnh.
+	Open link	Mở liên kết
+	Could not open the link.	Không thể mở liên kết.
+	Copy link	Sao chép liên kết
+	Server	Máy chủ
+	Matrix ID	Matrix ID
+	Password	Mật khẩu
+	Local passphrase	Cụm mật khẩu cục bộ
+	Sign in	Đăng nhập
+	Unlock	Mở khóa
+	Signing in…	Đang đăng nhập…
+	Unlocking…	Đang mở khóa…
+	Show password	Hiện mật khẩu
+	Hide password	Ẩn mật khẩu
+# main
+	Accept	Chấp nhận
+	Decline	Từ chối
+	Edit space	Chỉnh sửa không gian
+	Edit room	Chỉnh sửa phòng
+	Start failed	Không khởi động được
+	Search	Tìm kiếm
+	Conversations	Cuộc trò chuyện
+	Users	Người dùng
+	Public rooms	Phòng công khai
+	React	Thả cảm xúc
+	Confirm closing	Xác nhận đóng
+	Close poll	Đóng bình chọn
+	Confirm deletion	Xác nhận xóa
+	Delete	Xóa
+	Encrypted history	Lịch sử mã hóa
+	Matrix recovery key	Khóa khôi phục Matrix
+	I saved the key: continue	Tôi đã lưu khóa: tiếp tục
+	Recover encrypted history	Khôi phục lịch sử mã hóa
+	Try creating the key again	Thử tạo lại khóa
+	Create recovery key	Tạo khóa khôi phục
+	Continue without recovery	Tiếp tục mà không khôi phục
+# rail
+	A space cannot go inside itself	Một không gian không thể nằm trong chính nó
+	You do not have permission to edit «{name}»	Bạn không có quyền chỉnh sửa «{name}»
+	{label}, {n} unread	{label}, {n} chưa đọc
+	Move {name}	Di chuyển {name}
+	Move {name} down	Chuyển {name} xuống
+	Move {name} up	Chuyển {name} lên
+	Organise spaces	Sắp xếp không gian
+	Unread	Chưa đọc
+	All chats	Tất cả trò chuyện
+	Spaces	Không gian
+	No spaces	Không có không gian
+# space
+	Rooms unlinked: {n}	Phòng đã bỏ liên kết: {n}
+	Rooms not unlinked: {n}	Phòng chưa bỏ liên kết: {n}
+	Members removed: {n}	Thành viên đã bị xóa: {n}
+	Not removed: {names}	Chưa xóa: {names}
+	Members who will be removed: {n}	Thành viên sẽ bị xóa: {n}
+	Rooms unlinked (they stay existing): {n}	Phòng bỏ liên kết (vẫn còn tồn tại): {n}
+	Space menu	Menu không gian
+	Space info	Thông tin không gian
+	Members	Thành viên
+	Hand over the admin role…	Chuyển giao vai trò quản trị…
+	Leave space	Rời khỏi không gian
+	Delete space	Xóa không gian
+	Forget	Quên
+	Failed, no change guaranteed: try again	Thất bại, không đảm bảo có thay đổi: hãy thử lại
+	Member list not read	Chưa đọc được danh sách thành viên
+	Space left and forgotten	Đã rời khỏi và quên không gian
+	Space not left: try again	Chưa rời khỏi không gian: hãy thử lại
+	Space not left: members remain	Chưa rời khỏi không gian: vẫn còn thành viên
+	This cannot be undone	Không thể hoàn tác
+	You still have rooms in this space.	Bạn vẫn còn phòng trong không gian này.
+	You are the last admin of the space.	Bạn là quản trị viên cuối cùng của không gian.
+	Make admin	Đặt làm quản trị viên
+	Rooms not available	Không có phòng
+	Add existing room	Thêm phòng có sẵn
+	No rooms	Không có phòng
+	Rooms	Phòng
+	Remove	Xóa
+# explore
+	Search public rooms	Tìm phòng công khai
+	Your server	Máy chủ của bạn
+	Other server…	Máy chủ khác…
+	server name	tên máy chủ
+	Already in	Đã tham gia
+	Join	Tham gia
+# accounts
+	Remove photo	Xóa ảnh
+	Active	Đang hoạt động
+	Active account	Tài khoản đang dùng
+	Other accounts	Tài khoản khác
+# devices
+	Last active {when}	Hoạt động lần cuối {when}
+	{text} in {path}	{text} trong {path}
+	This device	Thiết bị này
+	Keys	Khóa
+	Export password	Mật khẩu xuất
+	Export keys	Xuất khóa
+	Regenerate recovery key	Tạo lại khóa khôi phục
+	Recover keys	Khôi phục khóa
+	Recovery key	Khóa khôi phục
+	Recover	Khôi phục
+	Other devices	Thiết bị khác
+	Sign out	Đăng xuất
+	Device name	Tên thiết bị
+	New recovery key	Khóa khôi phục mới
+	Done	Xong
+# newchat
+	Direct chat	Trò chuyện trực tiếp
+	Room	Phòng
+	Space	Không gian
+	Join a room	Tham gia phòng
+	Public	Công khai
+	Create	Tạo
+	#room:server or !id:server	#room:server hoặc !id:server
+	Search people	Tìm người
+# pick
+	Images	Ảnh
+# time_fmt
+	last message at {when}	tin nhắn cuối lúc {when}
+	last message on {when}	tin nhắn cuối vào {when}
+	last message {when}	tin nhắn cuối {when}
+# engine text (status rows, attachment labels)
+	A user	Một người dùng
+	{actor} created this room.	{actor} đã tạo phòng này.
+	{actor} created this chat.	{actor} đã tạo cuộc trò chuyện này.
+	{actor} invited {subject}	{actor} đã mời {subject}
+	{subject} joined the room	{subject} đã tham gia phòng
+	{subject} left the room	{subject} đã rời khỏi phòng
+	{actor} banned {subject}	{actor} đã cấm {subject}
+	{actor} unbanned {subject}	{actor} đã bỏ cấm {subject}
+	{actor} removed {subject} from the room	{actor} đã xóa {subject} khỏi phòng
+	{subject} declined the invitation	{subject} đã từ chối lời mời
+	{actor} revoked the invitation for {subject}	{actor} đã thu hồi lời mời của {subject}
+	{actor} removed the room name	{actor} đã xóa tên phòng
+	{actor} changed the room name to «{name}»	{actor} đã đổi tên phòng thành «{name}»
+	{actor} removed the room topic	{actor} đã xóa chủ đề phòng
+	{actor} changed the room topic to «{topic}»	{actor} đã đổi chủ đề phòng thành «{topic}»
+	{actor} changed the room avatar	{actor} đã đổi ảnh đại diện của phòng
+	{old} changed their name to {new}	{old} đã đổi tên thành {new}
+	{subject} set their name to {new}	{subject} đã đặt tên là {new}
+	{subject} removed their display name	{subject} đã xóa tên hiển thị
+	{subject} changed their avatar	{subject} đã đổi ảnh đại diện
+	{text} (reason: {reason})	{text} (lý do: {reason})
+	Audio	Âm thanh
+	File	Tệp
+	Photo	Ảnh
+	Log out	Đăng xuất
+	Encryption keys on this device not backed up are lost.	Các khóa mã hóa trên thiết bị này chưa được sao lưu sẽ bị mất.
+	The server did not answer. Remove it from this device anyway?	Máy chủ không phản hồi. Vẫn xóa khỏi thiết bị này?
+	Remove from this device	Xóa khỏi thiết bị này
+
+# src/signin_form.rs
+	Wrong key. Check it and try again.	Sai khóa. Hãy kiểm tra và thử lại.
+	Server unreachable. Try again later or continue without recovery.	Không thể kết nối máy chủ. Hãy thử lại sau hoặc tiếp tục mà không khôi phục.
+	Recovery took too long. Try again or continue without recovery.	Khôi phục mất quá nhiều thời gian. Hãy thử lại hoặc tiếp tục mà không khôi phục.
+	No key backup on the server. Continue without recovery.	Máy chủ không có bản sao lưu khóa. Hãy tiếp tục mà không khôi phục.
+	Recovery failed. Try again or continue without recovery.	Khôi phục thất bại. Hãy thử lại hoặc tiếp tục mà không khôi phục.
+	This account has no Matrix secret storage: no recovery key to enter.	Tài khoản này không có kho bí mật Matrix: không có khóa khôi phục để nhập.
+	The server offers no key backup: no recovery to create. Continue without recovery.	Máy chủ không hỗ trợ sao lưu khóa: không thể tạo khôi phục. Hãy tiếp tục mà không khôi phục.
+	This account already has a recovery: enter the existing recovery key.	Tài khoản này đã có khôi phục: hãy nhập khóa khôi phục hiện có.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Khôi phục của tài khoản này mới thiết lập được một nửa: Gnobbi không thay đổi nó. Hãy tiếp tục mà không khôi phục.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	Tài khoản này đã có danh tính mật mã mà thiết bị này không giữ: Gnobbi không thay thế nó. Hãy tiếp tục mà không khôi phục.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	Máy chủ yêu cầu một bước xác nhận bổ sung mà Gnobbi không hỗ trợ. Hãy tiếp tục mà không khôi phục.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	Không thể kết nối máy chủ: chưa tạo được khôi phục. Hãy thử lại hoặc tiếp tục mà không khôi phục.
+	Creation took too long. Try again or continue without recovery.	Việc tạo mất quá nhiều thời gian. Hãy thử lại hoặc tiếp tục mà không khôi phục.
+	Creating the recovery failed. Try again or continue without recovery.	Tạo khôi phục thất bại. Hãy thử lại hoặc tiếp tục mà không khôi phục.
+	Enter a server name or a valid HTTPS address.	Nhập tên máy chủ hoặc địa chỉ HTTPS hợp lệ.
+	Enter the full Matrix ID: @name:server.	Nhập đầy đủ Matrix ID: @name:server.
+	Enter the profile's local passphrase.	Nhập cụm mật khẩu cục bộ của hồ sơ.
+	Password required; local passphrase of at least 16 characters.	Cần mật khẩu; cụm mật khẩu cục bộ tối thiểu 16 ký tự.
+	This server offers no password login. SSO/OIDC are not supported.	Máy chủ này không hỗ trợ đăng nhập bằng mật khẩu. SSO/OIDC không được hỗ trợ.
+	This server does not support sliding sync	Máy chủ này không hỗ trợ sliding sync
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	Máy chủ trả về lỗi: hãy kiểm tra địa chỉ (ví dụ https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	Không thể kết nối máy chủ hoặc chứng chỉ TLS không hợp lệ.
+	Credentials not accepted. Try again.	Thông tin đăng nhập không được chấp nhận. Hãy thử lại.
+	Too many attempts: try again in a moment.	Quá nhiều lần thử: hãy thử lại sau ít phút.
+	Sign-in/unlock failed. Check the credentials and try again.	Đăng nhập/mở khóa thất bại. Hãy kiểm tra thông tin và thử lại.
+	System keychain unavailable or locked. Unlock it and try again.	Chuỗi khóa hệ thống không khả dụng hoặc đã khóa. Hãy mở khóa và thử lại.
+	The profile key is not in the system keychain. The profile was not changed.	Khóa hồ sơ không có trong chuỗi khóa hệ thống. Hồ sơ không bị thay đổi.
+	Profile already open in another instance. Close it and restart.	Hồ sơ đang mở ở một phiên bản khác. Hãy đóng nó và khởi động lại.
+	Local profile unavailable. Close and check the profile path.	Hồ sơ cục bộ không khả dụng. Hãy đóng và kiểm tra đường dẫn hồ sơ.
+	Enter the Matrix password.	Nhập mật khẩu Matrix.
+
+# signin
+	Creating the recovery and backup…	Đang tạo khôi phục và sao lưu…
+
+# devices
+@plural	{n} device to sign out	{n} thiết bị cần đăng xuất|{n} thiết bị cần đăng xuất
+@plural	{n} device without last activity not included	{n} thiết bị không có hoạt động gần nhất không được tính|{n} thiết bị không có hoạt động gần nhất không được tính
+
+# devices
+	Last activity {time}	Hoạt động gần nhất {time}
+	They match	Trùng khớp
+	They don't match	Không khớp
+	Yes	Có
+	Not available with this account	Không khả dụng với tài khoản này
+	Incorrect password	Mật khẩu không đúng
+	Failed. Try again.	Thất bại. Hãy thử lại.
+	Verification failed	Xác minh thất bại
+	Verification request	Yêu cầu xác minh
+	Cancel the verification?	Hủy xác minh?
+	Verification cancelled	Đã hủy xác minh
+	The emoji don't match	Biểu tượng cảm xúc không khớp
+	Verification	Xác minh
+
+# key export
+@plural	{n} key exported	Đã xuất {n} khóa|Đã xuất {n} khóa
+
+# key export
+	Gnobbi recovery key	Khóa khôi phục Gnobbi
+	Wrong unlock passphrase	Sai cụm mật khẩu mở khóa
+	Password too short: at least 12 characters	Mật khẩu quá ngắn: tối thiểu 12 ký tự
+	Password too long: at most 4096 bytes	Mật khẩu quá dài: tối đa 4096 byte
+	The passwords don't match	Mật khẩu không khớp
+	No keys to export on this device	Không có khóa nào để xuất trên thiết bị này
+	Can't write to this location	Không thể ghi vào vị trí này
+	Export failed: try again	Xuất thất bại: hãy thử lại
+	Recover the keys on this device first	Hãy khôi phục khóa trên thiết bị này trước
+	The server asks for a confirmation that is not supported here	Máy chủ yêu cầu một xác nhận không được hỗ trợ ở đây
+	Server unreachable: try again	Không thể kết nối máy chủ: hãy thử lại
+	Regeneration failed: try again	Tạo lại thất bại: hãy thử lại
+
+# key export
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	Thiết bị này không có khóa khôi phục của tài khoản: hãy nhập khóa để đọc tin nhắn mã hóa cũ
+	This account has no recovery key: without one, encrypted messages are lost with the devices	Tài khoản này không có khóa khôi phục: nếu không có, tin nhắn mã hóa sẽ mất cùng các thiết bị
+	Restoring…	Đang khôi phục…
+	Restore	Khôi phục
+	Not now	Để sau
+	Don't ask again for this account	Không hỏi lại cho tài khoản này
+	Copy recovery key	Sao chép khóa khôi phục
+	Save it now: it will not be shown again	Hãy lưu ngay: khóa sẽ không hiển thị lại
+	Save to file	Lưu vào tệp
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	Đang tạo lại…
+	I kept it elsewhere	Tôi đã lưu ở nơi khác
+
+# search list and add server
+	The server does not respond	Máy chủ không phản hồi
+	Not a Matrix server	Không phải máy chủ Matrix
+	The server does not show its rooms	Máy chủ không hiển thị danh sách phòng
+	Your server cannot reach this server	Máy chủ của bạn không thể kết nối tới máy chủ này
+	Invalid server certificate	Chứng chỉ máy chủ không hợp lệ
+	Searching	Đang tìm kiếm
+	Partial results	Kết quả một phần
+	Invalid server name	Tên máy chủ không hợp lệ
+	Timed out	Hết thời gian chờ
+	Loading	Đang tải
+	More results not loaded	Chưa tải thêm kết quả
+
+# search list and add server
+	The server name is needed, for example matrix.org	Cần có tên máy chủ, ví dụ matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Đây là ID người dùng: cần có tên máy chủ, ví dụ matrix.org
+	Only https addresses are allowed	Chỉ cho phép địa chỉ https
+	Write only the server name, without a path	Chỉ viết tên máy chủ, không kèm đường dẫn
+	The server name is needed, without user or password	Cần có tên máy chủ, không kèm người dùng hay mật khẩu
+	Invalid port	Cổng không hợp lệ
+	Invalid IP address	Địa chỉ IP không hợp lệ
+	Already present	Đã có
+
+# sidebar
+	Favorites	Yêu thích
+	All	Tất cả
+	Demo room {n}	Phòng demo {n}
+
+# history
+@plural	{n} unread	{n} chưa đọc|{n} chưa đọc
+
+# history
+	edited	đã chỉnh sửa
+	[Message deleted]	[Tin nhắn đã bị xóa]
+	Server ack · Reply	Máy chủ đã nhận · Trả lời
+	Server ack	Máy chủ đã nhận
+	local	cục bộ
+
+# audio
+	Microphone not available	Không có micro
+
+# audio
+	Audio playback not available	Không thể phát âm thanh
+
+# search
+	Public spaces	Không gian công khai
+	People	Mọi người
+
+# engine placeholders
+	Location	Vị trí
+	Message without text	Tin nhắn không có văn bản
+	Image.png	Image.png
+
+# update
+	invalid staging	thư mục tạm không hợp lệ
+	placement failed and restore failed	đặt tệp thất bại và khôi phục thất bại
+	start failed and restore failed	khởi động thất bại và khôi phục thất bại
+	another installation in progress	đang có một bản cài đặt khác
+	channel without in-app update	kênh không có cập nhật trong ứng dụng
+	binary to update not found	không tìm thấy tệp thực thi cần cập nhật
+	staging not found	không tìm thấy thư mục tạm
+	staging outside the target folder	thư mục tạm nằm ngoài thư mục đích
+	previous update pending	cập nhật trước đang chờ
+	staging has a different size	thư mục tạm có kích thước khác
+	staging has a different hash	thư mục tạm có mã băm khác
+	folder not writable	thư mục không ghi được
+	staging cannot be verified	không thể xác minh thư mục tạm
+	Update failed: {cause}	Cập nhật thất bại: {cause}
+	remove {name}	xóa {name}
+	error	lỗi
+
+# update
+	invalid helper parameters	tham số trình hỗ trợ không hợp lệ
+	invalid binary to update	tệp thực thi cần cập nhật không hợp lệ
+	backup to restore not found	không tìm thấy bản sao lưu để khôi phục
+	no pending restore	không có khôi phục nào đang chờ
+	Windows update not available	Cập nhật Windows không khả dụng
+	data folder not found	không tìm thấy thư mục dữ liệu
+	the program did not close	chương trình chưa đóng
+	running binary differs from the target	tệp thực thi đang chạy khác với đích
+	helper without channel	trình hỗ trợ không có kênh
+	helper not ready	trình hỗ trợ chưa sẵn sàng
+
+# update
+	Update available · {version}	Có bản cập nhật · {version}
+	Update available, version {version}	Có bản cập nhật, phiên bản {version}
+	Updated to {version}	Đã cập nhật lên {version}
+	Update failed: restored {version}	Cập nhật thất bại: đã khôi phục {version}
+	Update failed: error	Cập nhật thất bại: lỗi
+	Update postponed: message not sent	Hoãn cập nhật: tin nhắn chưa được gửi
+
+# update
+	backup differs from the binary, kept	bản sao lưu khác với tệp thực thi, đã giữ lại
+
+# key export
+	gnobbi-keys.txt	gnobbi-keys.txt
+
+# search
+	Filter: {label}	Bộ lọc: {label}
+
+# devices
+	Sign out inactive	Đăng xuất thiết bị không hoạt động
+
+# update
+	helper out of place	trình hỗ trợ sai vị trí
+
