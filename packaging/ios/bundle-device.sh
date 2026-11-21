@@ -25,4 +25,10 @@ sdk=$(xcrun --sdk iphoneos --show-sdk-version); sdkbuild=$(xcrun --sdk iphoneos 
 for kv in "DTPlatformName=iphoneos" "DTSDKName=iphoneos$sdk" "DTPlatformVersion=$sdk" "DTSDKBuild=$sdkbuild" "DTPlatformBuild=$sdkbuild" "DTXcodeBuild=$xb" "DTCompiler=com.apple.compilers.llvm.clang.1_0"; do
   $pb -c "Add :${kv%%=*} string ${kv#*=}" "$p"; done
 plutil -lint "$p" >/dev/null; lipo -archs "$app/gnobbi" | grep -q arm64
+# The separately built NSE is copied unsigned; signing is done inside-out later.
+if [ -n "${GNOBBI_NSE_APPEX:-}" ]; then
+  [ -d "$GNOBBI_NSE_APPEX" ] || { echo 'NSE bundle not found' >&2; exit 1; }
+  mkdir -p "$app/PlugIns"
+  cp -R "$GNOBBI_NSE_APPEX" "$app/PlugIns/GnobbiNSE.appex"
+fi
 echo "$app ($version, build $build)"

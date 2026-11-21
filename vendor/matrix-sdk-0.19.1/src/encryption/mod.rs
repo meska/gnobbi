@@ -541,6 +541,21 @@ impl Client {
         self.base_client().olm_machine().await
     }
 
+    /// Gnobbi: decrypts one room event with the stored Olm machine; no `Room` (so no state store) needed.
+    /// `None` when there is no machine or the session key is not in the crypto store.
+    pub async fn decrypt_room_event_raw(
+        &self,
+        event: &ruma::serde::Raw<ruma::events::AnyTimelineEvent>,
+        room_id: &ruma::RoomId,
+    ) -> Option<ruma::serde::Raw<ruma::events::AnyTimelineEvent>> {
+        let machine = self.olm_machine().await;
+        let encrypted = event.cast_ref_unchecked::<matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedEvent>();
+        match machine.as_ref()?.try_decrypt_room_event(encrypted, room_id, self.decryption_settings()).await.ok()? {
+            matrix_sdk_base::crypto::RoomEventDecryptionResult::Decrypted(d) => Some(d.event),
+            matrix_sdk_base::crypto::RoomEventDecryptionResult::UnableToDecrypt(_) => None,
+        }
+    }
+
     pub(crate) async fn mark_request_as_sent(
         &self,
         request_id: &TransactionId,

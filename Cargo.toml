@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/matrix-domain", "crates/matrix-engine", "crates/matrix-desktop", "crates/matrix-mobile"]
+members = ["crates/matrix-domain", "crates/matrix-engine", "crates/matrix-desktop", "crates/matrix-mobile", "crates/gnobbi-nse"]
 default-members = ["crates/matrix-domain", "crates/matrix-engine"]
 exclude = ["vendor/matrix-sdk-0.19.1", "vendor/egui-6d518fc", "vendor/winit-a517b38"]
 resolver = "3"

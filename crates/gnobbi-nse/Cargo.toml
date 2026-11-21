@@ -1,0 +1,17 @@
+[package]
+name = "gnobbi-nse"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+# Core of the iOS notification service extension (C ABI, called by the thin Swift shell in packaging/ios/nse).
+# Not a default member. No state store, no room list, no event cache: see the nse-spike notes (memory limit ~24 MB).
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[dependencies]
+matrix-sdk = { version = "=0.19.1", default-features = false, features = ["e2e-encryption", "bundled-sqlite", "rustls-aws-lc-rs"] }
+matrix-sdk-store-encryption = "=0.19.1"
+serde_json = "=1.0.151"
+tokio = { version = "=1.53.2", default-features = false, features = ["rt", "time", "macros"] }

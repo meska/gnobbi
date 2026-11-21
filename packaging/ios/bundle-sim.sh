@@ -9,5 +9,7 @@ CARGO_TARGET_DIR=$t cargo rustc --locked $flag -p matrix-desktop --bin gnobbi --
   -C link-arg=-Wl,-sectcreate,__TEXT,__entitlements,"$here/sim.entitlements"
 app=$t/ios/Gnobbi.app; rm -rf "$app"; mkdir -p "$app"
 cp "$t/$triple/$out/gnobbi" "$app/"; cp "$here/Info.plist" "$app/Info.plist"
+# Optional notification extension (build-nse.sh sim): embedded before signing; the simulator has no App Group, so it only matters for push tests.
+if [ -n "${GNOBBI_NSE_APPEX:-}" ]; then mkdir -p "$app/PlugIns"; cp -R "$GNOBBI_NSE_APPEX" "$app/PlugIns/GnobbiNSE.appex"; fi
 codesign -f -s - "$app/gnobbi"
 echo "$app"

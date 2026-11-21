@@ -2551,6 +2551,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gnobbi-nse"
+version = "0.1.0"
+dependencies = [
+ "matrix-sdk",
+ "matrix-sdk-store-encryption",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "goblin"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
