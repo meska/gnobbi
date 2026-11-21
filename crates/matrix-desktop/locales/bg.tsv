@@ -7,3 +7,681 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of bg in this order, separated by |: one|other.
 # See TRANSLATING.md.
+
+# list
+	Pinned	Закачени
+	Low priority	Нисък приоритет
+	New chat	Нов чат
+	Explore public rooms	Разглеждане на публични стаи
+	Search conversations	Търсене в разговорите
+	Mark as read	Отбелязване като прочетено
+	Mark as unread	Отбелязване като непрочетено
+	Add to a space…	Добавяне към пространство…
+	Leave?	Напускане?
+	Leave	Напусни
+	Add to a space	Добавяне към пространство
+	Add	Добави
+	Cancel	Отказ
+	Unpin	Откачи
+	Pin to top	Закачи най-отгоре
+	Remove from low priority	Премахни от нисък приоритет
+	Mark as low priority	Маркирай като нисък приоритет
+	Remove from {name}	Премахни от {name}
+	All messages	Всички съобщения
+	Mentions only	Само споменавания
+	Muted	Заглушени
+
+# composer
+banner	Reply	Отговор
+	Edit	Редактиране
+	Send note	Изпрати бележка
+	Reply in thread	Отговор в нишка
+	Write a message	Напишете съобщение
+	Emoji	Емотикони
+	Sticker	Стикер
+	Poll	Анкета
+	Attach a file	Прикачи файл
+	Voice note	Гласово съобщение
+	Send	Изпрати
+
+# composer (emoji names)
+	Grinning face	Ухилено лице
+	Beaming face	Сияещо лице
+	Face with tears of joy	Лице със сълзи от радост
+	Rolling on the floor laughing	Търкалям се от смях
+	Smiling face with smiling eyes	Усмихнато лице с усмихнати очи
+	Smiling face with heart eyes	Усмихнато лице със сърца вместо очи
+	Face blowing a kiss	Лице, което изпраща целувка
+	Smiling face with sunglasses	Усмихнато лице със слънчеви очила
+	Thinking face	Замислено лице
+	Grinning face with sweat	Ухилено лице с капка пот
+	Winking face	Намигащо лице
+	Upside-down face	Обърнато лице
+	Crying face	Плачещо лице
+	Loudly crying face	Силно плачещо лице
+	Angry face	Ядосано лице
+	Screaming face	Крещящо лице
+	Thumbs up	Палец нагоре
+	Thumbs down	Палец надолу
+	Clapping hands	Ръкопляскане
+	Folded hands	Допрени длани
+	Flexed biceps	Напрегнат бицепс
+	Waving hand	Махаща ръка
+	Handshake	Ръкостискане
+	Raising hands	Вдигнати ръце
+	Party popper	Празнично конфети
+	Fire	Огън
+	Sparkles	Искри
+	Hundred points	Сто точки
+	Check mark	Отметка
+	Cross mark	Кръстче
+	Eyes	Очи
+	Cup of coffee	Чаша кафе
+
+# timeline
+	Today	Днес
+	Yesterday	Вчера
+	Message deleted	Съобщението е изтрито
+	Message unavailable	Съобщението не е налично
+	Encrypted message	Шифровано съобщение
+	Loading…	Зареждане…
+	Go to bottom	Към края
+	image	изображение
+	video	видео
+@plural	{n} reply	{n} отговор|{n} отговора
+
+# info
+	Encrypted	Шифровано
+	Status messages	Служебни съобщения
+	Same as settings	Както в настройките
+	Show	Покажи
+	Hide	Скрий
+@plural	{n} status message hidden	{n} служебно съобщение е скрито|{n} служебни съобщения са скрити
+	Search in room	Търсене в стаята
+	No results	Няма резултати
+	Search failed	Търсенето не успя
+	Retry	Опитай пак
+	More results	Още резултати
+	Profile link	Връзка към профила
+	Verified	Потвърден
+	Not verified	Непотвърден
+	Message	Съобщение
+	Mention	Спомени
+	Verify	Потвърди
+	Disconnect	Прекъсни връзката
+	Last read	Последно прочетено
+	Chat unavailable	Чатът не е наличен
+	Ignore	Игнорирай
+	Confirm	Потвърди
+	Kick	Изгони
+	Ban	Блокирай
+	Failed	Неуспешно
+	Thread unavailable	Нишката не е налична
+	Thread	Нишка
+	Reply	Отговор
+	Addresses	Адреси
+	main	основен
+	Main	Основен
+	name	име
+@plural	{n} member	{n} участник|{n} участници
+@plural	Delete {n} message	Изтрий {n} съобщение|Изтрий {n} съобщения
+	Reply to {name}	Отговор на {name}
+
+# members
+	Admin	Админ
+	Moderator	Модератор
+	Member	Участник
+	Invite	Покани
+	Banned	Блокирани
+	Banned list unavailable	Списъкът с блокираните не е наличен
+	Unban	Отблокирай
+	Reason	Причина
+	Actions for {name}	Действия за {name}
+
+# roomedit
+	Name	Име
+	Topic	Тема
+	Drop an image here for the photo	Пуснете тук изображение за снимката
+	Choose photo…	Избери снимка…
+	Room photo	Снимка на стаята
+	Save	Запази
+	Photo: {name}	Снимка: {name}
+
+# poll
+	New poll	Нова анкета
+	Question	Въпрос
+	Add option	Добави опция
+	Multiple choice	Няколко отговора
+	Results visible right away	Резултатите се виждат веднага
+	Option {n}	Опция {n}
+
+# viewer
+	Video	Видео
+	Image	Изображение
+	Save as	Запази като
+	Open	Отвори
+	Cannot open the content	Съдържанието не може да се отвори
+
+# stickers
+	Stickers are not encrypted, like an unencrypted image	Стикерите не са шифровани, като нешифровано изображение
+	No sticker packs	Няма пакети със стикери
+	Stickers unavailable	Стикерите не са налични
+
+# settings
+	Settings	Настройки
+	Account and security	Профил и сигурност
+	Account	Профил
+	Devices	Устройства
+	Appearance	Външен вид
+	Language	Език
+	Theme	Тема
+	System	Системна
+	Accent	Акцент
+	Icon	Икона
+	Automatic night	Автоматичен нощен режим
+	Chat	Чат
+	Read receipts	Потвърждения за прочитане
+	Hide deleted messages	Скриване на изтритите съобщения
+	Show status messages	Показване на служебните съобщения
+	Message preview	Преглед на съобщението
+	Notifications	Известия
+	Close to tray	Затваряне в системната област
+	Add to menu	Добави към менюто
+	Added to menu	Добавено към менюто
+	Could not add to menu	Неуспешно добавяне към менюто
+	Classic	Класическа
+	Day	Дневна
+	Dark	Тъмна
+	Night	Нощна
+	No	Не
+	Schedule	По график
+	Minimal mark	Минимален знак
+	Gnome	Гном
+	Little monster	Чудовище
+	Blue	Синьо
+	Teal	Тюркоазено
+	Green	Зелено
+	Orange	Оранжево
+	Red	Червено
+	Pink	Розово
+	Purple	Лилаво
+
+# notifications, tray, menu bar, errors
+	A save is already in progress	Запазването вече тече
+	Account no longer connected	Профилът вече не е свързан
+	Actions not available for this event	Няма действия за това събитие
+	Address already in use	Адресът вече се използва
+	Already joined	Вече сте се присъединили
+	Checking permissions…	Проверка на разрешенията…
+	Choose a file that does not exist yet	Изберете файл, който още не съществува
+	Connected	Свързан
+	Connecting…	Свързване…
+	Connection failed	Свързването не успя
+	Data folder not available	Папката с данни не е налична
+	Delete the selected message? This cannot be undone.	Да се изтрие ли избраното съобщение? Това не може да се отмени.
+	File cannot be attached	Файлът не може да се прикачи
+	Image cannot be attached	Изображението не може да се прикачи
+	Invalid name	Невалидно име
+	Joining…	Присъединяване…
+	Message not available	Съобщението не е налично
+	No audio recorded	Няма записан звук
+	Not allowed	Не е разрешено
+	Not allowed by the server	Не е разрешено от сървъра
+	Operation failed	Операцията не успя
+	Operation not confirmed · Retry uses the same ID (even if you change room)	Операцията не е потвърдена · Повторният опит ползва същия ID (дори при смяна на стаята)
+	Operation pending · no server confirmation	Операцията чака · няма потвърждение от сървъра
+	Operation refused or unavailable	Операцията е отказана или не е налична
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Отговор/редакция: пишете в черновата, после натиснете бутона. Enter изпраща както обикновено.
+	Room not found	Стаята не е намерена
+	Saved	Запазено
+	Saving failed	Запазването не успя
+	Server unreachable	Сървърът е недостъпен
+	Sign-in failed	Влизането не успя
+	Sticker not sent	Стикерът не е изпратен
+	Still joining…	Още се присъединява…
+	Sync interrupted	Синхронизацията е прекъсната
+	Voice note cannot be played	Гласовото съобщение не може да се възпроизведе
+	You are offline	Няма връзка с интернет
+	The name cannot be empty.	Името не може да е празно.
+	The name is too long (256 characters at most).	Името е твърде дълго (най-много 256 знака).
+	This server does not allow editing the profile.	Този сървър не позволява промяна на профила.
+	Cannot read the chosen file.	Избраният файл не може да се прочете.
+	The image is too large (25 MB at most).	Изображението е твърде голямо (най-много 25 МБ).
+	Choose a valid PNG, JPEG or WebP image.	Изберете валидно изображение PNG, JPEG или WebP.
+	Connection failed: try again shortly.	Свързването не успя: опитайте пак след малко.
+	The server rejected the change.	Сървърът отхвърли промяната.
+	Space not found	Пространството не е намерено
+	Operation failed, try again	Операцията не успя, опитайте пак
+	Minimize	Минимизирай
+	Show Gnobbi	Покажи Gnobbi
+	Quit Gnobbi	Изход от Gnobbi
+	{name}, active account	{name}, активен профил
+	New messages	Нови съобщения
+	1 new message	1 ново съобщение
+	New message	Ново съобщение
+	📷 Photo	📷 Снимка
+	🎥 Video	🎥 Видео
+	🎤 Voice message	🎤 Гласово съобщение
+	🎵 Audio	🎵 Аудио
+	📎 File	📎 Файл
+	📍 Location	📍 Местоположение
+menu	Quit Gnobbi	Изход от Gnobbi
+menu	About Gnobbi	За Gnobbi
+menu	Settings…	Настройки…
+menu	Services	Услуги
+menu	Hide Gnobbi	Скрий Gnobbi
+menu	Hide Others	Скрий останалите
+menu	Show All	Покажи всички
+menu	Edit	Редактиране
+menu	Undo	Отмяна
+menu	Redo	Повтаряне
+menu	Cut	Изрежи
+menu	Copy	Копирай
+menu	Paste	Постави
+menu	Select All	Избери всичко
+menu	Start Dictation…	Започни диктуване…
+menu	Emoji & Symbols	Емотикони и символи
+menu	Window	Прозорец
+menu	Minimize	Минимизирай
+menu	Zoom	Мащаб
+menu	Bring All to Front	Всички най-отпред
+@plural	Gnobbi, {n} unread	Gnobbi, {n} непрочетено|Gnobbi, {n} непрочетени
+
+# Phosphor icons, sizes and Personalizza
+	Customize	Персонализиране
+	Sizes	Размери
+	Text size	Размер на текста
+	Buttons and icons size	Размер на бутоните и иконите
+	Follow the system	Като системата
+	Follow the text	Като текста
+	Small	Малък
+	Normal	Нормален
+	Large	Голям
+	Compact	Компактно
+	Comfortable	Свободно
+	Restore defaults	Възстанови по подразбиране
+	Preview	Преглед
+	A sample message	Примерно съобщение
+	Button	Бутон
+	Remove attachment	Премахни прикачения файл
+	Cancel reply	Откажи отговора
+	Close card	Затвори картата
+	Close thread	Затвори нишката
+	Remove address	Премахни адреса
+	Copy	Копирай
+	Menu	Меню
+	Back	Назад
+	Chat list	Списък с чатове
+	Info	Инфо
+	Copy key	Копирай ключа
+	Remove option	Премахни опцията
+	Pause	Пауза
+	Play	Пусни
+	New	Нов
+	New space	Ново пространство
+	Close	Затвори
+	Add account	Добави профил
+	Rename	Преименувай
+
+# avatar editor
+	Profile photo	Снимка на профила
+	Edit photo	Редактирай снимката
+	Apply	Приложи
+	Reset	Нулирай
+	Rotate left	Завърти наляво
+	Rotate right	Завърти надясно
+	Mirror	Огледално
+	Zoom	Мащаб
+	Rotation	Завъртане
+	Brightness	Яркост
+	Contrast	Контраст
+	Saturation	Наситеност
+	Original	Оригинал
+	B&W	Ч/Б
+	Sepia	Сепия
+	Vivid	Наситен
+	Cool	Студен
+	Warm	Топъл
+	Fade	Избледнял
+	High contrast	Висок контраст
+	Preview: drag to move the photo	Преглед: плъзнете, за да преместите снимката
+	Could not download the current photo.	Текущата снимка не можа да се изтегли.
+	Could not prepare the photo.	Снимката не можа да се подготви.
+	Open link	Отвори връзката
+	Could not open the link.	Връзката не можа да се отвори.
+	Copy link	Копирай връзката
+	Server	Сървър
+	Matrix ID	Matrix ID
+	Password	Парола
+	Local passphrase	Локална парола
+	Sign in	Вход
+	Unlock	Отключи
+	Signing in…	Влизане…
+	Unlocking…	Отключване…
+	Show password	Покажи паролата
+	Hide password	Скрий паролата
+# main
+	Accept	Приеми
+	Decline	Откажи
+	Edit space	Редактирай пространството
+	Edit room	Редактирай стаята
+	Start failed	Стартирането не успя
+	Search	Търсене
+	Conversations	Разговори
+	Users	Потребители
+	Public rooms	Публични стаи
+	React	Реагирай
+	Confirm closing	Потвърдете затварянето
+	Close poll	Затвори анкетата
+	Confirm deletion	Потвърдете изтриването
+	Delete	Изтрий
+	Encrypted history	Шифрована история
+	Matrix recovery key	Ключ за възстановяване на Matrix
+	I saved the key: continue	Запазих ключа: продължи
+	Recover encrypted history	Възстанови шифрованата история
+	Try creating the key again	Опитай пак да създадеш ключа
+	Create recovery key	Създай ключ за възстановяване
+	Continue without recovery	Продължи без възстановяване
+# rail
+	A space cannot go inside itself	Пространство не може да е в самото себе си
+	You do not have permission to edit «{name}»	Нямате право да редактирате «{name}»
+	{label}, {n} unread	{label}, {n} непрочетени
+	Move {name}	Премести {name}
+	Move {name} down	Премести {name} надолу
+	Move {name} up	Премести {name} нагоре
+	Organise spaces	Подреди пространствата
+	Unread	Непрочетени
+	All chats	Всички чатове
+	Spaces	Пространства
+	No spaces	Няма пространства
+# space
+	Rooms unlinked: {n}	Отделени стаи: {n}
+	Rooms not unlinked: {n}	Неотделени стаи: {n}
+	Members removed: {n}	Премахнати участници: {n}
+	Not removed: {names}	Непремахнати: {names}
+	Members who will be removed: {n}	Участници, които ще бъдат премахнати: {n}
+	Rooms unlinked (they stay existing): {n}	Стаи, които ще бъдат отделени (остават да съществуват): {n}
+	Space menu	Меню на пространството
+	Space info	Информация за пространството
+	Members	Участници
+	Hand over the admin role…	Предай ролята на администратор…
+	Leave space	Напусни пространството
+	Delete space	Изтрий пространството
+	Forget	Забрави
+	Failed, no change guaranteed: try again	Неуспешно, не се гарантира без промяна: опитайте пак
+	Member list not read	Списъкът с участници не е прочетен
+	Space left and forgotten	Напуснахте пространството и го забравихте
+	Space not left: try again	Пространството не е напуснато: опитайте пак
+	Space not left: members remain	Пространството не е напуснато: има още участници
+	This cannot be undone	Това не може да се отмени
+	You still have rooms in this space.	Все още имате стаи в това пространство.
+	You are the last admin of the space.	Вие сте последният администратор на пространството.
+	Make admin	Направи админ
+	Rooms not available	Стаите не са налични
+	Add existing room	Добави съществуваща стая
+	No rooms	Няма стаи
+	Rooms	Стаи
+	Remove	Премахни
+# explore
+	Search public rooms	Търсене на публични стаи
+	Your server	Вашият сървър
+	Other server…	Друг сървър…
+	server name	име на сървър
+	Already in	Вече е добавен
+	Join	Присъедини се
+# accounts
+	Remove photo	Премахни снимката
+	Active	Активен
+	Active account	Активен профил
+	Other accounts	Други профили
+# devices
+	Last active {when}	Последна активност: {when}
+	{text} in {path}	{text} в {path}
+	This device	Това устройство
+	Keys	Ключове
+	Export password	Парола за експорт
+	Export keys	Експортирай ключовете
+	Regenerate recovery key	Създай наново ключ за възстановяване
+	Recover keys	Възстанови ключовете
+	Recovery key	Ключ за възстановяване
+	Recover	Възстанови
+	Other devices	Други устройства
+	Sign out	Изход
+	Device name	Име на устройството
+	New recovery key	Нов ключ за възстановяване
+	Done	Готово
+# newchat
+	Direct chat	Личен чат
+	Room	Стая
+	Space	Пространство
+	Join a room	Влез в стая
+	Public	Публична
+	Create	Създай
+	#room:server or !id:server	#стая:сървър или !id:сървър
+	Search people	Търсене на хора
+# pick
+	Images	Изображения
+# time_fmt
+	last message at {when}	последно съобщение в {when}
+	last message on {when}	последно съобщение на {when}
+	last message {when}	последно съобщение {when}
+# engine text (status rows, attachment labels)
+	A user	Потребител
+	{actor} created this room.	{actor} създаде тази стая.
+	{actor} created this chat.	{actor} създаде този чат.
+	{actor} invited {subject}	{actor} покани {subject}
+	{subject} joined the room	{subject} се присъедини към стаята
+	{subject} left the room	{subject} напусна стаята
+	{actor} banned {subject}	{actor} блокира {subject}
+	{actor} unbanned {subject}	{actor} отблокира {subject}
+	{actor} removed {subject} from the room	{actor} премахна {subject} от стаята
+	{subject} declined the invitation	{subject} отказа поканата
+	{actor} revoked the invitation for {subject}	{actor} оттегли поканата за {subject}
+	{actor} removed the room name	{actor} премахна името на стаята
+	{actor} changed the room name to «{name}»	{actor} промени името на стаята на «{name}»
+	{actor} removed the room topic	{actor} премахна темата на стаята
+	{actor} changed the room topic to «{topic}»	{actor} промени темата на стаята на «{topic}»
+	{actor} changed the room avatar	{actor} промени аватара на стаята
+	{old} changed their name to {new}	{old} промени името си на {new}
+	{subject} set their name to {new}	{subject} зададе името си {new}
+	{subject} removed their display name	{subject} премахна показваното си име
+	{subject} changed their avatar	{subject} промени аватара си
+	{text} (reason: {reason})	{text} (причина: {reason})
+	Audio	Аудио
+	File	Файл
+	Photo	Снимка
+	Log out	Изход от профила
+	Encryption keys on this device not backed up are lost.	Ключовете за шифроване на това устройство, които нямат резервно копие, ще бъдат загубени.
+	The server did not answer. Remove it from this device anyway?	Сървърът не отговори. Да се премахне ли въпреки това от това устройство?
+	Remove from this device	Премахни от това устройство
+
+# src/signin_form.rs
+	Wrong key. Check it and try again.	Грешен ключ. Проверете го и опитайте пак.
+	Server unreachable. Try again later or continue without recovery.	Сървърът е недостъпен. Опитайте по-късно или продължете без възстановяване.
+	Recovery took too long. Try again or continue without recovery.	Възстановяването отне твърде дълго. Опитайте пак или продължете без възстановяване.
+	No key backup on the server. Continue without recovery.	Няма резервно копие на ключовете на сървъра. Продължете без възстановяване.
+	Recovery failed. Try again or continue without recovery.	Възстановяването не успя. Опитайте пак или продължете без възстановяване.
+	This account has no Matrix secret storage: no recovery key to enter.	Този профил няма защитено хранилище на Matrix: няма ключ за възстановяване за въвеждане.
+	The server offers no key backup: no recovery to create. Continue without recovery.	Сървърът не предлага резервно копие на ключовете: не може да се създаде възстановяване. Продължете без възстановяване.
+	This account already has a recovery: enter the existing recovery key.	Този профил вече има възстановяване: въведете съществуващия ключ за възстановяване.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Възстановяването на този профил е настроено само наполовина: Gnobbi не го променя. Продължете без възстановяване.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	Този профил вече има криптографска идентичност, която това устройство не притежава: Gnobbi не я заменя. Продължете без възстановяване.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	Сървърът изисква допълнително потвърждение, което Gnobbi не поддържа. Продължете без възстановяване.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	Сървърът е недостъпен: възстановяването не е създадено. Опитайте пак или продължете без възстановяване.
+	Creation took too long. Try again or continue without recovery.	Създаването отне твърде дълго. Опитайте пак или продължете без възстановяване.
+	Creating the recovery failed. Try again or continue without recovery.	Създаването на възстановяването не успя. Опитайте пак или продължете без възстановяване.
+	Enter a server name or a valid HTTPS address.	Въведете име на сървър или валиден HTTPS адрес.
+	Enter the full Matrix ID: @name:server.	Въведете пълния Matrix ID: @име:сървър.
+	Enter the profile's local passphrase.	Въведете локалната парола на профила.
+	Password required; local passphrase of at least 16 characters.	Нужна е парола; локална парола от поне 16 знака.
+	This server offers no password login. SSO/OIDC are not supported.	Този сървър не предлага вход с парола. SSO/OIDC не се поддържат.
+	This server does not support sliding sync	Този сървър не поддържа sliding sync
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	Сървърът върна грешка: проверете адреса (напр. https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	Сървърът е недостъпен или TLS сертификатът е невалиден.
+	Credentials not accepted. Try again.	Данните за вход не са приети. Опитайте пак.
+	Too many attempts: try again in a moment.	Твърде много опити: опитайте пак след малко.
+	Sign-in/unlock failed. Check the credentials and try again.	Влизането/отключването не успя. Проверете данните и опитайте пак.
+	System keychain unavailable or locked. Unlock it and try again.	Системната връзка с ключове е недостъпна или заключена. Отключете я и опитайте пак.
+	The profile key is not in the system keychain. The profile was not changed.	Ключът на профила не е в системната връзка с ключове. Профилът не е променен.
+	Profile already open in another instance. Close it and restart.	Профилът вече е отворен в друг екземпляр. Затворете го и рестартирайте.
+	Local profile unavailable. Close and check the profile path.	Локалният профил не е наличен. Затворете и проверете пътя до профила.
+	Enter the Matrix password.	Въведете паролата за Matrix.
+
+# signin
+	Creating the recovery and backup…	Създаване на възстановяване и резервно копие…
+
+# devices
+@plural	{n} device to sign out	{n} устройство за излизане|{n} устройства за излизане
+@plural	{n} device without last activity not included	{n} устройство без последна активност не е включено|{n} устройства без последна активност не са включени
+
+# devices
+	Last activity {time}	Последна активност {time}
+	They match	Съвпадат
+	They don't match	Не съвпадат
+	Yes	Да
+	Not available with this account	Не е налично с този профил
+	Incorrect password	Грешна парола
+	Failed. Try again.	Неуспешно. Опитайте пак.
+	Verification failed	Потвърждаването не успя
+	Verification request	Заявка за потвърждение
+	Cancel the verification?	Да се откаже ли потвърждението?
+	Verification cancelled	Потвърждението е отказано
+	The emoji don't match	Емотиконите не съвпадат
+	Verification	Потвърждение
+
+# key export
+@plural	{n} key exported	Експортиран {n} ключ|Експортирани {n} ключа
+
+# key export
+	Gnobbi recovery key	Ключ за възстановяване на Gnobbi
+	Wrong unlock passphrase	Грешна парола за отключване
+	Password too short: at least 12 characters	Паролата е твърде кратка: поне 12 знака
+	Password too long: at most 4096 bytes	Паролата е твърде дълга: най-много 4096 байта
+	The passwords don't match	Паролите не съвпадат
+	No keys to export on this device	На това устройство няма ключове за експорт
+	Can't write to this location	Не може да се записва на това място
+	Export failed: try again	Експортът не успя: опитайте пак
+	Recover the keys on this device first	Първо възстановете ключовете на това устройство
+	The server asks for a confirmation that is not supported here	Сървърът изисква потвърждение, което не се поддържа тук
+	Server unreachable: try again	Сървърът е недостъпен: опитайте пак
+	Regeneration failed: try again	Създаването наново не успя: опитайте пак
+
+# key export
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	Това устройство няма ключовете за възстановяване на профила: въведете ключа, за да четете стари шифровани съобщения
+	This account has no recovery key: without one, encrypted messages are lost with the devices	Този профил няма ключ за възстановяване: без него шифрованите съобщения се губят заедно с устройствата
+	Restoring…	Възстановяване…
+	Restore	Възстанови
+	Not now	Не сега
+	Don't ask again for this account	Не питай повече за този профил
+	Copy recovery key	Копирай ключа за възстановяване
+	Save it now: it will not be shown again	Запазете го сега: няма да се покаже отново
+	Save to file	Запази във файл
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	Създаване наново…
+	I kept it elsewhere	Запазих го другаде
+
+# search list and add server
+	The server does not respond	Сървърът не отговаря
+	Not a Matrix server	Не е Matrix сървър
+	The server does not show its rooms	Сървърът не показва стаите си
+	Your server cannot reach this server	Вашият сървър не може да достигне този сървър
+	Invalid server certificate	Невалиден сертификат на сървъра
+	Searching	Търсене
+	Partial results	Частични резултати
+	Invalid server name	Невалидно име на сървър
+	Timed out	Времето изтече
+	Loading	Зареждане
+	More results not loaded	Още резултати не са заредени
+
+# search list and add server
+	The server name is needed, for example matrix.org	Нужно е име на сървър, например matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Това е потребителски ID: нужно е име на сървър, например matrix.org
+	Only https addresses are allowed	Позволени са само https адреси
+	Write only the server name, without a path	Напишете само името на сървъра, без път
+	The server name is needed, without user or password	Нужно е име на сървър, без потребител или парола
+	Invalid port	Невалиден порт
+	Invalid IP address	Невалиден IP адрес
+	Already present	Вече е налично
+
+# sidebar
+	Favorites	Любими
+	All	Всички
+	Demo room {n}	Демо стая {n}
+
+# history
+@plural	{n} unread	{n} непрочетено|{n} непрочетени
+
+# history
+	edited	редактирано
+	[Message deleted]	[Съобщението е изтрито]
+	Server ack · Reply	Потвърдено от сървъра · Отговор
+	Server ack	Потвърдено от сървъра
+	local	локално
+
+# audio
+	Microphone not available	Микрофонът не е наличен
+
+# audio
+	Audio playback not available	Възпроизвеждането на звук не е налично
+
+# search
+	Public spaces	Публични пространства
+	People	Хора
+
+# engine placeholders
+	Location	Местоположение
+	Message without text	Съобщение без текст
+	Image.png	Image.png
+
+# update
+	invalid staging	невалиден междинен файл
+	placement failed and restore failed	поставянето и възстановяването не успяха
+	start failed and restore failed	стартирането и възстановяването не успяха
+	another installation in progress	тече друга инсталация
+	channel without in-app update	канал без актуализация в приложението
+	binary to update not found	файлът за актуализация не е намерен
+	staging not found	междинният файл не е намерен
+	staging outside the target folder	междинният файл е извън целевата папка
+	previous update pending	предишна актуализация чака
+	staging has a different size	междинният файл е с друг размер
+	staging has a different hash	междинният файл е с друг хеш
+	folder not writable	папката не е достъпна за запис
+	staging cannot be verified	междинният файл не може да се провери
+	Update failed: {cause}	Актуализацията не успя: {cause}
+	remove {name}	премахни {name}
+	error	грешка
+
+# update
+	invalid helper parameters	невалидни параметри на помощника
+	invalid binary to update	невалиден файл за актуализация
+	backup to restore not found	резервното копие за възстановяване не е намерено
+	no pending restore	няма чакащо възстановяване
+	Windows update not available	Актуализацията на Windows не е налична
+	data folder not found	папката с данни не е намерена
+	the program did not close	програмата не се затвори
+	running binary differs from the target	работещият файл се различава от целевия
+	helper without channel	помощник без канал
+	helper not ready	помощникът не е готов
+
+# update
+	Update available · {version}	Налична е актуализация · {version}
+	Update available, version {version}	Налична е актуализация, версия {version}
+	Updated to {version}	Актуализирано до {version}
+	Update failed: restored {version}	Актуализацията не успя: възстановена е {version}
+	Update failed: error	Актуализацията не успя: грешка
+	Update postponed: message not sent	Актуализацията е отложена: съобщението не е изпратено
+
+# update
+	backup differs from the binary, kept	резервното копие се различава от файла, запазено
+
+# key export
+	gnobbi-keys.txt	gnobbi-keys.txt
+
+# search
+	Filter: {label}	Филтър: {label}
+
+# devices
+	Sign out inactive	Изход от неактивните устройства
+
+# update
+	helper out of place	помощникът е на грешно място
