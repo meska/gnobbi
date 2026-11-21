@@ -36,10 +36,10 @@ pub fn row_of(rtl: bool, valign: Align) -> Layout {
 }
 
 /// Direction of a block of user text (a message, a topic) inside an RTL interface: its first letter decides, the usual paragraph
-/// rule, so an Italian sentence cut into links and pills keeps its words in order in a Hebrew window. No letters: the interface's.
-/// shortcut: always false in an LTR interface, where an Arabic message keeps today's left-to-right arrangement; drop `rtl() &&` to change that.
+/// rule, so an Italian sentence cut into links and pills keeps its words in order in a Hebrew window, and a Hebrew one keeps the
+/// space next to its links in an Italian window. No letters: the interface's.
 pub fn content_rtl(text: &str) -> bool {
-    rtl() && first_letter_rtl(text).unwrap_or(true)
+    first_letter_rtl(text).unwrap_or_else(rtl)
 }
 
 fn first_letter_rtl(text: &str) -> Option<bool> {

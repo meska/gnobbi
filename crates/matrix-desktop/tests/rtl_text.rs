@@ -49,3 +49,13 @@ fn latin_is_unchanged() {
     assert_eq!(visual("Hello 123 world"), (0..15).collect::<Vec<_>>());
     assert_eq!(visual("Ciao, come stai?"), (0..16).collect::<Vec<_>>());
 }
+
+#[test]
+fn trailing_space_takes_width_in_every_script() {
+    let w = |t: &str| layout(t).size().x;
+    for word in ["abc", "ראו", "مرحبا"] {
+        let space = w(&format!("{word} ")) - w(word);
+        assert!(space > 2.0, "the space after {word:?} has no width: {space}");
+    }
+    assert!(w(" ראו") > w("ראו") + 2.0, "leading space lost");
+}

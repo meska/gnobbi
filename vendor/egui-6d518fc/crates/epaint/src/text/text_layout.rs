@@ -180,6 +180,8 @@ pub(crate) fn layout(fonts: &mut FontsImpl, pixels_per_point: f32, job: Arc<Layo
             job.halign
         };
         let is_last_row = i + 1 == num_rows;
+        // Right-to-left text flush right (its start): its first and last space sit at the edges of the paragraph.
+        let start_aligned = placed_row.row.rtl_paragraph && halign == Align::RIGHT;
         let ends_with_hard_break = placed_row
             .row
             .glyphs
@@ -194,7 +196,10 @@ pub(crate) fn layout(fonts: &mut FontsImpl, pixels_per_point: f32, job: Arc<Layo
                 halign,
                 job.wrap.max_width,
                 justify_row,
-                job.keep_trailing_whitespace,
+                // A space at the edge of right-to-left text is a real gap for what's next to it
+                // (a link, a mention), as it is with left-to-right text. Rows broken at a space keep ignoring it.
+                job.keep_trailing_whitespace || (start_aligned && is_last_row),
+                start_aligned && i == 0,
             );
         }
     }
@@ -1295,6 +1300,7 @@ fn halign_and_justify_row(
     wrap_width: f32,
     justify: bool,
     keep_trailing_whitespace: bool,
+    keep_leading_whitespace: bool,
 ) {
     #![expect(clippy::useless_let_if_seq)] // False positive
 
@@ -1309,6 +1315,8 @@ fn halign_and_justify_row(
         .iter()
         .take_while(|glyph| glyph.chr.is_whitespace())
         .count();
+
+    let num_leading_spaces = if keep_leading_whitespace { 0 } else { num_leading_spaces };
 
     let glyph_range = if num_leading_spaces == row.glyphs.len() {
         // There is only whitespace
