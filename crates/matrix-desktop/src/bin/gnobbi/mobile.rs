@@ -6,6 +6,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 /// Smallest side of anything tappable on a touch screen.
 const TOUCH: f32 = 44.;
 
+/// Home indicator height iOS reports in landscape on notch phones.
+const LANDSCAPE_HOME: f32 = 21.;
+
 static KEYBOARD: AtomicU32 = AtomicU32::new(0);
 
 /// Points of the window bottom covered by the on-screen keyboard (0 = closed). The platform observer calls this from any thread.
@@ -101,7 +104,7 @@ pub fn target(desktop: f32) -> f32 {
 
 /// The insets of the last window event, with the keyboard folded into the bottom one.
 #[derive(Default)]
-pub struct Insets(egui::SafeAreaInsets);
+pub struct Insets(egui::SafeAreaInsets, bool);
 
 impl Insets {
     /// Test hooks: GNOBBI_EGUI_INSETS=<top,left,bottom,right> and GNOBBI_EGUI_KEYBOARD=<points> simulate a phone on desktop.
@@ -119,18 +122,22 @@ impl Insets {
     }
 
     /// Called from `raw_input_hook`. egui-winit sends the insets only with a window event (resize, rotation, focus): keep the last ones.
-    pub fn apply(&mut self, raw: &mut egui::RawInput) {
+    /// Returns true when the screen just turned between portrait and landscape.
+    pub fn apply(&mut self, raw: &mut egui::RawInput) -> bool {
         if let Some(real) = raw.safe_area_insets {
             self.0 = real;
         }
         let mut all = self.0;
-        // iOS keeps reporting the portrait insets after a rotation (top = notch, sides 0): in landscape the notch is on a side, so use it there on both sides.
+        let landscape = raw.screen_rect.is_some_and(|r| r.width() > r.height());
+        // iOS keeps reporting the portrait insets after a rotation (top = notch, sides 0, bottom = home bar): in landscape the notch is on a side
+        // (both sides, for symmetry), nothing is left on top and the home indicator is the short one.
         // shortcut: assumes insets left+right == 0 means stale and top > 40 means a notch (SE top is 20); drop it if UIKit starts reporting the sides.
-        if raw.screen_rect.is_some_and(|r| r.width() > r.height()) && all.0.left + all.0.right == 0. && all.0.top > 40. {
-            (all.0.left, all.0.right) = (all.0.top, all.0.top);
+        if landscape && all.0.left + all.0.right == 0. && all.0.top > 40. {
+            (all.0.left, all.0.right, all.0.top, all.0.bottom) = (all.0.top, all.0.top, 0., LANDSCAPE_HOME);
         }
         all.0.bottom = all.0.bottom.max(f32::from_bits(KEYBOARD.load(Ordering::Relaxed)));
         raw.safe_area_insets = Some(all);
+        raw.screen_rect.is_some() && std::mem::replace(&mut self.1, landscape) != landscape
     }
 }
 
@@ -235,7 +242,7 @@ mod tests {
         let mut raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(852., 393.))), safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 62., bottom: 34., ..Default::default() })), ..Default::default() };
         insets.apply(&mut raw);
         let m = raw.safe_area_insets.unwrap().0;
-        assert_eq!((m.left, m.right, m.top), (62., 62., 62.));
+        assert_eq!((m.left, m.right, m.top, m.bottom), (62., 62., 0., 21.));
         let mut se = egui::RawInput { screen_rect: raw.screen_rect, safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 20., ..Default::default() })), ..Default::default() };
         insets.apply(&mut se);
         assert_eq!(se.safe_area_insets.unwrap().0.left, 0., "no notch: nothing to add");

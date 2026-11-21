@@ -430,8 +430,12 @@ impl eframe::App for App {
         ctx.request_repaint_after(Duration::from_millis(100));
     }
 
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
-        self.insets.apply(raw);
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // A keyboard left open across a rotation stays in the old orientation: close it (and forget its height).
+        if self.insets.apply(raw) && mobile::touch() {
+            ctx.memory_mut(|m| if let Some(id) = m.focused() { m.surrender_focus(id) });
+            mobile::set_keyboard(0.);
+        }
     }
 
     fn on_exit(&mut self) {
