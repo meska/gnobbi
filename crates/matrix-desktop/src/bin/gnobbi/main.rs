@@ -17,6 +17,7 @@ mod pick;
 mod composer;
 mod customize;
 mod devices;
+mod dir;
 mod explore;
 #[cfg(target_os = "linux")]
 mod desktop_entry;
@@ -568,14 +569,14 @@ impl eframe::App for App {
         if let Some(s) = &mut self.session && s.quick_open { quick_search(&ctx, s, &t); }
         if let Some(url) = self.pending_web.clone() {
             let mut choice = None;
-            let modal = egui::Modal::new(egui::Id::unique("confirm-web-link")).show(&ctx, |ui| {
+            let modal = egui::Modal::new(egui::Id::unique("confirm-web-link")).show(&ctx, |ui| dir::scope(ui, |ui| {
                 ui.heading(i18n::t("Open link"));
                 ui.label(url.as_str());
                 ui.horizontal(|ui| {
                     if ui.button(i18n::t("Cancel")).clicked() { choice = Some(false); }
                     if ui.button(i18n::t("Open")).clicked() { choice = Some(true); }
                 });
-            });
+            }));
             if choice == Some(true) {
                 self.opening_web = Some((url.clone(), matrix_desktop::open_url(&url)));
             }
@@ -593,14 +594,14 @@ impl eframe::App for App {
         }
         if let Some(url) = self.failed_web.clone() {
             let mut done = false;
-            let modal = egui::Modal::new(egui::Id::unique("failed-web-link")).show(&ctx, |ui| {
+            let modal = egui::Modal::new(egui::Id::unique("failed-web-link")).show(&ctx, |ui| dir::scope(ui, |ui| {
                 ui.heading(i18n::t("Could not open the link."));
                 ui.label(url.as_str());
                 ui.horizontal(|ui| {
                     if ui.button(i18n::t("Copy link")).clicked() { ctx.copy_text(url.as_str().to_owned()); done = true; }
                     if ui.button(i18n::t("Close")).clicked() { done = true; }
                 });
-            });
+            }));
             if done || modal.should_close() { self.failed_web = None; }
         }
     }
@@ -876,6 +877,13 @@ impl App {
                     self.new_form.open_space(view == "space-public");
                 }
                 "poll" => s.poll_open = true,
+                // «reply»: the reply banner over the composer; «message-menu»: the menu of the last message.
+                "reply" | "message-menu" if s.target.is_none() && s.menu.is_none() => {
+                    if let Some(id) = s.messages.as_ref().and_then(|m| m.events().last().map(|e| e.id.clone())) {
+                        s.open_menu(id, ctx.content_rect().center());
+                        if view == "reply" { s.begin(composer::Mode::Reply); }
+                    }
+                }
                 "settings" => self.rail.set_settings(true),
                 "accounts" => self.rail.set_accounts(true),
                 "customize" => self.rail.set_customize(true),
@@ -1061,7 +1069,7 @@ impl App {
             rail::edit_window(ui.ctx(), session, &mut self.new_form, &mut self.rail, account, self.dirs.as_ref(), t);
             if !single || self.list_open {
                 if single { mobile::rail_background(ui, chat_background(t)); }
-                egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
+                dir::panel_start("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
                     ui.add_space(8.);
                     // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
                     let dots = others.len().div_ceil(5) as f32 * 10.;
@@ -1089,7 +1097,7 @@ impl App {
                         if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
                             egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
                         }
-                        egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| {
+                        egui::Popup::menu(&resp).align(if dir::rtl() { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START }).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| crate::dir::popup(ui, |ui| {
                             ui.spacing_mut().item_spacing.y = 0.;
                             // The id line tells apart accounts with the same name; a migrated one without id shows its homeserver.
                             let catalog = self.dirs.as_ref().map(matrix_desktop::AccountCatalog::load);
@@ -1106,7 +1114,7 @@ impl App {
                                     ui.close();
                                 }
                             }
-                        });
+                        }));
                     }
                     resp.on_hover_text(name);
                     let placed = session.space_placed.take();
@@ -1117,18 +1125,18 @@ impl App {
                 // Narrow: the list takes the whole width left of the rail and the chat is not drawn; a tap on a row, the open one too, goes to the chat.
                 let list_fill = list_fill(t);
                 if narrow {
-                    egui::Panel::left("list-narrow").exact_size(ui.available_width()).resizable(false).show_separator_line(false).frame(bar(t).fill(list_fill)).show(ui, |ui| {
+                    dir::panel_start("list-narrow").exact_size(ui.available_width()).resizable(false).show_separator_line(false).frame(bar(t).fill(list_fill)).show(ui, |ui| dir::scope(ui, |ui| {
                         let mut new_chat = false;
                         // One column: the chat header has no room for the app's own windows, they sit in one menu here.
                         let (mut settings, mut accounts, mut devices) = (false, false, false);
                         if list::rooms(ui, session, &mut new_chat, t, &mut |ui| {
                             if !single { return; }
-                            egui::Popup::menu(&icons::button(ui, icons::Icon::List, false, i18n::t("Menu"))).show(|ui| {
+                            egui::Popup::menu(&icons::button(ui, icons::Icon::List, false, i18n::t("Menu"))).show(|ui| crate::dir::popup(ui, |ui| {
                                 settings = ui.button(i18n::t("Settings")).clicked();
                                 accounts = ui.button(i18n::t("Account")).clicked();
                                 devices = ui.button(i18n::t("Devices")).clicked();
                                 if settings || accounts || devices { ui.close(); }
-                            });
+                            }));
                         }) {
                             self.list_open = false;
                         }
@@ -1136,7 +1144,7 @@ impl App {
                         if settings { self.rail.set_settings(true); }
                         if accounts { self.rail.set_accounts(true); }
                         if devices { self.rail.set_devices(true); }
-                    });
+                    }));
                 } else {
                     let max = list_max_width(ui.ctx().content_rect().width());
                     let resize_id = ui.scope_id().with_salt(egui::IdSalt::new("list")).with("__resize");
@@ -1145,14 +1153,14 @@ impl App {
                     let highlight = Stroke::NONE;
                     ui.style_mut().visuals.widgets.hovered.fg_stroke = highlight;
                     ui.style_mut().visuals.widgets.active.fg_stroke = highlight;
-                    let response = egui::Panel::left("list")
+                    let response = dir::panel_start("list")
                         .default_size(self.prefs.list_width.map_or(t.sidebar, |w| w as f32))
                         .size_range(240. ..=max).resizable(true).show_separator_line(false)
                         .frame(bar(t).fill(list_fill)).show(ui, |ui| {
                             ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
                             ui.style_mut().visuals.widgets.active.fg_stroke = active;
                             let mut new_chat = false;
-                            list::rooms(ui, session, &mut new_chat, t, &mut |_| {});
+                            dir::scope(ui, |ui| list::rooms(ui, session, &mut new_chat, t, &mut |_| {}));
                             session.new_open |= new_chat;
                         });
                     ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
@@ -1160,7 +1168,7 @@ impl App {
                     if let Some(handle) = ui.read_response(resize_id)
                         && handle.drag_stopped()
                     {
-                        let width = handle.interact_pointer_pos().map_or(response.response.rect.width(), |p| p.x - response.response.rect.left()).clamp(240., max).round() as u32;
+                        let width = handle.interact_pointer_pos().map_or(response.response.rect.width(), |p| if dir::rtl() { response.response.rect.right() - p.x } else { p.x - response.response.rect.left() }).clamp(240., max).round() as u32;
                         self.prefs.list_width = Some(width);
                         if let Some(dirs) = &self.dirs
                             && let Err(error) = Preferences::update(dirs, |p| p.list_width = Some(width))
@@ -1183,7 +1191,7 @@ impl App {
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
         let badge = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| (r.initials.clone(), r.color)));
         let head_pic = self.session.as_ref().map(|s| avatar::lookup(&s.avatars, s.sidebar.selected().and_then(|r| r.info.avatar.as_deref())));
-        egui::Panel::top("header").exact_size(t.header).show_separator_line(false).frame(bar(t)).show(ui, |ui| {
+        egui::Panel::top("header").exact_size(t.header).show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(if single { 4. } else { 16. });
                 // One column: the list is the previous screen, so the button reads «back».
@@ -1195,7 +1203,7 @@ impl App {
                     avatar::paint(ui, rect.center(), 32., rgb(*color), head_pic.as_ref().unwrap_or(&avatar::Avatar::Missing), initials, 13., rgb(t.avatar_text));
                     ui.add_space(4.);
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(dir::row_rev(egui::Align::Center), |ui| {
                     ui.add_space(if single { 4. } else { 12. });
                     if has_room && icons::button(ui, icons::Icon::Info, info_on, i18n::t("Info")).clicked()
                         && let Some(s) = &mut self.session
@@ -1210,12 +1218,12 @@ impl App {
                         s.info_open = false;
                     }
                     // Last, so the title gets what the buttons leave and is cut with an ellipsis instead of running under them.
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.with_layout(dir::row(egui::Align::Center), |ui| {
                         ui.add(egui::Label::new(crate::list::clean_single_line(title.as_deref().unwrap_or(state))).truncate());
                     });
                 });
             });
-        });
+        }));
         if let Some(s) = &self.session
             && s.info_open
             && (!single || side == Some(Side::Info))
@@ -1229,7 +1237,7 @@ impl App {
             let mut status = s.status_choices.get(&room_id);
             let (status_was, hidden_status) = (status, s.messages.as_ref().filter(|m| m.scope() == &room.scope).map_or(0, |m| m.hidden_status_count()));
             let mut view = info::AliasView { data: s.aliases.as_ref(), error: s.alias_error, input: &mut alias_input, action: None };
-            egui::Panel::right("info").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, (&mut status, hidden_status), &s.avatars, t));
+            dir::panel_end("info").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, (&mut status, hidden_status), &s.avatars, t)));
             alias_action = view.action.take();
             self.alias_input = alias_input;
             if status != status_was && let Some(s) = &mut self.session {
@@ -1256,7 +1264,7 @@ impl App {
             let (rights, failed, busy) = (s.rights.clone(), s.moderation_failed, s.moderating);
             let me = id == s.user;
             let can_verify = s.verification.as_ref().is_some_and(|v| v.can_begin());
-            egui::Panel::right("member").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, busy, s.new_failed, me, can_verify, &mut action, &mut self.confirm, &mut moderation, &mut close, t));
+            dir::panel_end("member").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, busy, s.new_failed, me, can_verify, &mut action, &mut self.confirm, &mut moderation, &mut close, t)));
             match action {
                 Some(info::ProfileAction::Message) => s.start_dm(id.clone()),
                 Some(info::ProfileAction::Mention) => {
@@ -1299,7 +1307,7 @@ impl App {
             let state = s.search.clone();
             let mut selected = None;
             let mut more = false;
-            egui::Panel::right("search").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| selected = info::search(ui, &mut s.search_term, &state, &mut more, t));
+            dir::panel_end("search").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| selected = info::search(ui, &mut s.search_term, &state, &mut more, t)));
             if more { s.more_messages(); }
             if selected.is_some() {
                 s.search_jump = selected;
@@ -1320,7 +1328,7 @@ impl App {
             ui.style_mut().visuals.widgets.hovered.fg_stroke = Stroke::NONE;
             ui.style_mut().visuals.widgets.active.fg_stroke = Stroke::NONE;
             // Its own id in one column: the full width must not become the remembered width of the resizable panel.
-            let panel = if single { egui::Panel::right("thread-single").exact_size(ui.available_width()).resizable(false) } else { egui::Panel::right("thread").default_size(w).size_range(260. ..=640.).resizable(true) };
+            let panel = if single { dir::panel_end("thread-single").exact_size(ui.available_width()).resizable(false) } else { dir::panel_end("thread").default_size(w).size_range(260. ..=640.).resizable(true) };
             let shown = panel.show_separator_line(false).frame(bar(t)).show(ui, |ui| {
                 ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
                 ui.style_mut().visuals.widgets.active.fg_stroke = active;
@@ -1354,7 +1362,7 @@ impl App {
             if acts.open_link.is_some() { self.pending_web = acts.open_link; }
         }
         let mut to_send = None;
-        composer::panel(bar(t)).show(ui, |ui| {
+        composer::panel(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
             if let Some(s) = &mut self.session
                 && s.messages.is_some()
                 && !covered
@@ -1400,12 +1408,12 @@ impl App {
                     s.cancel_target();
                 }
             }
-        });
+        }));
         if let (Some(body), Some(s)) = (to_send, &mut self.session) {
             s.submit_draft(body);
         }
         self.overlays(ui, t);
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| dir::scope(ui, |ui| {
             // The click that changes room lands before `drive_history` swaps the messages: drawing the old room under the new room's scroll state moved it to the bottom and saved that as its reading position.
             // A side panel has taken the whole width: nothing is laid out in the sliver left.
             if covered {
@@ -1469,7 +1477,7 @@ impl App {
                     self.pending_web = acts.open_link;
                 }
             }
-        });
+        }));
     }
 
     /// The windows and drawers of the session (settings, account, devices, new chat…). Drawn in every layout: the one-column list returns before the chat.
@@ -1530,7 +1538,8 @@ impl App {
             devices::dialogs(ui.ctx(), v, &mut self.device_fields);
             devices::popup(ui.ctx(), v);
             devices::new_key(ui.ctx(), v);
-            let suppressed = account.is_some_and(|a| self.prefs.no_recovery_offer_accounts.contains(&a.as_u64()));
+            // Test hook: GNOBBI_EGUI_NO_OFFER keeps the recovery-key offer out of a screenshot.
+            let suppressed = account.is_some_and(|a| self.prefs.no_recovery_offer_accounts.contains(&a.as_u64())) || std::env::var_os("GNOBBI_EGUI_NO_OFFER").is_some();
             match devices::offer(ui.ctx(), v, suppressed, &mut self.device_fields) {
                 Some(devices::Offer::Create) => v.accept_offer(),
                 Some(devices::Offer::Recover(key)) => { v.recover_keys(key); }
@@ -1604,7 +1613,7 @@ impl App {
                 ui.add_space(((room - last) / 2.).max(m.gap * 3.));
                 let top = ui.cursor().top();
                 ui.vertical_centered(|ui| {
-                    ui.allocate_ui_with_layout(egui::vec2(width, 0.), egui::Layout::top_down(egui::Align::LEFT), |ui| match &mut self.session {
+                    ui.allocate_ui_with_layout(egui::vec2(width, 0.), dir::col(), |ui| match &mut self.session {
                         Some(session) => sign_in_form(ui, session, t),
                         None => {
                             ui.label(self.start_error.as_deref().unwrap_or(i18n::t("Start failed")));
@@ -1648,7 +1657,7 @@ fn quick_search(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     let sel = s.quick_sel;
     let moved = down || up;
     let mut picked = if enter && total > 0 { Some(sel) } else { None };
-    let modal = egui::Modal::new(egui::Id::unique("quick-search")).show(ctx, |ui| {
+    let modal = egui::Modal::new(egui::Id::unique("quick-search")).show(ctx, |ui| dir::scope(ui, |ui| {
         ui.set_min_width(360.);
         ui.heading(i18n::t("Search"));
         if ui.add(crate::metrics::line(&mut s.new_term).id(egui::Id::unique("quick-search-field")).hint_text(i18n::t("Search"))).changed() {
@@ -1692,7 +1701,7 @@ fn quick_search(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 });
             }
         });
-    });
+    }));
     if let Some(i) = picked {
         if let Some(hit) = hits.get(i) {
             let scope = s.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == hit.id).map(|r| r.scope.clone());
@@ -1723,7 +1732,7 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     let perms = s.ops.details().map(|d| d.permissions);
     let mut action: Option<&'static str> = None;
     let area = egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
-        egui::Frame::popup(ui.style()).fill(rgb(t.surface)).show(ui, |ui| {
+        egui::Frame::popup(ui.style()).fill(rgb(t.surface)).show(ui, |ui| dir::popup(ui, |ui| {
             ui.set_min_width(160.);
             let Some(p) = perms else {
                 ui.spinner();
@@ -1767,7 +1776,7 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
             if !(p.react || p.reply || p.edit || p.redact) {
                 ui.label("—");
             }
-        });
+        }));
     });
     match action {
         Some("reply") => s.begin(composer::Mode::Reply),
@@ -1844,10 +1853,11 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         ui.add_space(m.gap / 2.);
         let eye_id = egui::Id::new(("signin-eye", label));
         let shown = secret && ui.data(|d| d.get_temp::<bool>(eye_id)).unwrap_or(false);
-        let margin = egui::Margin { left: 14, right: if secret { height as i8 } else { 14 }, top: 0, bottom: 0 };
+        let (near, far) = (14, if secret { height as i8 } else { 14 });
+        let margin = if dir::rtl() { egui::Margin { left: far, right: near, top: 0, bottom: 0 } } else { egui::Margin { left: near, right: far, top: 0, bottom: 0 } };
         let r = ui.add_sized([width, height], crate::metrics::line(text).password(secret && !shown).raw_input(raw).margin(margin));
         if secret {
-            let rect = egui::Rect::from_center_size(egui::pos2(r.rect.right() - height / 2., r.rect.center().y), egui::vec2(height, height));
+            let rect = dir::flip(r.rect, egui::Rect::from_center_size(egui::pos2(r.rect.right() - height / 2., r.rect.center().y), egui::vec2(height, height)));
             let (icon, name) = if shown { (icons::Icon::EyeSlash, i18n::t("Hide password")) } else { (icons::Icon::Eye, i18n::t("Show password")) };
             if icons::button_at(ui, rect, eye_id.with("button"), icon, false, m.icon, name, None, true, 1.).clicked() {
                 ui.data_mut(|d| d.insert_temp(eye_id, !shown));
@@ -1900,7 +1910,7 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     let r = ui.add_sized([width, height + 4.], button);
     if busy {
         // Loading: a spinner at the left edge of the (inert) button.
-        let rect = egui::Rect::from_center_size(egui::pos2(r.rect.left() + height / 2. + 4., r.rect.center().y), egui::Vec2::splat(m.icon));
+        let rect = dir::flip(r.rect, egui::Rect::from_center_size(egui::pos2(r.rect.left() + height / 2. + 4., r.rect.center().y), egui::Vec2::splat(m.icon)));
         egui::Spinner::new().color(rgb(t.on_accent)).paint_at(ui, rect);
     } else if r.clicked() || enter {
         s.submit();
@@ -1933,7 +1943,7 @@ fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         return;
     }
     if s.form.recovery() != Some(matrix_engine::signin::RecoveryState::Unsupported) {
-        let r = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.phrase).hint_text(i18n::t("Matrix recovery key")).password(true).align(egui::Align2::LEFT_CENTER));
+        let r = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.phrase).hint_text(i18n::t("Matrix recovery key")).password(true));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         ui.add_space(8.);
         if ui.add_sized([ui.available_width(), crate::metrics::button()], accent(i18n::t("Recover encrypted history"))).clicked() || enter {

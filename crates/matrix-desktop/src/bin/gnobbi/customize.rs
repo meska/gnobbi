@@ -83,16 +83,16 @@ fn preview(ui: &mut egui::Ui, t: &DesignTokens) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 56.), egui::Sense::hover());
     let p = ui.painter();
     p.rect_filled(rect, 8., rgb(t.input));
-    let c = egui::pos2(rect.left() + 32., rect.center().y);
+    let c = crate::dir::flip_pos(rect, egui::pos2(rect.left() + 32., rect.center().y));
     crate::avatar::paint(ui, c, 40., rgb(crate::AVATAR), &crate::avatar::Avatar::Missing, "G", m.body + 1., rgb(t.on_accent));
     let name = crate::list::one_line(ui, tr("Preview"), m.body + 1., rgb(t.text), rect.width() - 80.);
-    ui.painter().galley(egui::pos2(rect.left() + 64., rect.top() + 8.), name, rgb(t.text));
+    ui.painter().galley(crate::dir::place(rect, egui::pos2(rect.left() + 64., rect.top() + 8.), name.size().x), name, rgb(t.text));
     let sub = crate::list::one_line(ui, tr("A sample message"), m.secondary + 1., rgb(t.secondary), rect.width() - 80.);
-    ui.painter().galley(egui::pos2(rect.left() + 64., rect.top() + 29.), sub, rgb(t.secondary));
+    ui.painter().galley(crate::dir::place(rect, egui::pos2(rect.left() + 64., rect.top() + 29.), sub.size().x), sub, rgb(t.secondary));
     ui.horizontal(|ui| {
         let _ = ui.button(crate::icons::with_label(crate::icons::Icon::Plus, tr("Button")));
         let (r, _) = ui.allocate_exact_size(Vec2::splat(crate::metrics::button()), egui::Sense::hover());
         crate::icons::paint(ui.painter(), r.center(), crate::icons::Icon::ChatCircleDots, true, m.icon, rgb(t.accent));
-        crate::icons::paint(ui.painter(), r.center() + Vec2::new(r.width(), 0.), crate::icons::Icon::Chats, false, m.icon, rgb(t.secondary));
+        crate::icons::paint(ui.painter(), r.center() + Vec2::new(if crate::dir::rtl() { -r.width() } else { r.width() }, 0.), crate::icons::Icon::Chats, false, m.icon, rgb(t.secondary));
     });
 }

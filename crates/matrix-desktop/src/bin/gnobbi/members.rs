@@ -1,6 +1,6 @@
 //! Member administration of a room or a space: «Invita», «Espelli»/«Blocca» with an optional reason, «Bloccati» with «Sblocca».
 use crate::list::rgb;
-use eframe::egui::{self, Align, Align2, Layout, RichText};
+use eframe::egui::{self, Align, Align2, RichText};
 use matrix_desktop::{DesignTokens, i18n};
 use matrix_domain::RoomScope;
 use matrix_engine::operations::{BannedMember, Member, MemberPermissions, Moderation};
@@ -97,7 +97,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
         ui.push_id(&m.user_id, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.;
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.with_layout(crate::dir::row_rev(Align::Center), |ui| {
                     if menu {
                         ui.add_space(8.);
                         let resp = crate::space::dots(ui, t, &i18n::t("Actions for {name}").replace("{name}", &m.name));
@@ -105,7 +105,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                         if std::mem::take(&mut hook) {
                             popup = popup.open(true);
                         }
-                        popup.show(|ui| {
+                        popup.show(|ui| crate::dir::popup(ui, |ui| {
                             let mut ask = |ui: &mut egui::Ui, label: &str, ban| {
                                 if ui.button(label).clicked() {
                                     act = Some(Act::Ask { user_id: m.user_id.clone(), name: m.name.clone(), ban });
@@ -118,7 +118,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                             if perms.can_ban {
                                 ask(ui, i18n::t("Ban"), true);
                             }
-                        });
+                        }));
                     } else if perms.can_kick || perms.can_ban {
                         // The own row has no «⋮»: its place stays empty so the badges line up.
                         ui.add_space(40.);
@@ -167,7 +167,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
         ui.horizontal(|ui| {
             ui.set_min_height(40.);
             ui.add_space(14.);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.with_layout(crate::dir::row_rev(Align::Center), |ui| {
                 ui.add_space(8.);
                 // Unban needs the kick level on top of the ban level.
                 if perms.can_kick {
@@ -177,12 +177,12 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                 }
                 let name = egui::Label::new(RichText::new(crate::list::clean_single_line(&b.name)).color(rgb(t.text))).truncate();
                 match &b.reason {
-                    Some(reason) => drop(ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                    Some(reason) => drop(ui.with_layout(crate::dir::col(), |ui| {
                         ui.add_space(3.);
                         ui.add(name);
                         ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(reason)).size(12.).color(rgb(t.secondary))).truncate());
                     })),
-                    None => drop(ui.with_layout(Layout::left_to_right(Align::Center), |ui| ui.add(name))),
+                    None => drop(ui.with_layout(crate::dir::row(Align::Center), |ui| ui.add(name))),
                 }
             });
         });
@@ -208,11 +208,11 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
     let mut send = None;
     if let Some(d) = &mut admin.dialog {
         let (verb, mut cancel) = (if d.ban { i18n::t("Ban") } else { i18n::t("Kick") }, false);
-        egui::Window::new(verb).id(egui::Id::new("member-dialog")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        egui::Window::new(verb).id(egui::Id::new("member-dialog")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
             ui.set_width(340.);
             ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&d.name)).strong()).truncate());
             ui.add_space(4.);
-            ui.add_enabled_ui(!admin.busy, |ui| ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut d.reason).hint_text(i18n::t("Reason")).align(Align2::LEFT_CENTER)));
+            ui.add_enabled_ui(!admin.busy, |ui| ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut d.reason).hint_text(i18n::t("Reason"))));
             if admin.failed {
                 ui.colored_label(rgb(t.error), i18n::t("Failed"));
             }
@@ -228,13 +228,13 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
                 }
                 cancel = ui.button(i18n::t("Cancel")).clicked();
             });
-        });
+        }));
         if cancel {
             (admin.dialog, admin.failed) = (None, false);
         }
     } else if admin.inviting {
         let mut open = true;
-        egui::Window::new(i18n::t("Invite")).id(egui::Id::new("member-invite")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        egui::Window::new(i18n::t("Invite")).id(egui::Id::new("member-invite")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
             ui.set_width(340.);
             ui.add_enabled_ui(!admin.busy, |ui| {
                 if let Some(user) = crate::newchat::people(ui, s, t) {
@@ -246,7 +246,7 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
             } else if admin.failed {
                 ui.colored_label(rgb(t.error), i18n::t("Failed"));
             }
-        });
+        }));
         if !open {
             (admin.inviting, admin.failed) = (false, false);
         }

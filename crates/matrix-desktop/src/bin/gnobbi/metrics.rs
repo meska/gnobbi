@@ -61,7 +61,7 @@ pub fn system_scale() -> f32 {
 
 /// A single-line field whose text sits on the middle of the box (the fields are as tall as the buttons).
 pub fn line(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
-    egui::TextEdit::singleline(text).align(egui::Align2::LEFT_CENTER)
+    egui::TextEdit::singleline(text).align(crate::dir::align(egui::Align2::LEFT_CENTER))
 }
 
 /// Pointing-hand cursor over something clickable and enabled; a response that does not sense clicks keeps the normal cursor.

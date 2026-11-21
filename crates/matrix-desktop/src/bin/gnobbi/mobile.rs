@@ -113,20 +113,22 @@ fn is_back_swipe(dx: f32, dy: f32, secs: f32, width: f32) -> bool {
 pub fn back_swipe(ctx: &egui::Context) -> bool {
     const EDGE: f32 = 24.;
     let id = egui::Id::new("back-swipe");
-    let edge = ctx.content_rect().left() + EDGE;
+    // RTL: the list is on the right, so the gesture starts at the right edge and goes left.
+    let (content, rtl) = (ctx.content_rect(), crate::dir::rtl());
+    let side = |x: f32| if rtl { content.right() - x } else { x - content.left() };
     let (pressed, released, time) = ctx.input(|i| (i.pointer.any_pressed().then(|| i.pointer.press_origin()).flatten(), i.pointer.any_released().then(|| i.pointer.interact_pos().or(i.pointer.latest_pos())).flatten(), i.time));
     if let Some(p) = pressed {
-        ctx.data_mut(|d| d.insert_temp(id, (p.x < edge).then_some((p, time))));
+        ctx.data_mut(|d| d.insert_temp(id, (side(p.x) < EDGE).then_some((p, time))));
     }
     let start = if released.is_some() { ctx.data_mut(|d| d.remove_temp::<Option<(egui::Pos2, f64)>>(id)).flatten() } else { None };
-    matches!((start, released), (Some((s, t0)), Some(e)) if is_back_swipe(e.x - s.x, e.y - s.y, (time - t0) as f32, ctx.content_rect().width()))
+    matches!((start, released), (Some((s, t0)), Some(e)) if is_back_swipe(side(e.x) - side(s.x), e.y - s.y, (time - t0) as f32, content.width()))
 }
 
 /// Paint the rail behind the unsafe bands, without moving or unclipping its contents.
 pub fn rail_background(ui: &egui::Ui, fill: egui::Color32) {
     let (all, safe) = (ui.ctx().viewport_rect(), ui.ctx().content_rect());
     if all != safe {
-        let rect = egui::Rect::from_min_max(egui::pos2(safe.left(), all.top()), egui::pos2((safe.left() + crate::rail::WIDTH).min(safe.right()), all.bottom()));
+        let rect = crate::dir::flip(safe, egui::Rect::from_min_max(egui::pos2(safe.left(), all.top()), egui::pos2((safe.left() + crate::rail::WIDTH).min(safe.right()), all.bottom())));
         egui::Painter::new(ui.ctx().clone(), ui.layer_id(), all).rect_filled(rect, 0., fill);
     }
 }

@@ -69,7 +69,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
         }
     }
     let mut open = true;
-    egui::Window::new(i18n::t("New chat")).open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("New chat")).open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_min_width(340.);
         ui.horizontal(|ui| {
             for (i, label) in [i18n::t("Direct chat"), i18n::t("Room"), i18n::t("Space"), i18n::t("Join a room")].into_iter().enumerate() {
@@ -154,7 +154,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
             ui.add_space(6.);
             ui.colored_label(ui.visuals().error_fg_color, i18n::t("Failed"));
         }
-    });
+    }));
     if !open {
         s.new_open = false;
     }
@@ -163,7 +163,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
 /// The user search («Cerca persone» and its results); returns the user that was clicked.
 pub fn people(ui: &mut egui::Ui, s: &mut Session, t: &matrix_desktop::DesignTokens) -> Option<String> {
     let mut picked = None;
-    ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.new_term).hint_text(i18n::t("Search people")).align(egui::Align2::LEFT_CENTER));
+    ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.new_term).hint_text(i18n::t("Search people")));
     ui.add_space(6.);
     match &s.users {
         SearchState::Searching { .. } => {

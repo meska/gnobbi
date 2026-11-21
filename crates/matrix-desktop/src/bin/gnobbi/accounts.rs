@@ -114,7 +114,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
     ui.add_enabled_ui(!busy, |ui| {
         // Avatar and the name/id block share one axis: the block has a known height, so the row centres both.
         let block = crate::metrics::button() + 2. + ui.painter().layout_no_wrap(id.clone(), egui::FontId::proportional(12.), egui::Color32::WHITE).size().y;
-        egui::containers::Sides::new().height(72.).shrink_left().show(ui, |ui| {
+        let main = |ui: &mut egui::Ui| {
             let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(64.), if can_photo { egui::Sense::click() } else { egui::Sense::hover() });
             let resp = crate::metrics::clickable(resp);
             let shown_name = name.as_deref().unwrap_or(&id);
@@ -132,17 +132,20 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
                 }
                 retouch |= resp.clicked();
             }
-            ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), block), egui::Layout::top_down(egui::Align::Min), |ui| {
+            ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), block), crate::dir::col(), |ui| {
                 ui.spacing_mut().item_spacing.y = 2.;
                 if can_name {
-                    let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut f.name).hint_text(i18n::t("Name")).align(egui::Align2::LEFT_CENTER).char_limit(matrix_engine::profile::MAX_NAME_CHARS));
+                    let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut f.name).hint_text(i18n::t("Name")).char_limit(matrix_engine::profile::MAX_NAME_CHARS));
                     save |= field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 } else {
                     ui.label(shown_name);
                 }
                 ui.label(RichText::new(&id).size(12.).color(rgb(t.secondary)));
             });
-        }, |ui| *logout = sign_out_button(ui));
+        };
+        // `Sides` names its halves left and right: in RTL picture and name go to the right one.
+        let sides = egui::containers::Sides::new().height(72.);
+        if crate::dir::rtl() { sides.shrink_right().show(ui, |ui| *logout = sign_out_button(ui), main); } else { sides.shrink_left().show(ui, main, |ui| *logout = sign_out_button(ui)); }
         if can_name || can_photo {
             ui.add_space(4.);
             ui.horizontal(|ui| {
@@ -159,7 +162,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
                         f.editor = None;
                     }
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
                     if busy {
                         ui.spinner();
                     } else {
@@ -271,7 +274,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
     let own = session.as_ref().map_or(crate::avatar::Avatar::Missing, |s| s.own_avatar());
     let closed = crate::rail::drawer_back(ctx, rail.panel, "accounts-drawer", i18n::t("Account"), rail.accounts, t, Some(&mut back), |ui, rect| {
         let size = crate::metrics::button() + 4.;
-        let action = egui::Rect::from_center_size(egui::pos2(rect.right() - 30. - size, rect.top() - 28.), egui::Vec2::splat(size));
+        let action = crate::dir::flip(rect, egui::Rect::from_center_size(egui::pos2(rect.right() - 30. - size, rect.top() - 28.), egui::Vec2::splat(size)));
         let label = matrix_desktop::i18n::t("Add account");
         if crate::icons::button_at(ui, action, egui::Id::new("add-account"), crate::icons::Icon::Plus, false, crate::metrics::get().icon, label, Some(rgb(t.accent)), true, 1.).on_hover_text(label).clicked() {
             out = Some(Launch::Add);
@@ -347,22 +350,26 @@ pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: &crate::avat
     if resp.hovered() || resp.has_focus() {
         p.rect_filled(rect, 8., rgb(t.input));
     }
+    // LTR maths; `flip`/`place` put each piece on its side.
+    let (flip, place) = (|p: egui::Pos2| crate::dir::flip_pos(rect, p), |p: egui::Pos2, g: &egui::Galley| crate::dir::place(rect, p, g.size().x));
     let c = egui::Pos2::new(rect.left() + 8. + 12., rect.center().y);
-    crate::avatar::paint(ui, c, 24., rgb(crate::AVATAR), picture, &matrix_desktop::initials(name), 11., rgb(t.on_accent));
+    crate::avatar::paint(ui, flip(c), 24., rgb(crate::AVATAR), picture, &matrix_desktop::initials(name), 11., rgb(t.on_accent));
     let p = ui.painter();
     let x = c.x + 20.;
     let right = rect.right() - 12.;
     let (name_pos, id_pos) = if id.is_empty() { (egui::Pos2::new(x, rect.center().y - 8.), None) } else { (egui::Pos2::new(x, rect.top() + 6.), Some(egui::Pos2::new(x, rect.top() + 24.))) };
-    ui.painter().galley(name_pos, crate::list::one_line(ui, name, 13., rgb(t.text), right - x - 32.), rgb(t.text));
+    let g = crate::list::one_line(ui, name, 13., rgb(t.text), right - x - 32.);
+    ui.painter().galley(place(name_pos, &g), g, rgb(t.text));
     if let Some(pos) = id_pos {
-        ui.painter().galley(pos, crate::list::one_line(ui, id, 11., rgb(t.secondary), right - x - 32.), rgb(t.secondary));
+        let g = crate::list::one_line(ui, id, 11., rgb(t.secondary), right - x - 32.);
+        ui.painter().galley(place(pos, &g), g, rgb(t.secondary));
     }
     if shown {
-        crate::icons::paint(ui.painter(), egui::Pos2::new(right - 8., rect.center().y), crate::icons::Icon::Check, true, crate::metrics::get().icon - 2., rgb(t.accent));
+        crate::icons::paint(ui.painter(), flip(egui::Pos2::new(right - 8., rect.center().y)), crate::icons::Icon::Check, true, crate::metrics::get().icon - 2., rgb(t.accent));
     } else if unread > 0 {
         let count = if unread > 99 { "99+".to_owned() } else { unread.to_string() };
         let g = p.layout_no_wrap(count, egui::FontId::proportional(9.), rgb(t.on_accent));
-        let badge = egui::Rect::from_center_size(egui::Pos2::new(right - 7., rect.center().y), egui::Vec2::new((g.size().x + 6.).max(14.), 14.));
+        let badge = egui::Rect::from_center_size(flip(egui::Pos2::new(right - 7., rect.center().y)), egui::Vec2::new((g.size().x + 6.).max(14.), 14.));
         p.rect_filled(badge, 7., rgb(t.accent));
         p.galley(badge.center() - g.size() / 2., g, rgb(t.on_accent));
     }
@@ -416,7 +423,7 @@ impl SignOut {
             self.phase = Phase::Failed;
         }
         let mut step = None;
-        let modal = egui::Modal::new(egui::Id::new("sign-out-account")).show(ctx, |ui| {
+        let modal = egui::Modal::new(egui::Id::new("sign-out-account")).show(ctx, |ui| crate::dir::scope(ui, |ui| {
             ui.set_max_width(320.);
             ui.heading(i18n::t("Log out"));
             ui.label(&self.name);
@@ -446,7 +453,7 @@ impl SignOut {
                     }
                 }
             });
-        });
+        }));
         if step.is_none() && modal.should_close() && !matches!(self.phase, Phase::Waiting(_)) {
             step = Some(if matches!(self.phase, Phase::Failed) { SignOutStep::Restart } else { SignOutStep::Close });
         }

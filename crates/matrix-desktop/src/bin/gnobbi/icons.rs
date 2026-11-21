@@ -103,14 +103,34 @@ pub fn rich(icon: Icon, fill: bool, size: f32) -> RichText {
 pub fn with_label(icon: Icon, text: &str) -> egui::text::LayoutJob {
     let m = crate::metrics::get();
     let mut job = egui::text::LayoutJob::default();
+    if crate::dir::rtl() {
+        // The line runs from the right whatever the script of the text: the icon stays before it.
+        job.direction = egui::epaint::text::TextDirection::RightToLeft;
+    }
     job.append(&icon.ch().to_string(), 0., egui::TextFormat { font_id: FontId::new(m.icon, family(false)), color: Color32::PLACEHOLDER, valign: egui::Align::Center, ..Default::default() });
     job.append(text, m.gap, egui::TextFormat { font_id: FontId::proportional(m.body), color: Color32::PLACEHOLDER, valign: egui::Align::Center, ..Default::default() });
     job
 }
 
 /// Paints the icon centred on `c` (for custom-drawn cells such as the rail).
+/// Icons that point along the reading direction (back, chevron, send, reply, sign out) are mirrored in RTL.
 pub fn paint(p: &egui::Painter, c: Pos2, icon: Icon, fill: bool, size: f32, color: Color32) {
-    p.text(c, egui::Align2::CENTER_CENTER, icon.ch(), FontId::new(size, family(fill)), color);
+    let font = FontId::new(size, family(fill));
+    if !(crate::dir::rtl() && matches!(icon, Icon::CaretLeft | Icon::CaretRight | Icon::PaperPlaneRight | Icon::ArrowUUpLeft | Icon::SignOut)) {
+        p.text(c, egui::Align2::CENTER_CENTER, icon.ch(), font, color);
+        return;
+    }
+    // The subset fonts hold one direction only: tessellate the glyph and flip its mesh around `c`.
+    let galley = p.layout_no_wrap(icon.ch().to_string(), font, color);
+    let shape = egui::Shape::galley(egui::Align2::CENTER_CENTER.anchor_size(c, galley.size()).min, galley, color);
+    for part in p.ctx().tessellate(vec![egui::epaint::ClippedShape::new(Rect::EVERYTHING, shape)], p.ctx().pixels_per_point()) {
+        if let egui::epaint::Primitive::Mesh(mut mesh) = part.primitive {
+            for v in &mut mesh.vertices {
+                v.pos.x = 2. * c.x - v.pos.x;
+            }
+            p.add(egui::Shape::mesh(mesh));
+        }
+    }
 }
 
 /// An icon button in `rect`: hover fill like the other buttons, `label` is its screen-reader name. `alpha` cross-fades, `active` false = inert.

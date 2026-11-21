@@ -36,7 +36,7 @@ pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &Design
     if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("sp-menu") {
         popup = popup.open(true);
     }
-    popup.show(|ui| {
+    popup.show(|ui| crate::dir::popup(ui, |ui| {
         // Opened by the keyboard or the hook: the click above did not ask.
         if !session.space_facts.as_ref().is_some_and(|(s, _)| *s == scope) {
             session.space_facts_for(scope.clone());
@@ -72,7 +72,7 @@ pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &Design
             session.space_delete = Some((scope.clone(), String::new()));
             ui.close();
         }
-    });
+    }));
 }
 
 /// Confirmation of «Esci dallo spazio»: the name, the «Dimentica» switch, the two buttons.
@@ -84,7 +84,7 @@ pub fn exit_window(ctx: &egui::Context, session: &mut crate::session::Session, t
         return;
     };
     let (mut leave, mut cancel) = (false, false);
-    egui::Window::new(i18n::t("Leave space")).id(egui::Id::new("space-exit")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("Leave space")).id(egui::Id::new("space-exit")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_width(340.);
         ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&space.name)).strong()).truncate());
         ui.add_space(4.);
@@ -94,7 +94,7 @@ pub fn exit_window(ctx: &egui::Context, session: &mut crate::session::Session, t
             leave = ui.button(RichText::new(i18n::t("Leave")).color(rgb(t.error))).clicked();
             cancel = ui.button(i18n::t("Cancel")).clicked();
         });
-    });
+    }));
     if leave || cancel {
         let (scope, forget) = session.space_exit.take().expect("checked above");
         if leave {
@@ -128,7 +128,7 @@ pub fn admin_candidates<'a>(members: &'a [Member], me: &str) -> Vec<&'a Member> 
 pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session, t: &DesignTokens) {
     if let Some((name, result)) = &session.space_report {
         let mut close = false;
-        egui::Window::new(i18n::t("Delete space")).id(egui::Id::new("space-report")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        egui::Window::new(i18n::t("Delete space")).id(egui::Id::new("space-report")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
             ui.set_width(340.);
             ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(name)).strong()).truncate());
             match result {
@@ -153,7 +153,7 @@ pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session,
             }
             ui.add_space(8.);
             close = ui.button(i18n::t("Close")).clicked();
-        });
+        }));
         if close {
             session.space_report = None;
         }
@@ -168,7 +168,7 @@ pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session,
     let (rooms, people) = facts.map_or((0, 0), |c| (c.children.len(), c.other_members));
     let (mut go, mut cancel) = (false, false);
     let busy = session.space_deleting;
-    egui::Window::new(i18n::t("Delete space")).id(egui::Id::new("space-delete")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("Delete space")).id(egui::Id::new("space-delete")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_width(340.);
         ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&space.name)).strong()).truncate());
         ui.add_space(4.);
@@ -186,7 +186,7 @@ pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session,
                 ui.spinner();
             }
         });
-    });
+    }));
     let scope = scope.clone();
     if go {
         session.space_delete = None;
@@ -252,7 +252,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
     };
     let secondary = rgb(t.secondary);
     let (mut open, mut add, mut remove, mut member, mut promote) = (true, None, None, None, None);
-    egui::Window::new(&space.name).id(egui::Id::new("space-view")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(&space.name).id(egui::Id::new("space-view")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_width(340.);
         if view.members_page {
             ui.label(RichText::new(i18n::t("Members")).strong());
@@ -326,11 +326,11 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
             for child in &children.children {
                 ui.horizontal(|ui| {
                     avatar(ui, &session.avatars, &child.name, child.avatar_url.as_deref(), t);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
                         if children.editable && ui.button(i18n::t("Remove")).clicked() {
                             remove = Some(child.scope.clone());
                         }
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.with_layout(crate::dir::row(egui::Align::Center), |ui| {
                             // A room the user is not in is listed, greyed.
                             let name = RichText::new(crate::list::clean_single_line(&child.name)).color(if child.joined { rgb(t.text) } else { secondary });
                             ui.add(egui::Label::new(name).truncate());
@@ -345,7 +345,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
                 view.adding = Some(None);
             }
         }
-    });
+    }));
     let space = view.scope.clone();
     if let Some(user) = promote {
         session.moderation_failed = false;

@@ -29,7 +29,7 @@ impl Form {
 
 pub fn show(ctx: &egui::Context, s: &mut Session, f: &mut Form, t: &matrix_desktop::DesignTokens) {
     let mut open = true;
-    egui::Window::new(i18n::t("New poll")).open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("New poll")).open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_min_width(320.);
         ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut f.question).hint_text(i18n::t("Question")));
         let mut remove = None;
@@ -60,7 +60,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, f: &mut Form, t: &matrix_deskt
             *f = Form::default();
             s.poll_open = false;
         }
-    });
+    }));
     if !open {
         s.poll_open = false;
     }

@@ -1,6 +1,6 @@
 //! Central column: the selected room's messages, read-only. Rows have different heights, so the
 //! heights seen so far are cached and off-screen rows are replaced by empty space.
-use eframe::egui::{self, Align, Color32, CornerRadius, Layout, RichText, Vec2};
+use eframe::egui::{self, Align, Color32, CornerRadius, RichText, Vec2};
 use matrix_desktop::{DemoEvent, DesignTokens, i18n};
 
 /// Poll clicks of this frame: (poll start, option index).
@@ -239,7 +239,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
     if e.redacted {
         // Compact deleted row like the GPUI client: «Name: label … time», no bubble; right-click still opens the menu.
         let gutter = group && !e.outgoing && e.sender.is_some();
-        let layout = if e.outgoing { Layout::right_to_left(Align::Center) } else { Layout::left_to_right(Align::Center) };
+        let layout = if e.outgoing { crate::dir::row_rev(Align::Center) } else { crate::dir::row(Align::Center) };
         let r = ui.with_layout(layout, |ui| {
             ui.spacing_mut().item_spacing.x = 8.;
             ui.add_space(if gutter { 52. } else { 12. });
@@ -257,7 +257,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
     // The side margin (12) and, in group rooms, the avatar column (32 + 8) are not available to the bubble: without them a wide bubble overflowed a narrow column and every row shifted right.
     let side = 12. + if group && !e.outgoing { 40. } else { 0. };
     let max = ((ui.available_width() - side) * 0.85).clamp(120., MAX_BUBBLE);
-    let layout = if e.outgoing { Layout::right_to_left(Align::TOP) } else { Layout::left_to_right(Align::TOP) };
+    let layout = if e.outgoing { crate::dir::row_rev(Align::TOP) } else { crate::dir::row(Align::TOP) };
     let mut opened = None;
     let mut save = false;
     let mut thread = false;
@@ -271,7 +271,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         });
         let r = |glued: bool| if glued { JOINED } else { ROUND };
         // Only the corners on the sender's side shrink where the bubbles touch.
-        let radius = if e.outgoing { CornerRadius { nw: ROUND, ne: r(above), sw: ROUND, se: r(below) } } else { CornerRadius { nw: r(above), ne: ROUND, sw: r(below), se: ROUND } };
+        let radius = if e.outgoing != crate::dir::rtl() { CornerRadius { nw: ROUND, ne: r(above), sw: ROUND, se: r(below) } } else { CornerRadius { nw: r(above), ne: ROUND, sw: r(below), se: ROUND } };
         let flashed = matches!((&e.id.id, &acts.flash), (matrix_domain::TimelineId::Server(a), Some(b)) if a == b);
         // 1-3 emoji alone: Telegram-style big glyph with no bubble (a reply quote keeps the bubble around it).
         let big = (e.media.is_none() && e.poll.is_none() && e.thread.is_none() && e.attachment_name.is_none() && !e.utd && e.styles.is_empty() && e.mentions.is_empty())
@@ -310,7 +310,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 w = w.max(measure(a, 12.)).max(p.as_deref().map_or(0., |p| measure(p, 12.)).min(220.));
             }
             ui.set_width(if wide { inner.min(320.).max(w) } else { w.min(inner) + 1. });
-            ui.vertical(|ui| {
+            // The bubble sits on its side by the interface's direction; what is inside follows the message's own.
+            let inner_rtl = crate::dir::content_rtl(&e.text);
+            ui.with_layout(crate::dir::col_of(inner_rtl), |ui| {
                 if let Some(name) = label {
                     // The display name alone; the user id is the tooltip, and stands beside the name (small, grey) only when the engine added it to tell two members apart.
                     let id = e.sender.as_ref().map_or("", |s| s.id.as_str());
@@ -329,7 +331,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                         ui.spacing_mut().item_spacing.x = 6.;
                         let (bar, _) = ui.allocate_exact_size(Vec2::new(3., 32.), egui::Sense::hover());
                         ui.painter().rect_filled(bar, 1., rgb(t.accent));
-                        ui.vertical(|ui| {
+                        ui.with_layout(crate::dir::col_of(inner_rtl), |ui| {
                             ui.spacing_mut().item_spacing.y = 0.;
                             ui.add(egui::Label::new(RichText::new(author).size(12.).strong().color(rgb(t.accent))).truncate());
                             if let Some(p) = preview {
@@ -379,7 +381,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     for (ix, answer) in poll.answers.iter().enumerate() {
                         let share = if poll.results_visible() { poll.share(ix) } else { 0. };
                         let r = ui.add_enabled(!poll.ended, egui::Button::new(poll.option_label(ix)).wrap().selected(answer.own).min_size(Vec2::new(inner.min(200.), crate::metrics::get().button - 6.)));
-                        let bar = egui::Rect::from_min_size(r.rect.left_bottom() - Vec2::new(0., 3.), Vec2::new(r.rect.width() * share, 3.));
+                        let bar = crate::dir::flip(r.rect, egui::Rect::from_min_size(r.rect.left_bottom() - Vec2::new(0., 3.), Vec2::new(r.rect.width() * share, 3.)));
                         ui.painter().rect_filled(bar, 1., rgb(t.accent));
                         if r.clicked() {
                             acts.vote = Some((id.clone(), ix));
@@ -402,7 +404,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                         let mut from = 0;
                         for (r, s) in &pills { segs.push((&e.text[from..r.start], None)); segs.push((&e.text[r.clone()], Some(*s))); from = r.end; }
                         segs.push((&e.text[from..], None));
-                        let tail = ui.horizontal_wrapped(|ui| {
+                        let tail = crate::dir::wrapped(ui, inner_rtl, |ui| {
                             ui.spacing_mut().item_spacing.x = 0.;
                             for (seg, who) in segs {
                                 if let Some(s) = who {
@@ -422,7 +424,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                                     }
                                 }
                             }
-                            ui.cursor().left() - ui.max_rect().left()
+                            if inner_rtl { ui.max_rect().right() - ui.cursor().right() } else { ui.cursor().left() - ui.max_rect().left() }
                         }).inner;
                         // Pills and links are laid out here, not in `body`: decide from the real last line.
                         inline = e.thread.is_none() && tail + FOOT_GAP + foot_w <= ui.available_width();
@@ -444,13 +446,13 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 }
                 ui.add_space(if inline { -FOOT_H } else if bare { 0. } else { 2. });
                 // Bottom right of the bubble (the bubble is shrink-wrapped to its widest line, so this is its right edge).
-                ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), FOOT_H), Layout::right_to_left(Align::Max), |ui| {
+                ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), FOOT_H), crate::dir::row_of(!inner_rtl, Align::Max), |ui| {
                     ui.spacing_mut().item_spacing.x = READER_GAP;
                     // On the bare chat background the time sits on a small pill of the bubble colour, so contrast is the same in every theme.
                     let pill = if bare { egui::Frame::NONE.fill(rgb(t.surface)).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::symmetric(6, 0)) } else { egui::Frame::NONE };
                     pill.show(ui, |ui| {
                         ui.spacing_mut().item_spacing.x = READER_GAP;
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.with_layout(crate::dir::row_of(!inner_rtl, Align::Center), |ui| {
                             // Right to left: the delivery mark is the rightmost, the time left of it.
                             if let Some(mark) = mark {
                                 let ink = if mark == matrix_desktop::StampMark::Failed { rgb(t.error) } else { rgb(t.secondary) };
@@ -620,7 +622,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         heights.go_bottom = false;
     } else if heights.ready && !events.is_empty() {
         // Round button, bottom right above the composer: more to read below. No text; the screen-reader name is the only label.
-        let c = out.inner_rect.right_bottom() - Vec2::splat(36.);
+        let c = crate::dir::flip_pos(out.inner_rect, out.inner_rect.right_bottom() - Vec2::splat(36.));
         let resp = ui.interact(egui::Rect::from_center_size(c, Vec2::splat(40.)), ui.id().with("to-bottom"), egui::Sense::click());
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, i18n::t("Go to bottom")));
         let ink = if resp.hovered() { ui.visuals().strong_text_color() } else { rgb(t.secondary) };

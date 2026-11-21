@@ -83,9 +83,9 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     };
     let mut click: Option<(DirectoryRoom, bool)> = None;
     let mut more = false;
-    egui::Window::new(i18n::t("Explore public rooms")).frame(egui::Frame::window(&ctx.style_of(ctx.theme())).stroke(egui::Stroke::NONE)).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("Explore public rooms")).frame(egui::Frame::window(&ctx.style_of(ctx.theme())).stroke(egui::Stroke::NONE)).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_width(460.);
-        let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut e.term).hint_text(i18n::t("Search public rooms")).align(Align2::LEFT_CENTER));
+        let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut e.term).hint_text(i18n::t("Search public rooms")));
         if std::mem::take(&mut e.fresh) {
             field.request_focus();
         }
@@ -105,7 +105,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
             if e.pick == Pick::Other {
                 ui.add(crate::metrics::line(&mut e.other).hint_text(i18n::t("server name")).desired_width(150.));
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
                 ui.visuals_mut().selection.bg_fill = rgb(t.selection);
                 ui.visuals_mut().selection.stroke = egui::Stroke::new(1., rgb(t.text));
                 ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
@@ -154,7 +154,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 });
             }
         }
-    });
+    }));
     if let Some((room, joined)) = click {
         if joined {
             if let Some(scope) = s.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == room.room_id).map(|r| r.scope.clone()) {
@@ -181,7 +181,7 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
     if resp.hovered() {
         ui.painter().rect_filled(rect, 10., rgb(t.input));
     }
-    let c = egui::pos2(rect.left() + 28., rect.center().y);
+    let c = crate::dir::flip_pos(rect, egui::pos2(rect.left() + 28., rect.center().y));
     crate::avatar::paint(ui, c, 40., rgb(matrix_desktop::AVATAR_FALLBACK), &crate::avatar::lookup(&s.avatars, room.avatar_url.as_deref()), &room.name.chars().take(2).collect::<String>(), 15., rgb(t.avatar_text));
     let btn = egui::Rect::from_min_size(egui::pos2(rect.right() - 96., rect.center().y - crate::metrics::button() / 2.), Vec2::new(88., crate::metrics::button()));
     let left = rect.left() + 58.;
@@ -195,7 +195,7 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
     for (text, size, color, y) in [(room.name.as_str(), 15., t.text, 10.), (&*room.detail(), 12., t.secondary, 30.), (third, 12., third_color, 48.)] {
         if !text.is_empty() {
             let g = one_line(ui, text, size, rgb(color), width);
-            ui.painter().galley(egui::pos2(left, rect.top() + y), g, rgb(color));
+            ui.painter().galley(crate::dir::place(rect, egui::pos2(left, rect.top() + y), g.size().x), g, rgb(color));
         }
     }
     let label = match act {
@@ -204,6 +204,7 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
         Action::Joining => matrix_desktop::i18n::t("Joining…"),
         Action::Retry(_) => i18n::t("Retry"),
     };
+    let btn = crate::dir::flip(rect, btn);
     ({
         let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(btn));
         let visuals = &mut ui.style_mut().visuals;

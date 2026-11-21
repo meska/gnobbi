@@ -386,13 +386,13 @@ impl Editor {
         let column = COLUMN.min(screen.x - 72.);
         let (mut close, mut apply, mut reset) = (false, false, false);
         let frame = egui::Frame::popup(&ctx.style_of(ctx.theme())).fill(rgb(t.surface)).stroke(egui::Stroke::NONE).corner_radius(12).inner_margin(20);
-        let modal = egui::Modal::new(egui::Id::new("avatar-editor")).frame(frame).show(ctx, |ui| {
+        let modal = egui::Modal::new(egui::Id::new("avatar-editor")).frame(frame).show(ctx, |ui| crate::dir::scope(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 8.;
             let width = if wide { 2. * column + 24. } else { column };
             ui.set_width(width);
             ui.horizontal(|ui| {
                 ui.label(RichText::new(i18n::t("Profile photo")).size(crate::metrics::get().title).strong().color(rgb(t.text)));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| close |= icons::button(ui, Icon::X, false, i18n::t("Close")).clicked());
+                ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| close |= icons::button(ui, Icon::X, false, i18n::t("Close")).clicked());
             });
             let ready = self.picture.is_some();
             // Title and buttons stay in view; a short window scrolls what is between them.
@@ -402,8 +402,8 @@ impl Editor {
                     if wide {
                         ui.horizontal_top(|ui| {
                             ui.spacing_mut().item_spacing.x = 24.;
-                            ui.vertical(|ui| self.frame_side(ui, column, t));
-                            ui.vertical(|ui| self.colour_side(ui, column, t));
+                            ui.with_layout(crate::dir::col(), |ui| self.frame_side(ui, column, t));
+                            ui.with_layout(crate::dir::col(), |ui| self.colour_side(ui, column, t));
                         });
                     } else {
                         self.frame_side(ui, column, t);
@@ -416,7 +416,7 @@ impl Editor {
             }
             ui.horizontal(|ui| {
                 reset = ui.add_enabled(ready, egui::Button::new(icons::with_label(Icon::ArrowUUpLeft, i18n::t("Reset")))).clicked();
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
                     if self.saving.is_some() {
                         ui.spinner();
                     } else {
@@ -425,7 +425,7 @@ impl Editor {
                     close |= ui.button(i18n::t("Cancel")).clicked();
                 });
             });
-        });
+        }));
         if reset {
             (self.pose, self.look) = Default::default();
         }
@@ -582,13 +582,13 @@ fn slider(ui: &mut egui::Ui, label: &str, label_w: f32, value: &mut f32, range: 
         let height = crate::metrics::button();
         let (name, _) = ui.allocate_exact_size(Vec2::new(label_w, height), egui::Sense::hover());
         let text = crate::list::one_line(ui, label, m.body, rgb(t.text), label_w);
-        ui.painter().galley(egui::pos2(name.left(), name.center().y - text.size().y / 2.), text, rgb(t.text));
+        ui.painter().galley(crate::dir::place(name, egui::pos2(name.left(), name.center().y - text.size().y / 2.), text.size().x), text, rgb(t.text));
         ui.spacing_mut().slider_width = column - label_w - VALUE - 2. * m.gap;
         ui.visuals_mut().selection.bg_fill = rgb(t.accent);
         let resp = ui.add(egui::Slider::new(value, range).show_value(false).trailing_fill(true).handle_shape(egui::style::HandleShape::Circle));
         resp.widget_info(|| egui::WidgetInfo::slider(true, f64::from(*value), format!("{label} {}", shown(*value))));
         let (number, _) = ui.allocate_exact_size(Vec2::new(VALUE, height), egui::Sense::hover());
-        ui.painter().text(number.right_center(), egui::Align2::RIGHT_CENTER, shown(*value), egui::FontId::proportional(m.secondary), rgb(t.secondary));
+        ui.painter().text(crate::dir::flip_pos(number, number.right_center()), crate::dir::align(egui::Align2::RIGHT_CENTER), shown(*value), egui::FontId::proportional(m.secondary), rgb(t.secondary));
     });
 }
 

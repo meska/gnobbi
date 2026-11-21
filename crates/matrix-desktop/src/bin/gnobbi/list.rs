@@ -93,8 +93,8 @@ fn mode_label(mode: matrix_domain::notifications::RoomNotifyMode) -> &'static st
     }
 }
 
-fn draw_mark(ui: &egui::Ui, id: egui::Id, m: Mark, right: f32, y: f32, t: &DesignTokens) {
-    let rect = egui::Rect::from_center_size(egui::pos2(right - MARK / 2., y), Vec2::splat(MARK));
+fn draw_mark(ui: &egui::Ui, id: egui::Id, m: Mark, center: egui::Pos2, t: &DesignTokens) {
+    let rect = egui::Rect::from_center_size(center, Vec2::splat(MARK));
     let (label, color) = match m { Mark::Pin => (i18n::t("Pinned"), rgb(t.accent).gamma_multiply(0.8)), Mark::Low => (i18n::t("Low priority"), rgb(t.secondary).gamma_multiply(0.7)) };
     // Pinned is an active state (Fill); low priority is the plain down arrow.
     let (icon, fill) = match m { Mark::Pin => (crate::icons::Icon::PushPin, true), Mark::Low => (crate::icons::Icon::ArrowDown, false) };
@@ -103,14 +103,14 @@ fn draw_mark(ui: &egui::Ui, id: egui::Id, m: Mark, right: f32, y: f32, t: &Desig
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, label));
 }
 
-/// Draws the badge and returns its left edge.
-pub fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) -> f32 {
+/// Draws the badge and returns its rectangle.
+pub fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) -> egui::Rect {
     let g = ui.painter().layout_no_wrap(count(n), FontId::proportional(11.), rgb(t.on_accent));
     let w = (g.size().x + 10.).max(20.);
     let r = egui::Rect::from_center_size(center, Vec2::new(w, 20.));
     ui.painter().rect_filled(r, 10., rgb(t.accent));
     ui.painter().galley(r.center() - g.size() / 2., g, rgb(t.on_accent));
-    r.left()
+    r
 }
 
 /// Header with the search field, then the rows. Selection goes through `Sidebar::select`; true when a room was chosen, the open one too.
@@ -123,10 +123,10 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
         ui.add_space(if in_space { 8. } else { 16. });
         crate::space::menu(ui, session, t);
         ui.heading(clean_single_line(&title));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
             ui.add_space(12.);
             let plus = crate::icons::button(ui, crate::icons::Icon::Plus, false, i18n::t("New"));
-            egui::Popup::menu(&plus).show(|ui| {
+            egui::Popup::menu(&plus).show(|ui| crate::dir::popup(ui, |ui| {
                 if ui.button(i18n::t("New chat")).clicked() {
                     *new_chat = true;
                     ui.close();
@@ -135,7 +135,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                     session.open_explore();
                     ui.close();
                 }
-            });
+            }));
             more(ui);
         });
     });
@@ -147,7 +147,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        let r = ui.add_sized([w, crate::metrics::button()], crate::metrics::line(query).hint_text(i18n::t("Search conversations")).align(egui::Align2::LEFT_CENTER));
+        let r = ui.add_sized([w, crate::metrics::button()], crate::metrics::line(query).hint_text(i18n::t("Search conversations")));
         if std::mem::take(focus) {
             r.request_focus();
         }
@@ -185,26 +185,29 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             } else if resp.hovered() {
                 ui.painter().rect_filled(rect, 0., rgb(t.input));
             }
-            let c = egui::pos2(rect.left() + 36., rect.center().y);
+            // Worked out for LTR; `flip`/`place` put each piece on its side.
+            let (flip, place) = (|p: egui::Pos2| crate::dir::flip_pos(rect, p), |p: egui::Pos2, g: &egui::Galley| crate::dir::place(rect, p, g.size().x));
+            let c = flip(egui::pos2(rect.left() + 36., rect.center().y));
             crate::avatar::paint(ui, c, 40., rgb(room.color), &crate::avatar::lookup(&session.avatars, room.info.avatar.as_deref()), &room.initials, 15., rgb(t.avatar_text));
             let p = ui.painter();
             let text_left = rect.left() + 68.;
             let stamp = room.stamp();
             let stamp_w = stamp.as_ref().map_or(0., |s| p.layout_no_wrap(s.clone(), FontId::proportional(12.), rgb(t.secondary)).size().x);
             let name = one_line(ui, &room.name, 15., rgb(t.text), (rect.right() - 12. - text_left - stamp_w - 8.).max(20.));
-            ui.painter().galley(egui::pos2(text_left, rect.top() + 8.), name, rgb(t.text));
+            ui.painter().galley(place(egui::pos2(text_left, rect.top() + 8.), &name), name, rgb(t.text));
             if let Some(s) = stamp {
-                ui.painter().text(egui::pos2(rect.right() - 12., rect.top() + 10.), Align2::RIGHT_TOP, s, FontId::proportional(12.), rgb(t.secondary));
+                ui.painter().text(flip(egui::pos2(rect.right() - 12., rect.top() + 10.)), crate::dir::align(Align2::RIGHT_TOP), s, FontId::proportional(12.), rgb(t.secondary));
             }
             let row_mark = mark(room.pinned(), room.low_priority());
             let preview = one_line(ui, matrix_desktop::row_text::engine_placeholder(&room.preview), 13., rgb(t.secondary), (rect.right() - 12. - text_left - right_reserved(room.unread > 0, row_mark)).max(20.));
-            ui.painter().galley(egui::pos2(text_left, rect.top() + 29.), preview, rgb(t.secondary));
+            ui.painter().galley(place(egui::pos2(text_left, rect.top() + 29.), &preview), preview, rgb(t.secondary));
             let mut mark_right = rect.right() - 12.;
             if room.unread > 0 {
-                mark_right = badge(ui, egui::pos2(rect.right() - 24., rect.top() + 38.), room.unread, t) - 4.;
+                let b = badge(ui, flip(egui::pos2(rect.right() - 24., rect.top() + 38.)), room.unread, t);
+                mark_right = rect.right() - 24. - b.width() / 2. - 4.;
             }
             if let Some(m) = row_mark {
-                draw_mark(ui, egui::Id::new(("row-mark", index)), m, mark_right, rect.top() + 38., t);
+                draw_mark(ui, egui::Id::new(("row-mark", index)), m, flip(egui::pos2(mark_right - MARK / 2., rect.top() + 38.)), t);
             }
             if resp.clicked() {
                 pick = Some(room.scope.clone());
@@ -225,7 +228,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                     // No pointer in a headless run: the menu is pinned to the row instead.
                     if view == "room-menu" { menu = menu.open(true).at_position(rect.center()); }
                 }
-                menu.show(|ui| {
+                menu.show(|ui| crate::dir::popup(ui, |ui| {
                     use crate::session::RoomAction;
                     for (label, choice) in [(i18n::t("Mark as read"), RoomAction::Mark(true)), (i18n::t("Mark as unread"), RoomAction::Mark(false)), (if sidebar.is_favourite(&room.scope) { i18n::t("Unpin") } else { i18n::t("Pin to top") }, RoomAction::Tag("m.favourite")), (if sidebar.has_tag(&room.scope, "m.lowpriority") { i18n::t("Remove from low priority") } else { i18n::t("Mark as low priority") }, RoomAction::Tag("m.lowpriority"))] {
                         if ui.button(label).clicked() { action = Some((room.scope.clone(), choice)); ui.close(); }
@@ -246,7 +249,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                         action = Some((room.scope.clone(), RoomAction::Leave));
                         ui.close();
                     }
-                });
+                }));
             }
         }
     });
@@ -272,7 +275,7 @@ pub fn space_picker(ctx: &egui::Context, session: &mut crate::session::Session) 
         _ => Vec::new(),
     };
     let (mut open, mut add, mut cancel) = (true, false, false);
-    egui::Window::new(i18n::t("Add to a space")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("Add to a space")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_min_width(300.);
         egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
             for space in spaces {
@@ -284,7 +287,7 @@ pub fn space_picker(ctx: &egui::Context, session: &mut crate::session::Session) 
             add = ui.add_enabled(chosen.is_some(), egui::Button::new(i18n::t("Add"))).clicked();
             cancel = ui.button(i18n::t("Cancel")).clicked();
         });
-    });
+    }));
     if add && let Some((room, Some(space))) = session.space_pick.take() {
         session.room_action(room, crate::session::RoomAction::AddTo(space));
     } else if cancel || !open {

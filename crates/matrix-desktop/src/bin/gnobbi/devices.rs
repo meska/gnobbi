@@ -189,7 +189,7 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
 pub fn popup(ctx: &egui::Context, v: &mut DeviceVerification) {
     let Some(view) = v.popup_view() else { return };
     let mut pressed = None;
-    egui::Window::new(view.title).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(view.title).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_min_width(320.);
         match &view.body {
             PopupBody::Waiting => {
@@ -202,7 +202,7 @@ pub fn popup(ctx: &egui::Context, v: &mut DeviceVerification) {
             PopupBody::Emoji(list) => {
                 ui.horizontal_wrapped(|ui| {
                     for (symbol, name) in list {
-                        ui.vertical(|ui| {
+                        ui.with_layout(crate::dir::col(), |ui| {
                             ui.label(RichText::new(symbol).size(30.));
                             ui.label(RichText::new(name).size(11.));
                         });
@@ -224,7 +224,7 @@ pub fn popup(ctx: &egui::Context, v: &mut DeviceVerification) {
                 }
             }
         });
-    });
+    }));
     if let Some(button) = pressed {
         v.popup_press(button);
     } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -237,7 +237,7 @@ pub fn dialogs(ctx: &egui::Context, v: &mut DeviceVerification, f: &mut Fields) 
     if let Some(dialog) = v.delete_dialog() {
         let (counter, note, error, enabled) = (dialog.counter(), dialog.unknown_note(), dialog.error, dialog.confirm_enabled());
         let (mut go, mut cancel) = (false, false);
-        egui::Window::new(i18n::t("Sign out")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        egui::Window::new(i18n::t("Sign out")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
             ui.label(counter);
             if let Some(n) = note {
                 ui.label(n);
@@ -256,7 +256,7 @@ pub fn dialogs(ctx: &egui::Context, v: &mut DeviceVerification, f: &mut Fields) 
                     cancel = true;
                 }
             });
-        });
+        }));
         if go {
             v.submit_delete(zeroize::Zeroizing::new(std::mem::take(&mut f.password)));
         }
@@ -268,7 +268,7 @@ pub fn dialogs(ctx: &egui::Context, v: &mut DeviceVerification, f: &mut Fields) 
     if let Some(dialog) = v.rename_dialog() {
         let (busy, error) = (dialog.busy, dialog.error);
         let (mut go, mut cancel) = (false, false);
-        egui::Window::new(i18n::t("Rename")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        egui::Window::new(i18n::t("Rename")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
             ui.add(crate::metrics::line(&mut f.rename).hint_text(i18n::t("Device name")));
             if let Some(e) = error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
@@ -277,7 +277,7 @@ pub fn dialogs(ctx: &egui::Context, v: &mut DeviceVerification, f: &mut Fields) 
                 go = ui.add_enabled(!busy && !f.rename.trim().is_empty(), egui::Button::new(i18n::t("Save"))).clicked();
                 cancel = ui.button(i18n::t("Cancel")).clicked();
             });
-        });
+        }));
         if go {
             v.submit_rename(f.rename.trim());
         }
@@ -316,7 +316,7 @@ pub fn offer(ctx: &egui::Context, v: &DeviceVerification, suppressed: bool, f: &
     let kind = v.recovery_offer(suppressed)?;
     let enter = kind == OfferKind::Enter;
     let mut answer = None;
-    egui::Window::new(i18n::t("Recovery key")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("Recovery key")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_max_width(380.);
         ui.label(if enter { i18n::t("This device does not have the account's recovery keys: enter the key to read old encrypted messages") } else { i18n::t("This account has no recovery key: without one, encrypted messages are lost with the devices") });
         ui.add_space(8.);
@@ -363,7 +363,7 @@ pub fn offer(ctx: &egui::Context, v: &DeviceVerification, suppressed: bool, f: &
                 answer = Some(Offer::Never);
             }
         });
-    });
+    }));
     if matches!(answer, Some(Offer::NotNow | Offer::Never)) {
         f.key.clear();
     }
@@ -401,7 +401,7 @@ pub fn new_key(ctx: &egui::Context, v: &mut DeviceVerification) {
         return;
     }
     let mut close = false;
-    egui::Window::new(i18n::t("New recovery key")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("New recovery key")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_max_width(380.);
         let Some(key) = &key else {
             if page.busy {
@@ -420,7 +420,7 @@ pub fn new_key(ctx: &egui::Context, v: &mut DeviceVerification) {
             ui.checkbox(&mut page.kept, i18n::t("I kept it elsewhere"));
             close = ui.add_enabled(page.kept, egui::Button::new(i18n::t("Done"))).clicked();
         });
-    });
+    }));
     if close {
         v.confirm_key_saved();
     }

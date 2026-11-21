@@ -89,9 +89,7 @@ pub fn person_row(ui: &mut egui::Ui, name: &str, id: &str, duplicate: bool, sele
 pub fn lines_row(ui: &mut egui::Ui, lead: impl FnOnce(&mut egui::Ui), lines: &[Line], trailing: impl FnOnce(&mut egui::Ui)) {
     let heights: Vec<f32> = lines.iter().map(|l| ui.painter().layout_no_wrap(l.text.to_owned(), font(l), Color32::WHITE).size().y).collect();
     let block = heights.iter().sum::<f32>() + LINE_GAP * lines.len().saturating_sub(1) as f32;
-    egui::containers::Sides::new().height(ROW.max(block + 12.)).spacing(GAP).shrink_left().truncate().show(
-        ui,
-        |ui| {
+    let main = |ui: &mut egui::Ui| {
             ui.spacing_mut().item_spacing.x = GAP;
             lead(ui);
             let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), block), Sense::hover());
@@ -103,15 +101,16 @@ pub fn lines_row(ui: &mut egui::Ui, lead: impl FnOnce(&mut egui::Ui), lines: &[L
                 job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - tag_w).max(20.));
                 let galley = ui.painter().layout_job(job);
                 let x = rect.left() + galley.size().x + 6.;
-                ui.painter().galley(egui::pos2(rect.left(), y), galley, l.color);
+                ui.painter().galley(crate::dir::place(rect, egui::pos2(rect.left(), y), galley.size().x), galley, l.color);
                 if let Some((g, fill)) = tag {
-                    let pill = egui::Rect::from_min_size(egui::pos2(x, y + (h - g.size().y - 2.) / 2.), g.size() + Vec2::new(8., 2.));
+                    let pill = crate::dir::flip(rect, egui::Rect::from_min_size(egui::pos2(x, y + (h - g.size().y - 2.) / 2.), g.size() + Vec2::new(8., 2.)));
                     ui.painter().rect_filled(pill, 4., fill);
                     ui.painter().galley(pill.center() - g.size() / 2., g, Color32::WHITE);
                 }
                 y += h + LINE_GAP;
             }
-        },
-        trailing,
-    );
+    };
+    // `Sides` names its halves left and right: in RTL lead and text go to the right one.
+    let sides = egui::containers::Sides::new().height(ROW.max(block + 12.)).spacing(GAP).truncate();
+    if crate::dir::rtl() { sides.shrink_right().show(ui, trailing, main); } else { sides.shrink_left().show(ui, main, trailing); }
 }

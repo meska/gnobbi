@@ -291,8 +291,8 @@ pub fn current() -> &'static str {
     LANGUAGES[index.min(LANGUAGES.len() - 1)].code
 }
 
-/// Is the active language written right to left? egui has no bidi or mirrored layout: callers pick
-/// `Layout::right_to_left` / `Align::RIGHT` with this.
+/// Is the active language written right to left? The egui app mirrors its whole layout on this,
+/// through its `dir` module.
 pub fn rtl() -> bool {
     script::is_rtl(current())
 }

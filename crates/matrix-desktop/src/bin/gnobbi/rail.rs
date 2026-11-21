@@ -277,7 +277,7 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
         ui.painter().rect_stroke(cell, 10., Stroke::new(1.5, rgb(t.accent)), egui::StrokeKind::Inside);
     }
     let depth = if let Icon::Space(row) = &icon { row.depth.min(2) as f32 } else { 0. };
-    let c = egui::pos2(rect.center().x + depth * 4., rect.top() + 22.);
+    let c = crate::dir::flip_pos(rect, egui::pos2(rect.center().x + depth * 4., rect.top() + 22.));
     let ink = rgb(if selected { t.accent } else { t.secondary });
     let p = ui.painter();
     let glyph = crate::metrics::get().icon + 6.;
@@ -291,18 +291,19 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
             let initial: String = row.name.chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_default();
             crate::avatar::paint(ui, c, size, rgb(crate::AVATAR), &crate::avatar::lookup(avatars, row.avatar.as_deref()), &initial, size * 0.45, rgb(t.on_accent));
             if row.depth > 0 {
-                p.line_segment([egui::pos2(rect.left() + 11., rect.top()), egui::pos2(rect.left() + 11., rect.top() + 40.)], Stroke::new(1., rgb(t.border)));
+                let x = crate::dir::flip_pos(rect, egui::pos2(rect.left() + 11., 0.)).x;
+                p.line_segment([egui::pos2(x, rect.top()), egui::pos2(x, rect.top() + 40.)], Stroke::new(1., rgb(t.border)));
             }
             if row.has_children {
                 // Chevron: right when folded, down when open.
-                icons::paint(p, egui::pos2(rect.left() + 12. + depth * 4., c.y), if row.open { icons::Icon::CaretDown } else { icons::Icon::CaretRight }, false, crate::metrics::get().icon - 4., rgb(t.secondary));
+                icons::paint(p, crate::dir::flip_pos(rect, egui::pos2(rect.left() + 12. + depth * 4., c.y)), if row.open { icons::Icon::CaretDown } else { icons::Icon::CaretRight }, false, crate::metrics::get().icon - 4., rgb(t.secondary));
             }
         }
     }
     let name = one_line(ui, label, 11., rgb(if selected { t.text } else { t.secondary }), WIDTH - 12.);
     p.galley(egui::pos2(rect.center().x - name.size().x / 2., rect.top() + 41.), name, rgb(t.text));
     if n > 0 {
-        badge(ui, c + Vec2::new(17., -12.), n, t);
+        badge(ui, c + Vec2::new(if crate::dir::rtl() { -17. } else { 17. }, -12.), n, t);
     }
     let spoken = if matches!(icon, Icon::Edit) { i18n::t("Organise spaces").to_owned() } else if n > 0 { i18n::t("{label}, {n} unread").replace("{label}", label).replace("{n}", &n.to_string()) } else { label.to_owned() };
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &spoken));
@@ -414,9 +415,14 @@ pub fn drawer(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str
 pub fn drawer_back(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str, title: &str, shown: bool, t: &DesignTokens, back: Option<&mut bool>, body: impl FnOnce(&mut egui::Ui, egui::Rect)) -> bool {
     let open = slide(ctx, name, shown);
     let Some(panel) = panel.filter(|_| open > 0.) else { return false };
-    let (left, width) = drawer_span(panel.right(), ctx.content_rect());
-    let clip = egui::Rect::from_min_max(egui::pos2(left, panel.top()), egui::pos2(ctx.content_rect().right(), panel.bottom()));
-    let rect = egui::Rect::from_min_size(clip.min - Vec2::new((1. - open) * width, 0.), Vec2::new(width, panel.height()));
+    // Worked out as if the rail were on the left, then mirrored in the window: in RTL the drawer slides out of the rail's left edge.
+    let content = ctx.content_rect();
+    let flip = |r| crate::dir::flip(content, r);
+    let panel = flip(panel);
+    let (left, width) = drawer_span(panel.right(), content);
+    let clip = egui::Rect::from_min_max(egui::pos2(left, panel.top()), egui::pos2(content.right(), panel.bottom()));
+    let rect = flip(egui::Rect::from_min_size(clip.min - Vec2::new((1. - open) * width, 0.), Vec2::new(width, panel.height())));
+    let clip = flip(clip);
     let mut closed = false;
     // The rest of the window is dimmed: a click there closes the drawer and reaches nothing else. The rail stays usable.
     egui::Area::new(egui::Id::new((name, "scrim"))).order(egui::Order::Middle).fixed_pos(clip.min).show(ctx, |ui| {
@@ -431,9 +437,10 @@ pub fn drawer_back(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'stati
         let p = ui.painter().clone();
         p.rect_filled(rect, 0., rgb(t.surface));
         let head = egui::Rect::from_min_size(rect.min, Vec2::new(width, 56.));
+        let flip = |r| crate::dir::flip(head, r);
         let mut title_x = 20.;
         if let Some(back) = back {
-            let b = egui::Rect::from_center_size(egui::pos2(head.left() + 30., head.center().y), Vec2::splat(crate::metrics::button() + 4.));
+            let b = flip(egui::Rect::from_center_size(egui::pos2(head.left() + 30., head.center().y), Vec2::splat(crate::metrics::button() + 4.)));
             let r = ui.interact(b, egui::Id::new((name, "return")), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
             lit(ui, &r, b, 18., t);
             icons::paint(&p, b.center(), icons::Icon::CaretLeft, false, crate::metrics::get().icon, rgb(t.secondary));
@@ -441,14 +448,14 @@ pub fn drawer_back(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'stati
             *back |= r.clicked();
             title_x = 52.;
         }
-        p.text(head.left_center() + Vec2::new(title_x, 0.), Align2::LEFT_CENTER, title, FontId::proportional(17.), rgb(t.text));
-        let x = egui::Rect::from_center_size(egui::pos2(head.right() - 30., head.center().y), Vec2::splat(crate::metrics::button() + 4.));
+        p.text(crate::dir::flip_pos(head, head.left_center() + Vec2::new(title_x, 0.)), crate::dir::align(Align2::LEFT_CENTER), title, FontId::proportional(17.), rgb(t.text));
+        let x = flip(egui::Rect::from_center_size(egui::pos2(head.right() - 30., head.center().y), Vec2::splat(crate::metrics::button() + 4.)));
         let close = ui.interact(x, egui::Id::new((name, "close")), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
         lit(ui, &close, x, 18., t);
         icons::paint(&p, x.center(), icons::Icon::X, false, crate::metrics::get().icon, rgb(t.secondary));
         close.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, matrix_desktop::i18n::t("Close")));
         closed |= close.clicked();
-        body(ui, egui::Rect::from_min_max(head.left_bottom(), rect.max));
+        crate::dir::scope(ui, |ui| body(ui, egui::Rect::from_min_max(head.left_bottom(), rect.max)));
     });
     closed
 }
@@ -467,7 +474,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
     let closed = drawer(ctx, state.panel, "rail-drawer", i18n::t("Organise spaces"), state.edit, t, |ui, rect| {
         let (p, width) = (ui.painter().clone(), rect.width());
         let size = crate::metrics::button() + 4.;
-        let action = egui::Rect::from_center_size(egui::pos2(rect.right() - 30. - size, rect.top() - 28.), Vec2::splat(size));
+        let action = crate::dir::flip(rect, egui::Rect::from_center_size(egui::pos2(rect.right() - 30. - size, rect.top() - 28.), Vec2::splat(size)));
         let label = matrix_desktop::i18n::t("New space");
         if icons::button_at(ui, action, egui::Id::new("new-space"), icons::Icon::Plus, false, crate::metrics::get().icon, label, Some(rgb(t.accent)), true, 1.).on_hover_text(label).clicked() {
             form.open_creation(true);
@@ -477,7 +484,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
         let mut top = rect.top() + 8.;
         if let Some(error) = &state.error {
             let line = one_line(ui, error, 13., rgb(t.error), width - 40.);
-            p.galley(egui::pos2(rect.left() + 20., top + 18. - line.size().y / 2.), line, rgb(t.error));
+            p.galley(crate::dir::place(rect, egui::pos2(rect.left() + 20., top + 18. - line.size().y / 2.), line.size().x), line, rgb(t.error));
             top += 36.;
         }
         if rows.is_empty() {
@@ -502,7 +509,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
                 let target = held.zip(pos).and_then(|(at, pos)| {
                     let y = ((pos.y - top) / ROW).clamp(0., rows.len() as f32 - 0.001);
                     // Sideways from where the row was grabbed: right goes a level in, left a level out.
-                    let depth = rows[at].depth as f32 + from.map_or(0., |o| ((pos.x - o.x) / INDENT).round());
+                    let depth = rows[at].depth as f32 + from.map_or(0., |o| ((pos.x - o.x) * if crate::dir::rtl() { -1. } else { 1. } / INDENT).round());
                     drop_target(&rows, at, y as usize, y.fract(), depth.max(0.) as usize)
                 });
                 let refused = held.zip(target.as_ref()).and_then(|(at, tg)| refusal(&rows, at, tg.parent.as_deref()));
@@ -514,13 +521,15 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
                 let id = |i: usize| rows[i].id().to_owned();
                 for (i, row) in rows.iter().enumerate() {
                     let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::hover());
+                    // LTR maths; `flip` puts each piece on its side of the row.
+                    let flip = |p: egui::Pos2| crate::dir::flip_pos(r, p);
                     let right = egui::Rect::from_min_max(egui::pos2(r.right() - 132., r.top()), egui::pos2(r.right() - 20., r.bottom()));
                     let grab = egui::Rect::from_min_max(r.min, egui::pos2(right.left(), r.bottom())).shrink2(Vec2::new(6., 2.));
-                    let resp = ui.interact(grab, egui::Id::new(("rail-row", row.id())), if frozen { Sense::hover() } else { Sense::click_and_drag() });
+                    let resp = ui.interact(crate::dir::flip(r, grab), egui::Id::new(("rail-row", row.id())), if frozen { Sense::hover() } else { Sense::click_and_drag() });
                     if target.as_ref().is_some_and(|tg| tg.mark == Mark::Into(i)) {
                         ui.painter().rect(r.shrink2(Vec2::new(6., 2.)), 10., ink.gamma_multiply(0.18), Stroke::new(2., ink), egui::StrokeKind::Inside);
                     } else if held.is_none() {
-                        lit(ui, &resp, grab, 10., t);
+                        lit(ui, &resp, crate::dir::flip(r, grab), 10., t);
                     }
                     if resp.drag_started() {
                         resp.dnd_set_drag_payload(Dragged(row.id().to_owned()));
@@ -531,13 +540,14 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
                         // Arrow keys move the row instead of the focus: up/down among its siblings, right into the one above, left out of its parent.
                         ui.memory_mut(|m| m.set_focus_lock_filter(resp.id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() }));
                         let key = |k| ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k));
+                        let (inward, outward) = if crate::dir::rtl() { (egui::Key::ArrowLeft, egui::Key::ArrowRight) } else { (egui::Key::ArrowRight, egui::Key::ArrowLeft) };
                         if let Some(b) = prev.filter(|_| key(egui::Key::ArrowUp)) {
                             act = Some(Edit::Place(i, row.parent.clone(), Some(id(b))));
                         } else if let Some(n) = next.filter(|_| key(egui::Key::ArrowDown)) {
                             act = Some(Edit::Place(i, row.parent.clone(), siblings(n).1.map(id)));
-                        } else if let Some(b) = prev.filter(|_| key(egui::Key::ArrowRight)) {
+                        } else if let Some(b) = prev.filter(|_| key(inward)) {
                             act = Some(Edit::Place(i, Some(id(b)), None));
-                        } else if let Some(p) = row.parent.as_ref().filter(|_| key(egui::Key::ArrowLeft)).and_then(|p| rows.iter().position(|r| r.id() == p)) {
+                        } else if let Some(p) = row.parent.as_ref().filter(|_| key(outward)).and_then(|p| rows.iter().position(|r| r.id() == p)) {
                             act = Some(Edit::Place(i, rows[p].parent.clone(), siblings(p).1.map(id)));
                         }
                     }
@@ -547,19 +557,19 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
                     }
                     let (mut x, cy) = (grab.left() + 14., r.center().y);
                     if row.busy {
-                        egui::Spinner::new().color(rgb(t.accent)).paint_at(ui, egui::Rect::from_center_size(egui::pos2(x, cy), Vec2::splat(16.)));
+                        egui::Spinner::new().color(rgb(t.accent)).paint_at(ui, egui::Rect::from_center_size(flip(egui::pos2(x, cy)), Vec2::splat(16.)));
                     } else {
-                        icons::paint(&p, egui::pos2(x, cy), icons::Icon::DotsSixVertical, false, crate::metrics::get().icon, rgb(if frozen { t.disabled } else { t.placeholder }));
+                        icons::paint(&p, flip(egui::pos2(x, cy)), icons::Icon::DotsSixVertical, false, crate::metrics::get().icon, rgb(if frozen { t.disabled } else { t.placeholder }));
                     }
                     x += 18. + row.depth as f32 * INDENT;
-                    face(ui, &session.avatars, row, egui::pos2(x + 14., cy), 28., t);
+                    face(ui, &session.avatars, row, flip(egui::pos2(x + 14., cy)), 28., t);
                     let name = one_line(ui, &row.name, 15., rgb(if row.hidden { t.placeholder } else { t.text }), grab.right() - x - 44.);
-                    p.galley(egui::pos2(x + 38., cy - name.size().y / 2.), name, rgb(t.text));
+                    p.galley(crate::dir::place(r, egui::pos2(x + 38., cy - name.size().y / 2.), name.size().x), name, rgb(t.text));
                     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, !frozen, i18n::t("Move {name}").replace("{name}", &row.name)));
                     if !frozen {
                         resp.on_hover_cursor(egui::CursorIcon::Grab);
                     }
-                    ui.scope_builder(egui::UiBuilder::new().max_rect(right).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(crate::dir::flip(r, right)).layout(crate::dir::row_rev(egui::Align::Center)), |ui| {
                         ui.spacing_mut().item_spacing.x = 0.;
                         let mut shown = !row.hidden;
                         if crate::settings::toggle(ui, &row.name, &mut shown, t) {
@@ -576,8 +586,9 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
                 }
                 let (Some(at), Some(pos)) = (held, pos) else { return };
                 if let Some(Target { mark: Mark::Line(gap, depth), .. }) = &target {
-                    let a = egui::pos2(left + 26. + *depth as f32 * INDENT, top + *gap as f32 * ROW);
-                    ui.painter().hline(a.x..=ui.max_rect().right() - 20., a.y, Stroke::new(2., ink));
+                    let line = crate::dir::flip(ui.max_rect(), egui::Rect::from_x_y_ranges((left + 26. + *depth as f32 * INDENT)..=(ui.max_rect().right() - 20.), (top + *gap as f32 * ROW)..=(top + *gap as f32 * ROW)));
+                    let a = if crate::dir::rtl() { line.right_top() } else { line.left_top() };
+                    ui.painter().hline(line.x_range(), a.y, Stroke::new(2., ink));
                     ui.painter().circle_filled(a, 4., ink);
                 }
                 // The held row follows the pointer, above everything.

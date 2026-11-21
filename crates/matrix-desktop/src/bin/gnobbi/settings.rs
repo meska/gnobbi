@@ -12,7 +12,7 @@ pub fn switch(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| changed = toggle(ui, label, on, t));
+        ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| changed = toggle(ui, label, on, t));
     });
     changed
 }
@@ -26,7 +26,7 @@ pub fn toggle(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -
     }
     let (track, knob) = if *on { (rgb(t.accent), 26.) } else { (rgb(t.disabled), 10.) };
     ui.painter().rect_filled(rect, 10., track);
-    ui.painter().circle_filled(egui::pos2(rect.left() + knob, rect.center().y), 8., rgb(t.on_accent));
+    ui.painter().circle_filled(crate::dir::flip_pos(rect, egui::pos2(rect.left() + knob, rect.center().y)), 8., rgb(t.on_accent));
     if resp.has_focus() {
         ui.painter().rect_stroke(rect.expand(2.), 12., egui::Stroke::new(1.5, rgb(t.accent)), egui::StrokeKind::Outside);
     }
@@ -50,9 +50,10 @@ fn nav_row(ui: &mut egui::Ui, label: &str, icon: crate::icons::Icon, t: &DesignT
     if resp.has_focus() {
         ui.painter().rect_stroke(rect, 8., egui::Stroke::new(1.5, rgb(t.accent)), egui::StrokeKind::Inside);
     }
-    crate::icons::paint(ui.painter(), rect.left_center() + Vec2::new(20., 0.), icon, false, crate::metrics::get().icon + 4., rgb(t.secondary));
-    ui.painter().text(rect.left_center() + Vec2::new(44., 0.), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(14.), rgb(t.text));
-    crate::icons::paint(ui.painter(), rect.right_center() - Vec2::new(16., 0.), crate::icons::Icon::CaretRight, false, crate::metrics::get().icon - 2., rgb(t.secondary));
+    let flip = |p| crate::dir::flip_pos(rect, p);
+    crate::icons::paint(ui.painter(), flip(rect.left_center() + Vec2::new(20., 0.)), icon, false, crate::metrics::get().icon + 4., rgb(t.secondary));
+    ui.painter().text(flip(rect.left_center() + Vec2::new(44., 0.)), crate::dir::align(egui::Align2::LEFT_CENTER), label, egui::FontId::proportional(14.), rgb(t.text));
+    crate::icons::paint(ui.painter(), flip(rect.right_center() - Vec2::new(16., 0.)), crate::icons::Icon::CaretRight, false, crate::metrics::get().icon - 2., rgb(t.secondary));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     resp
 }
@@ -61,8 +62,8 @@ fn nav_row(ui: &mut egui::Ui, label: &str, icon: crate::icons::Icon, t: &DesignT
 pub fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
         let name = ui.label(label);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            crate::metrics::clickable(egui::ComboBox::from_id_salt(label).selected_text(selected).width(150.).show_ui(ui, add).response).labelled_by(name.id);
+        ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
+            crate::metrics::clickable(egui::ComboBox::from_id_salt(label).selected_text(selected).width(150.).show_ui(ui, |ui| crate::dir::scope(ui, add)).response).labelled_by(name.id);
         });
     });
 }

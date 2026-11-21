@@ -21,7 +21,7 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
         ui.add_space(16.);
         ui.horizontal(|ui| {
             ui.add_space(16.);
-            ui.vertical(|ui| {
+            ui.with_layout(crate::dir::col(), |ui| {
                 ui.set_max_width(ui.available_width() - 16.);
                 ui.horizontal(|ui| {
                     let width = (ui.available_width() - if room.info.edit_rights.any() { crate::metrics::button() + ui.spacing().item_spacing.x } else { 0. }).max(0.);
@@ -46,7 +46,7 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
         ui.add_space(8.);
         ui.horizontal(|ui| {
             ui.add_space(16.);
-            ui.vertical(|ui| {
+            ui.with_layout(crate::dir::col(), |ui| {
                 ui.set_max_width(ui.available_width() - 16.);
                 let label = i18n::t("Status messages");
                 let name = ui.label(label);
@@ -108,7 +108,7 @@ fn topic_runs(topic: &matrix_engine::rich_text::Topic) -> Vec<Run<'_>> {
 /// The topic with its styles; links look and behave as in the timeline. Returns the link clicked this frame.
 fn topic_view(ui: &mut egui::Ui, topic: &matrix_engine::rich_text::Topic, t: &DesignTokens) -> Option<matrix_desktop::SafeWebUrl> {
     let mut clicked = None;
-    ui.horizontal_wrapped(|ui| {
+    crate::dir::wrapped(ui, crate::dir::content_rtl(&topic.text), |ui| {
         ui.spacing_mut().item_spacing.x = 0.;
         for run in topic_runs(topic) {
             // shortcut: no bold face is bundled, bold is the main text colour; add a bold font to upgrade.
@@ -245,7 +245,7 @@ pub fn member_row(ui: &mut egui::Ui, avatars: &crate::avatar::Avatars, m: &Membe
     if resp.hovered() {
         ui.painter().rect_filled(rect, 0., rgb(t.input));
     }
-    let c = egui::pos2(rect.left() + 28., rect.center().y);
+    let c = crate::dir::flip_pos(rect, egui::pos2(rect.left() + 28., rect.center().y));
     let initials: String = m.name.trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
     crate::avatar::paint(ui, c, 28., rgb(matrix_desktop::AVATAR_FALLBACK), &crate::avatar::lookup(avatars, m.avatar.as_deref()), &initials, 12., rgb(t.on_accent));
     let role = crate::members::role_label(m.role);
@@ -256,14 +256,16 @@ pub fn member_row(ui: &mut egui::Ui, avatars: &crate::avatar::Avatars, m: &Membe
     });
     let label = ui.painter().layout_no_wrap(role.to_owned(), FontId::proportional(11.), ink);
     let pill = egui::Rect::from_center_size(egui::pos2(rect.right() - 8. - (label.size().x + 16.) / 2., rect.center().y), Vec2::new(label.size().x + 16., 20.));
+    // `pill` stays the LTR one (the name's width is measured against it); `shown` is where it is painted.
+    let shown = crate::dir::flip(rect, pill);
     match m.role {
-        MemberRole::Admin => ui.painter().rect_filled(pill, 10., rgb(t.accent)),
-        MemberRole::Moderator => ui.painter().rect_stroke(pill, 10., egui::Stroke::new(1., rgb(t.accent)), egui::StrokeKind::Inside),
-        MemberRole::Member => ui.painter().rect_stroke(pill, 10., egui::Stroke::new(1., rgb(t.border)), egui::StrokeKind::Inside),
+        MemberRole::Admin => ui.painter().rect_filled(shown, 10., rgb(t.accent)),
+        MemberRole::Moderator => ui.painter().rect_stroke(shown, 10., egui::Stroke::new(1., rgb(t.accent)), egui::StrokeKind::Inside),
+        MemberRole::Member => ui.painter().rect_stroke(shown, 10., egui::Stroke::new(1., rgb(t.border)), egui::StrokeKind::Inside),
     };
-    ui.painter().galley(pill.center() - label.size() / 2., label, ink);
+    ui.painter().galley(shown.center() - label.size() / 2., label, ink);
     let name = crate::list::one_line(ui, &m.name, 14., rgb(t.text), (pill.left() - 8. - rect.left() - 52.).max(20.));
-    ui.painter().galley(egui::pos2(rect.left() + 52., rect.center().y - name.size().y / 2.), name, rgb(t.text));
+    ui.painter().galley(crate::dir::place(rect, egui::pos2(rect.left() + 52., rect.center().y - name.size().y / 2.), name.size().x), name, rgb(t.text));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{}, {role}", m.name)));
     resp
 }
@@ -276,7 +278,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        ui.add_sized([w, crate::metrics::button()], crate::metrics::line(term).hint_text(i18n::t("Search in room")).align(egui::Align2::LEFT_CENTER));
+        ui.add_sized([w, crate::metrics::button()], crate::metrics::line(term).hint_text(i18n::t("Search in room")));
     });
     ui.add_space(8.);
     match state {
@@ -296,7 +298,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
                     ui.add_space(6.);
                     let response = ui.horizontal(|ui| {
                         ui.add_space(12.);
-                        ui.vertical(|ui| {
+                        ui.with_layout(crate::dir::col(), |ui| {
                             ui.set_max_width(ui.available_width() - 12.);
                             ui.label(RichText::new(&h.sender_name).strong().size(12.).color(rgb(t.accent)));
                             ui.label(&h.excerpt);
@@ -342,7 +344,7 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
     };
     ui.horizontal(|ui| {
         ui.add_space(16.);
-        ui.vertical(|ui| {
+        ui.with_layout(crate::dir::col(), |ui| {
             ui.set_max_width(ui.available_width() - 16.);
             ui.heading(&p.name);
             ui.horizontal_wrapped(|ui| {
@@ -440,18 +442,18 @@ pub struct ThreadOut {
 /// The bars keep the panel's colour, the messages lie on the chat background. `recording` = seconds of the note being recorded here.
 pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, pictures: &crate::timeline::Pictures, avatars: &crate::timeline::Avatars, members: u64, recording: Option<u64>, acts: &mut crate::timeline::Acts, close: &mut bool, t: &DesignTokens) -> ThreadOut {
     let mut out = ThreadOut::default();
-    egui::Panel::top("thread-head").show_separator_line(false).frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 10))).show_inside(ui, |ui| {
+    egui::Panel::top("thread-head").show_separator_line(false).frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 10))).show_inside(ui, |ui| crate::dir::scope(ui, |ui| {
         ui.horizontal(|ui| {
             ui.add_space(8.);
             ui.label(RichText::new(i18n::t("Thread")).size(crate::metrics::get().title).color(rgb(t.text)));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
                 if close_icon(ui, i18n::t("Close thread")).clicked() {
                     *close = true;
                 }
             });
         });
-    });
-    egui::Panel::bottom("thread-input").show_separator_line(false).frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4))).show_inside(ui, |ui| {
+    }));
+    egui::Panel::bottom("thread-input").show_separator_line(false).frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4))).show_inside(ui, |ui| crate::dir::scope(ui, |ui| {
         if let Some((_, name)) = &th.reply_to {
             let label = if name.is_empty() { i18n::t_ctx("banner", "Reply").to_owned() } else { i18n::t("Reply to {name}").replace("{name}", name) };
             ui.horizontal(|ui| {
@@ -464,9 +466,9 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, pictures:
         let name = th.attachment.as_ref().map(|(n, _)| n.clone());
         out.send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, name.as_deref(), &mut cancel, &mut drop, &mut poll, &mut out.picked, &mut out.pasted, recording, &mut out.voice, &[], &mut Vec::new(), None, t);
         if drop { th.attachment = None; }
-    });
+    }));
     th.tail_visible = false;
-    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show_inside(ui, |ui| {
+    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show_inside(ui, |ui| crate::dir::scope(ui, |ui| {
         let Some(history) = &th.history else {
             ui.add_space(16.);
             if th.failed {
@@ -497,7 +499,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, pictures:
             // Over the list, not in it: the rows do not move when it comes and goes.
             ui.put(egui::Rect::from_center_size(top + Vec2::new(0., 16.), Vec2::splat(16.)), egui::Spinner::new().size(16.));
         }
-    });
+    }));
     out
 }
 
@@ -534,7 +536,7 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
     ui.add_space(8.);
     ui.horizontal(|ui| {
         ui.add_space(16.);
-        ui.vertical(|ui| {
+        ui.with_layout(crate::dir::col(), |ui| {
             ui.set_max_width(ui.available_width() - 16.);
             ui.label(RichText::new(i18n::t("Addresses")).strong());
             for alias in &list {

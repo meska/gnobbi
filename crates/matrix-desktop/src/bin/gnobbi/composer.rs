@@ -102,11 +102,13 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let pad = ((slot - row) / 2.).max(0.); // centres one text row on the icon buttons
         let max_h = 8. * row + 2. * pad;
         // A child ui with its own max height: inside a horizontal row the available height is one row, which would cap the scroll area.
-        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(ui.cursor().min, egui::vec2(w + 8., max_h))));
+        // RTL: the row runs from the right, the box ends at the cursor's right edge.
+        let corner = if crate::dir::rtl() { egui::pos2(ui.cursor().right() - (w + 8.), ui.cursor().top()) } else { ui.cursor().min };
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(corner, egui::vec2(w + 8., max_h))));
         let scroll = egui::ScrollArea::vertical().max_height(max_h).min_scrolled_height(0.).id_salt(nid("composer-scroll")).show(&mut child, |ui| {
             egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, pad as i8)).show(ui, |ui| {
                 ui.spacing_mut().interact_size.y = row; // else the editor is 20 px tall and the text sits at its top
-                egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text(if thread { i18n::t("Reply in thread") } else { i18n::t("Write a message") }).desired_width(w).lock_focus(true).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).show(ui)
+                egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text(if thread { i18n::t("Reply in thread") } else { i18n::t("Write a message") }).desired_width(w).horizontal_align(crate::dir::start()).lock_focus(true).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).show(ui)
             }).inner
         });
         let text_h = scroll.content_size.y.min(max_h);
@@ -115,13 +117,13 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         mention_popup(ui, id, &out, draft, members, mentions, t);
         // The picker restores focus to the composer after inserting at its saved selection.
         // Icons stay at the bottom of a tall box.
-        ui.vertical(|ui| {
+        ui.with_layout(crate::dir::col(), |ui| {
         ui.spacing_mut().item_spacing.y = 0.; // else the space above adds a gap and the icons sit lower than the text
         ui.add_space((text_h - slot).max(0.));
         ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
         let emoji = icon_at(ui, rect, &format!("composer-emoji{salt}"), Icon::Smiley, 1., true, i18n::t("Emoji"));
-        egui::Popup::menu(&emoji).show(|ui| {
+        egui::Popup::menu(&emoji).show(|ui| crate::dir::popup(ui, |ui| {
             let tab = egui::Id::new(crate::stickers::TAB_ID);
             let mut sticker_tab = stickers.is_some() && ui.data(|d| d.get_temp::<bool>(tab)).unwrap_or(false);
             if stickers.is_some() {
@@ -146,7 +148,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
                     }
                 }
             });
-        });
+        }));
         if !thread {
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
         if icon_at(ui, rect, "composer-poll", Icon::ChartBarHorizontal, 1., true, i18n::t("Poll")).clicked() {
@@ -224,7 +226,8 @@ fn mention_popup(ui: &mut egui::Ui, id: egui::Id, out: &egui::text_edit::TextEdi
     }
     let duplicates = crate::rows::duplicate_names(matches.iter().map(|m| m.name.as_str()));
     let mut pick = None;
-    egui::Area::new(id.with("mentions")).order(egui::Order::Foreground).fixed_pos(out.response.rect.left_top() - egui::vec2(0., 8. + crate::rows::ROW * matches.len() as f32)).show(ui.ctx(), |ui| {
+    let corner = if crate::dir::rtl() { out.response.rect.right_top() } else { out.response.rect.left_top() };
+    egui::Area::new(id.with("mentions")).order(egui::Order::Foreground).pivot(crate::dir::align(egui::Align2::LEFT_TOP)).fixed_pos(corner - egui::vec2(0., 8. + crate::rows::ROW * matches.len() as f32)).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
             ui.set_width(260.);
             for (m, duplicate) in matches.iter().zip(duplicates) {
