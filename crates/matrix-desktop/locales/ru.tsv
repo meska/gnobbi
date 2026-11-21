@@ -7,3 +7,681 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of ru in this order, separated by |: one|few|many.
 # See TRANSLATING.md.
+
+# list
+	Pinned	Закреплено
+	Low priority	Низкий приоритет
+	New chat	Новый чат
+	Explore public rooms	Обзор публичных комнат
+	Search conversations	Поиск бесед
+	Mark as read	Отметить как прочитанное
+	Mark as unread	Отметить как непрочитанное
+	Add to a space…	Добавить в пространство…
+	Leave?	Выйти?
+	Leave	Выйти
+	Add to a space	Добавить в пространство
+	Add	Добавить
+	Cancel	Отмена
+	Unpin	Открепить
+	Pin to top	Закрепить сверху
+	Remove from low priority	Убрать из низкого приоритета
+	Mark as low priority	Понизить приоритет
+	Remove from {name}	Убрать из {name}
+	All messages	Все сообщения
+	Mentions only	Только упоминания
+	Muted	Без звука
+
+# composer
+banner	Reply	Ответить
+	Edit	Изменить
+	Send note	Отправить заметку
+	Reply in thread	Ответить в обсуждении
+	Write a message	Напишите сообщение
+	Emoji	Эмодзи
+	Sticker	Стикер
+	Poll	Опрос
+	Attach a file	Прикрепить файл
+	Voice note	Голосовое сообщение
+	Send	Отправить
+
+# composer (emoji names)
+	Grinning face	Ухмыляющееся лицо
+	Beaming face	Сияющее лицо
+	Face with tears of joy	Лицо со слезами радости
+	Rolling on the floor laughing	Катаюсь по полу от смеха
+	Smiling face with smiling eyes	Улыбающееся лицо с улыбающимися глазами
+	Smiling face with heart eyes	Улыбающееся лицо с глазами-сердечками
+	Face blowing a kiss	Лицо, посылающее воздушный поцелуй
+	Smiling face with sunglasses	Улыбающееся лицо в солнечных очках
+	Thinking face	Задумавшееся лицо
+	Grinning face with sweat	Ухмыляющееся лицо с каплей пота
+	Winking face	Подмигивающее лицо
+	Upside-down face	Перевёрнутое лицо
+	Crying face	Плачущее лицо
+	Loudly crying face	Громко плачущее лицо
+	Angry face	Злое лицо
+	Screaming face	Кричащее лицо
+	Thumbs up	Большой палец вверх
+	Thumbs down	Большой палец вниз
+	Clapping hands	Аплодисменты
+	Folded hands	Сложенные ладони
+	Flexed biceps	Напряжённый бицепс
+	Waving hand	Машущая рука
+	Handshake	Рукопожатие
+	Raising hands	Поднятые руки
+	Party popper	Хлопушка
+	Fire	Огонь
+	Sparkles	Искры
+	Hundred points	Сто баллов
+	Check mark	Галочка
+	Cross mark	Крестик
+	Eyes	Глаза
+	Cup of coffee	Чашка кофе
+
+# timeline
+	Today	Сегодня
+	Yesterday	Вчера
+	Message deleted	Сообщение удалено
+	Message unavailable	Сообщение недоступно
+	Encrypted message	Зашифрованное сообщение
+	Loading…	Загрузка…
+	Go to bottom	Вниз
+	image	изображение
+	video	видео
+@plural	{n} reply	{n} ответ|{n} ответа|{n} ответов
+
+# info
+	Encrypted	Зашифровано
+	Status messages	Служебные сообщения
+	Same as settings	Как в настройках
+	Show	Показать
+	Hide	Скрыть
+@plural	{n} status message hidden	{n} служебное сообщение скрыто|{n} служебных сообщения скрыто|{n} служебных сообщений скрыто
+	Search in room	Поиск в комнате
+	No results	Ничего не найдено
+	Search failed	Не удалось выполнить поиск
+	Retry	Повторить
+	More results	Ещё результаты
+	Profile link	Ссылка на профиль
+	Verified	Подтверждён
+	Not verified	Не подтверждён
+	Message	Написать
+	Mention	Упомянуть
+	Verify	Подтвердить
+	Disconnect	Отключить
+	Last read	Прочитано до
+	Chat unavailable	Чат недоступен
+	Ignore	Игнорировать
+	Confirm	Подтвердить
+	Kick	Выгнать
+	Ban	Заблокировать
+	Failed	Не удалось
+	Thread unavailable	Обсуждение недоступно
+	Thread	Обсуждение
+	Reply	Ответить
+	Addresses	Адреса
+	main	основной
+	Main	Основной
+	name	имя
+@plural	{n} member	{n} участник|{n} участника|{n} участников
+@plural	Delete {n} message	Удалить {n} сообщение|Удалить {n} сообщения|Удалить {n} сообщений
+	Reply to {name}	Ответ для {name}
+
+# members
+	Admin	Админ
+	Moderator	Модератор
+	Member	Участник
+	Invite	Пригласить
+	Banned	Заблокированные
+	Banned list unavailable	Список заблокированных недоступен
+	Unban	Разблокировать
+	Reason	Причина
+	Actions for {name}	Действия для {name}
+
+# roomedit
+	Name	Название
+	Topic	Тема
+	Drop an image here for the photo	Перетащите сюда изображение для фото
+	Choose photo…	Выбрать фото…
+	Room photo	Фото комнаты
+	Save	Сохранить
+	Photo: {name}	Фото: {name}
+
+# poll
+	New poll	Новый опрос
+	Question	Вопрос
+	Add option	Добавить вариант
+	Multiple choice	Несколько вариантов
+	Results visible right away	Результаты видны сразу
+	Option {n}	Вариант {n}
+
+# viewer
+	Video	Видео
+	Image	Изображение
+	Save as	Сохранить как
+	Open	Открыть
+	Cannot open the content	Не удаётся открыть содержимое
+
+# stickers
+	Stickers are not encrypted, like an unencrypted image	Стикеры не шифруются, как и незашифрованные изображения
+	No sticker packs	Нет наборов стикеров
+	Stickers unavailable	Стикеры недоступны
+
+# settings
+	Settings	Настройки
+	Account and security	Аккаунт и безопасность
+	Account	Аккаунт
+	Devices	Устройства
+	Appearance	Оформление
+	Language	Язык
+	Theme	Тема
+	System	Системная
+	Accent	Акцент
+	Icon	Значок
+	Automatic night	Автоматическая ночная тема
+	Chat	Чат
+	Read receipts	Отчёты о прочтении
+	Hide deleted messages	Скрывать удалённые сообщения
+	Show status messages	Показывать служебные сообщения
+	Message preview	Предпросмотр сообщений
+	Notifications	Уведомления
+	Close to tray	Сворачивать в трей
+	Add to menu	Добавить в меню
+	Added to menu	Добавлено в меню
+	Could not add to menu	Не удалось добавить в меню
+	Classic	Классическая
+	Day	Дневная
+	Dark	Тёмная
+	Night	Ночная
+	No	Нет
+	Schedule	По расписанию
+	Minimal mark	Минимальный знак
+	Gnome	Гном
+	Little monster	Чудик
+	Blue	Синий
+	Teal	Бирюзовый
+	Green	Зелёный
+	Orange	Оранжевый
+	Red	Красный
+	Pink	Розовый
+	Purple	Фиолетовый
+
+# notifications, tray, menu bar, errors
+	A save is already in progress	Сохранение уже выполняется
+	Account no longer connected	Аккаунт больше не подключён
+	Actions not available for this event	Действия для этого события недоступны
+	Address already in use	Адрес уже используется
+	Already joined	Вы уже присоединились
+	Checking permissions…	Проверка прав…
+	Choose a file that does not exist yet	Выберите файл, которого ещё нет
+	Connected	Подключено
+	Connecting…	Подключение…
+	Connection failed	Не удалось подключиться
+	Data folder not available	Папка данных недоступна
+	Delete the selected message? This cannot be undone.	Удалить выбранное сообщение? Это действие нельзя отменить.
+	File cannot be attached	Файл нельзя прикрепить
+	Image cannot be attached	Изображение нельзя прикрепить
+	Invalid name	Недопустимое имя
+	Joining…	Присоединение…
+	Message not available	Сообщение недоступно
+	No audio recorded	Аудио не записано
+	Not allowed	Не разрешено
+	Not allowed by the server	Не разрешено сервером
+	Operation failed	Не удалось выполнить операцию
+	Operation not confirmed · Retry uses the same ID (even if you change room)	Операция не подтверждена · Повтор использует тот же ID (даже при смене комнаты)
+	Operation pending · no server confirmation	Операция в ожидании · сервер не подтвердил
+	Operation refused or unavailable	Операция отклонена или недоступна
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Ответ/правка: напишите в черновике, затем нажмите кнопку. Enter отправляет как обычно.
+	Room not found	Комната не найдена
+	Saved	Сохранено
+	Saving failed	Не удалось сохранить
+	Server unreachable	Сервер недоступен
+	Sign-in failed	Не удалось войти
+	Sticker not sent	Стикер не отправлен
+	Still joining…	Всё ещё присоединяемся…
+	Sync interrupted	Синхронизация прервана
+	Voice note cannot be played	Голосовое сообщение не воспроизвести
+	You are offline	Нет подключения к сети
+	The name cannot be empty.	Имя не может быть пустым.
+	The name is too long (256 characters at most).	Имя слишком длинное (не более 256 символов).
+	This server does not allow editing the profile.	Этот сервер не разрешает изменять профиль.
+	Cannot read the chosen file.	Не удаётся прочитать выбранный файл.
+	The image is too large (25 MB at most).	Изображение слишком большое (не более 25 МБ).
+	Choose a valid PNG, JPEG or WebP image.	Выберите корректное изображение PNG, JPEG или WebP.
+	Connection failed: try again shortly.	Не удалось подключиться: попробуйте ещё раз чуть позже.
+	The server rejected the change.	Сервер отклонил изменение.
+	Space not found	Пространство не найдено
+	Operation failed, try again	Не удалось выполнить операцию, попробуйте ещё раз
+	Minimize	Свернуть
+	Show Gnobbi	Показать Gnobbi
+	Quit Gnobbi	Выйти из Gnobbi
+	{name}, active account	{name}, активный аккаунт
+	New messages	Новые сообщения
+	1 new message	1 новое сообщение
+	New message	Новое сообщение
+	📷 Photo	📷 Фото
+	🎥 Video	🎥 Видео
+	🎤 Voice message	🎤 Голосовое сообщение
+	🎵 Audio	🎵 Аудио
+	📎 File	📎 Файл
+	📍 Location	📍 Местоположение
+menu	Quit Gnobbi	Выйти из Gnobbi
+menu	About Gnobbi	О программе Gnobbi
+menu	Settings…	Настройки…
+menu	Services	Службы
+menu	Hide Gnobbi	Скрыть Gnobbi
+menu	Hide Others	Скрыть остальные
+menu	Show All	Показать все
+menu	Edit	Правка
+menu	Undo	Отменить
+menu	Redo	Повторить
+menu	Cut	Вырезать
+menu	Copy	Копировать
+menu	Paste	Вставить
+menu	Select All	Выбрать всё
+menu	Start Dictation…	Начать диктовку…
+menu	Emoji & Symbols	Эмодзи и символы
+menu	Window	Окно
+menu	Minimize	Свернуть
+menu	Zoom	Масштаб
+menu	Bring All to Front	Все окна — на передний план
+@plural	Gnobbi, {n} unread	Gnobbi, {n} непрочитанное|Gnobbi, {n} непрочитанных|Gnobbi, {n} непрочитанных
+
+# Phosphor icons, sizes and Personalizza
+	Customize	Настроить
+	Sizes	Размеры
+	Text size	Размер текста
+	Buttons and icons size	Размер кнопок и значков
+	Follow the system	Как в системе
+	Follow the text	Как у текста
+	Small	Маленький
+	Normal	Обычный
+	Large	Большой
+	Compact	Компактно
+	Comfortable	Просторно
+	Restore defaults	Сбросить по умолчанию
+	Preview	Предпросмотр
+	A sample message	Пример сообщения
+	Button	Кнопка
+	Remove attachment	Убрать вложение
+	Cancel reply	Отменить ответ
+	Close card	Закрыть карточку
+	Close thread	Закрыть обсуждение
+	Remove address	Удалить адрес
+	Copy	Копировать
+	Menu	Меню
+	Back	Назад
+	Chat list	Список чатов
+	Info	Инфо
+	Copy key	Копировать ключ
+	Remove option	Убрать вариант
+	Pause	Пауза
+	Play	Воспроизвести
+	New	Новое
+	New space	Новое пространство
+	Close	Закрыть
+	Add account	Добавить аккаунт
+	Rename	Переименовать
+
+# avatar editor
+	Profile photo	Фото профиля
+	Edit photo	Изменить фото
+	Apply	Применить
+	Reset	Сбросить
+	Rotate left	Повернуть влево
+	Rotate right	Повернуть вправо
+	Mirror	Отразить
+	Zoom	Масштаб
+	Rotation	Поворот
+	Brightness	Яркость
+	Contrast	Контрастность
+	Saturation	Насыщенность
+	Original	Оригинал
+	B&W	Ч/Б
+	Sepia	Сепия
+	Vivid	Яркий
+	Cool	Холодный
+	Warm	Тёплый
+	Fade	Выцветший
+	High contrast	Высокий контраст
+	Preview: drag to move the photo	Предпросмотр: перетащите, чтобы сдвинуть фото
+	Could not download the current photo.	Не удалось загрузить текущее фото.
+	Could not prepare the photo.	Не удалось подготовить фото.
+	Open link	Открыть ссылку
+	Could not open the link.	Не удалось открыть ссылку.
+	Copy link	Копировать ссылку
+	Server	Сервер
+	Matrix ID	Matrix ID
+	Password	Пароль
+	Local passphrase	Локальная парольная фраза
+	Sign in	Войти
+	Unlock	Разблокировать
+	Signing in…	Вход…
+	Unlocking…	Разблокировка…
+	Show password	Показать пароль
+	Hide password	Скрыть пароль
+# main
+	Accept	Принять
+	Decline	Отклонить
+	Edit space	Изменить пространство
+	Edit room	Изменить комнату
+	Start failed	Не удалось запустить
+	Search	Поиск
+	Conversations	Беседы
+	Users	Пользователи
+	Public rooms	Публичные комнаты
+	React	Отреагировать
+	Confirm closing	Подтвердите закрытие
+	Close poll	Закрыть опрос
+	Confirm deletion	Подтвердите удаление
+	Delete	Удалить
+	Encrypted history	Зашифрованная история
+	Matrix recovery key	Ключ восстановления Matrix
+	I saved the key: continue	Я сохранил ключ: продолжить
+	Recover encrypted history	Восстановить зашифрованную историю
+	Try creating the key again	Попробовать создать ключ снова
+	Create recovery key	Создать ключ восстановления
+	Continue without recovery	Продолжить без восстановления
+# rail
+	A space cannot go inside itself	Пространство нельзя поместить внутрь самого себя
+	You do not have permission to edit «{name}»	У вас нет прав на изменение «{name}»
+	{label}, {n} unread	{label}, непрочитанных: {n}
+	Move {name}	Переместить {name}
+	Move {name} down	Переместить {name} вниз
+	Move {name} up	Переместить {name} вверх
+	Organise spaces	Упорядочить пространства
+	Unread	Непрочитанные
+	All chats	Все чаты
+	Spaces	Пространства
+	No spaces	Нет пространств
+# space
+	Rooms unlinked: {n}	Комнат отвязано: {n}
+	Rooms not unlinked: {n}	Комнат не отвязано: {n}
+	Members removed: {n}	Участников удалено: {n}
+	Not removed: {names}	Не удалены: {names}
+	Members who will be removed: {n}	Участников будет удалено: {n}
+	Rooms unlinked (they stay existing): {n}	Комнат будет отвязано (они останутся существовать): {n}
+	Space menu	Меню пространства
+	Space info	О пространстве
+	Members	Участники
+	Hand over the admin role…	Передать роль администратора…
+	Leave space	Покинуть пространство
+	Delete space	Удалить пространство
+	Forget	Забыть
+	Failed, no change guaranteed: try again	Не удалось, изменения не гарантированы: попробуйте ещё раз
+	Member list not read	Список участников не прочитан
+	Space left and forgotten	Вы покинули пространство и забыли его
+	Space not left: try again	Не удалось покинуть пространство: попробуйте ещё раз
+	Space not left: members remain	Пространство не покинуто: остались участники
+	This cannot be undone	Это действие нельзя отменить
+	You still have rooms in this space.	В этом пространстве у вас ещё есть комнаты.
+	You are the last admin of the space.	Вы последний администратор пространства.
+	Make admin	Сделать админом
+	Rooms not available	Комнаты недоступны
+	Add existing room	Добавить существующую комнату
+	No rooms	Нет комнат
+	Rooms	Комнаты
+	Remove	Убрать
+# explore
+	Search public rooms	Поиск публичных комнат
+	Your server	Ваш сервер
+	Other server…	Другой сервер…
+	server name	имя сервера
+	Already in	Уже добавлено
+	Join	Войти
+# accounts
+	Remove photo	Удалить фото
+	Active	Активно
+	Active account	Активный аккаунт
+	Other accounts	Другие аккаунты
+# devices
+	Last active {when}	Последняя активность: {when}
+	{text} in {path}	{text} в {path}
+	This device	Это устройство
+	Keys	Ключи
+	Export password	Пароль экспорта
+	Export keys	Экспортировать ключи
+	Regenerate recovery key	Создать ключ восстановления заново
+	Recover keys	Восстановить ключи
+	Recovery key	Ключ восстановления
+	Recover	Восстановить
+	Other devices	Другие устройства
+	Sign out	Выйти
+	Device name	Название устройства
+	New recovery key	Новый ключ восстановления
+	Done	Готово
+# newchat
+	Direct chat	Личный чат
+	Room	Комната
+	Space	Пространство
+	Join a room	Присоединиться к комнате
+	Public	Публичная
+	Create	Создать
+	#room:server or !id:server	#комната:сервер или !id:сервер
+	Search people	Поиск людей
+# pick
+	Images	Изображения
+# time_fmt
+	last message at {when}	последнее сообщение в {when}
+	last message on {when}	последнее сообщение {when}
+	last message {when}	последнее сообщение {when}
+# engine text (status rows, attachment labels)
+	A user	Пользователь
+	{actor} created this room.	{actor} создал(а) эту комнату.
+	{actor} created this chat.	{actor} создал(а) этот чат.
+	{actor} invited {subject}	{actor} пригласил(а) {subject}
+	{subject} joined the room	{subject} присоединился(-ась) к комнате
+	{subject} left the room	{subject} покинул(а) комнату
+	{actor} banned {subject}	{actor} заблокировал(а) {subject}
+	{actor} unbanned {subject}	{actor} разблокировал(а) {subject}
+	{actor} removed {subject} from the room	{actor} удалил(а) {subject} из комнаты
+	{subject} declined the invitation	{subject} отклонил(а) приглашение
+	{actor} revoked the invitation for {subject}	{actor} отозвал(а) приглашение для {subject}
+	{actor} removed the room name	{actor} удалил(а) название комнаты
+	{actor} changed the room name to «{name}»	{actor} изменил(а) название комнаты на «{name}»
+	{actor} removed the room topic	{actor} удалил(а) тему комнаты
+	{actor} changed the room topic to «{topic}»	{actor} изменил(а) тему комнаты на «{topic}»
+	{actor} changed the room avatar	{actor} изменил(а) аватар комнаты
+	{old} changed their name to {new}	{old} изменил(а) имя на {new}
+	{subject} set their name to {new}	{subject} задал(а) имя {new}
+	{subject} removed their display name	{subject} удалил(а) отображаемое имя
+	{subject} changed their avatar	{subject} изменил(а) аватар
+	{text} (reason: {reason})	{text} (причина: {reason})
+	Audio	Аудио
+	File	Файл
+	Photo	Фото
+	Log out	Выйти из аккаунта
+	Encryption keys on this device not backed up are lost.	Ключи шифрования на этом устройстве, не сохранённые в резервной копии, будут потеряны.
+	The server did not answer. Remove it from this device anyway?	Сервер не ответил. Всё равно удалить его с этого устройства?
+	Remove from this device	Удалить с этого устройства
+
+# src/signin_form.rs
+	Wrong key. Check it and try again.	Неверный ключ. Проверьте его и попробуйте ещё раз.
+	Server unreachable. Try again later or continue without recovery.	Сервер недоступен. Попробуйте позже или продолжите без восстановления.
+	Recovery took too long. Try again or continue without recovery.	Восстановление заняло слишком много времени. Попробуйте ещё раз или продолжите без восстановления.
+	No key backup on the server. Continue without recovery.	На сервере нет резервной копии ключей. Продолжите без восстановления.
+	Recovery failed. Try again or continue without recovery.	Не удалось восстановить. Попробуйте ещё раз или продолжите без восстановления.
+	This account has no Matrix secret storage: no recovery key to enter.	В этом аккаунте нет защищённого хранилища Matrix: вводить ключ восстановления не нужно.
+	The server offers no key backup: no recovery to create. Continue without recovery.	Сервер не поддерживает резервное копирование ключей: создать восстановление нельзя. Продолжите без восстановления.
+	This account already has a recovery: enter the existing recovery key.	В этом аккаунте восстановление уже настроено: введите существующий ключ восстановления.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Восстановление этого аккаунта настроено лишь наполовину: Gnobbi его не меняет. Продолжите без восстановления.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	У этого аккаунта уже есть криптографическая идентичность, которой нет на этом устройстве: Gnobbi её не заменяет. Продолжите без восстановления.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	Сервер требует дополнительного подтверждения, которое Gnobbi не поддерживает. Продолжите без восстановления.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	Сервер недоступен: восстановление не создано. Попробуйте ещё раз или продолжите без восстановления.
+	Creation took too long. Try again or continue without recovery.	Создание заняло слишком много времени. Попробуйте ещё раз или продолжите без восстановления.
+	Creating the recovery failed. Try again or continue without recovery.	Не удалось создать восстановление. Попробуйте ещё раз или продолжите без восстановления.
+	Enter a server name or a valid HTTPS address.	Введите имя сервера или корректный HTTPS-адрес.
+	Enter the full Matrix ID: @name:server.	Введите полный Matrix ID: @имя:сервер.
+	Enter the profile's local passphrase.	Введите локальную парольную фразу профиля.
+	Password required; local passphrase of at least 16 characters.	Нужен пароль; локальная парольная фраза — не короче 16 символов.
+	This server offers no password login. SSO/OIDC are not supported.	Этот сервер не поддерживает вход по паролю. SSO/OIDC не поддерживаются.
+	This server does not support sliding sync	Этот сервер не поддерживает sliding sync
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	Сервер вернул ошибку: проверьте адрес (например, https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	Сервер недоступен или недействительный TLS-сертификат.
+	Credentials not accepted. Try again.	Учётные данные не приняты. Попробуйте ещё раз.
+	Too many attempts: try again in a moment.	Слишком много попыток: повторите через минуту.
+	Sign-in/unlock failed. Check the credentials and try again.	Не удалось войти или разблокировать. Проверьте данные и попробуйте ещё раз.
+	System keychain unavailable or locked. Unlock it and try again.	Системная связка ключей недоступна или заблокирована. Разблокируйте её и попробуйте ещё раз.
+	The profile key is not in the system keychain. The profile was not changed.	Ключа профиля нет в системной связке ключей. Профиль не изменён.
+	Profile already open in another instance. Close it and restart.	Профиль уже открыт в другом экземпляре. Закройте его и перезапустите.
+	Local profile unavailable. Close and check the profile path.	Локальный профиль недоступен. Закройте и проверьте путь к профилю.
+	Enter the Matrix password.	Введите пароль Matrix.
+
+# signin
+	Creating the recovery and backup…	Создание восстановления и резервной копии…
+
+# devices
+@plural	{n} device to sign out	{n} устройство для выхода|{n} устройства для выхода|{n} устройств для выхода
+@plural	{n} device without last activity not included	{n} устройство без данных о последней активности не включено|{n} устройства без данных о последней активности не включены|{n} устройств без данных о последней активности не включено
+
+# devices
+	Last activity {time}	Последняя активность: {time}
+	They match	Совпадают
+	They don't match	Не совпадают
+	Yes	Да
+	Not available with this account	Недоступно для этого аккаунта
+	Incorrect password	Неверный пароль
+	Failed. Try again.	Не удалось. Попробуйте ещё раз.
+	Verification failed	Не удалось подтвердить
+	Verification request	Запрос на подтверждение
+	Cancel the verification?	Отменить подтверждение?
+	Verification cancelled	Подтверждение отменено
+	The emoji don't match	Эмодзи не совпадают
+	Verification	Подтверждение
+
+# key export
+@plural	{n} key exported	Экспортирован {n} ключ|Экспортировано {n} ключа|Экспортировано {n} ключей
+
+# key export
+	Gnobbi recovery key	Ключ восстановления Gnobbi
+	Wrong unlock passphrase	Неверная парольная фраза для разблокировки
+	Password too short: at least 12 characters	Пароль слишком короткий: не менее 12 символов
+	Password too long: at most 4096 bytes	Пароль слишком длинный: не более 4096 байт
+	The passwords don't match	Пароли не совпадают
+	No keys to export on this device	На этом устройстве нет ключей для экспорта
+	Can't write to this location	Не удаётся записать в это место
+	Export failed: try again	Не удалось экспортировать: попробуйте ещё раз
+	Recover the keys on this device first	Сначала восстановите ключи на этом устройстве
+	The server asks for a confirmation that is not supported here	Сервер требует подтверждения, которое здесь не поддерживается
+	Server unreachable: try again	Сервер недоступен: попробуйте ещё раз
+	Regeneration failed: try again	Не удалось создать заново: попробуйте ещё раз
+
+# key export
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	На этом устройстве нет ключей восстановления аккаунта: введите ключ, чтобы читать старые зашифрованные сообщения
+	This account has no recovery key: without one, encrypted messages are lost with the devices	У этого аккаунта нет ключа восстановления: без него зашифрованные сообщения теряются вместе с устройствами
+	Restoring…	Восстановление…
+	Restore	Восстановить
+	Not now	Не сейчас
+	Don't ask again for this account	Больше не спрашивать для этого аккаунта
+	Copy recovery key	Копировать ключ восстановления
+	Save it now: it will not be shown again	Сохраните его сейчас: больше он показан не будет
+	Save to file	Сохранить в файл
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	Создание заново…
+	I kept it elsewhere	Я сохранил в другом месте
+
+# search list and add server
+	The server does not respond	Сервер не отвечает
+	Not a Matrix server	Это не сервер Matrix
+	The server does not show its rooms	Сервер не показывает свои комнаты
+	Your server cannot reach this server	Ваш сервер не может связаться с этим сервером
+	Invalid server certificate	Недействительный сертификат сервера
+	Searching	Поиск
+	Partial results	Частичные результаты
+	Invalid server name	Недопустимое имя сервера
+	Timed out	Время ожидания истекло
+	Loading	Загрузка
+	More results not loaded	Остальные результаты не загружены
+
+# search list and add server
+	The server name is needed, for example matrix.org	Нужно имя сервера, например matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Это идентификатор пользователя: нужно имя сервера, например matrix.org
+	Only https addresses are allowed	Разрешены только адреса https
+	Write only the server name, without a path	Укажите только имя сервера, без пути
+	The server name is needed, without user or password	Нужно имя сервера, без пользователя и пароля
+	Invalid port	Недопустимый порт
+	Invalid IP address	Недопустимый IP-адрес
+	Already present	Уже есть
+
+# sidebar
+	Favorites	Избранное
+	All	Все
+	Demo room {n}	Демо-комната {n}
+
+# history
+@plural	{n} unread	{n} непрочитанное|{n} непрочитанных|{n} непрочитанных
+
+# history
+	edited	изменено
+	[Message deleted]	[Сообщение удалено]
+	Server ack · Reply	Подтверждено сервером · Ответ
+	Server ack	Подтверждено сервером
+	local	локально
+
+# audio
+	Microphone not available	Микрофон недоступен
+
+# audio
+	Audio playback not available	Воспроизведение аудио недоступно
+
+# search
+	Public spaces	Публичные пространства
+	People	Люди
+
+# engine placeholders
+	Location	Местоположение
+	Message without text	Сообщение без текста
+	Image.png	Image.png
+
+# update
+	invalid staging	недопустимый промежуточный файл
+	placement failed and restore failed	не удалось разместить и не удалось восстановить
+	start failed and restore failed	не удалось запустить и не удалось восстановить
+	another installation in progress	уже идёт другая установка
+	channel without in-app update	канал без обновления в приложении
+	binary to update not found	обновляемый файл не найден
+	staging not found	промежуточный файл не найден
+	staging outside the target folder	промежуточный файл вне целевой папки
+	previous update pending	предыдущее обновление не завершено
+	staging has a different size	промежуточный файл другого размера
+	staging has a different hash	промежуточный файл с другим хешем
+	folder not writable	папка недоступна для записи
+	staging cannot be verified	не удаётся проверить промежуточный файл
+	Update failed: {cause}	Не удалось обновить: {cause}
+	remove {name}	удалить {name}
+	error	ошибка
+
+# update
+	invalid helper parameters	недопустимые параметры помощника
+	invalid binary to update	недопустимый обновляемый файл
+	backup to restore not found	резервная копия для восстановления не найдена
+	no pending restore	нет ожидающего восстановления
+	Windows update not available	Обновление Windows недоступно
+	data folder not found	папка данных не найдена
+	the program did not close	программа не закрылась
+	running binary differs from the target	запущенный файл отличается от целевого
+	helper without channel	помощник без канала
+	helper not ready	помощник не готов
+
+# update
+	Update available · {version}	Доступно обновление · {version}
+	Update available, version {version}	Доступно обновление, версия {version}
+	Updated to {version}	Обновлено до {version}
+	Update failed: restored {version}	Не удалось обновить: восстановлена версия {version}
+	Update failed: error	Не удалось обновить: ошибка
+	Update postponed: message not sent	Обновление отложено: сообщение не отправлено
+
+# update
+	backup differs from the binary, kept	резервная копия отличается от файла, сохранена
+
+# key export
+	gnobbi-keys.txt	gnobbi-keys.txt
+
+# search
+	Filter: {label}	Фильтр: {label}
+
+# devices
+	Sign out inactive	Выйти на неактивных устройствах
+
+# update
+	helper out of place	помощник не на месте
