@@ -175,7 +175,10 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     let mut pick = None;
     let mut action = None;
     if let Some(error) = &session.room_error { ui.colored_label(rgb(t.error), error); }
-    egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, ROW, visible.len(), |ui, range| {
+    let (mut scroll_ui, bottom) = crate::mobile::extend_list(ui, crate::mobile::touch() && ui.ctx().content_rect().width() < crate::SINGLE_WIDTH);
+    let mut margin = ui.spacing().scroll.content_margin;
+    margin.bottom = margin.bottom.saturating_add(bottom.round() as i8);
+    egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show_rows(&mut scroll_ui, ROW, visible.len(), |ui, range| {
         for &index in &visible[range] {
             let room = &sidebar.rooms()[index];
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());

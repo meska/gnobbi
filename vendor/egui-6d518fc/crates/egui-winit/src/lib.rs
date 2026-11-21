@@ -262,6 +262,8 @@ pub struct State {
     pub accesskit: Option<accesskit_winit::Adapter>,
 
     allow_ime: bool,
+    /// iOS: when the IME request last ended (see [`ime_hold`]).
+    ime_off_since: Option<std::time::Instant>,
     ime_reset: ime_reset::ResetBridge<winit::window::WindowId>,
 
     /// See [`Self::set_clipboard_shortcuts`].
@@ -653,6 +655,7 @@ impl State {
             accesskit: None,
 
             allow_ime: false,
+            ime_off_since: None,
             ime_reset: Default::default(),
             clipboard_shortcuts: true,
             ime_cursor_rect_px: None,
@@ -3401,6 +3404,14 @@ impl State {
         let wayland_ime_window = ime_surrounding::is_wayland_window(window);
 
         let ime_requested = ime.is_some();
+        #[cfg(target_os = "ios")]
+        let ime_requested = {
+            let held = ime_hold(self.allow_ime, ime_requested, &mut self.ime_off_since, std::time::Instant::now());
+            if held && !ime_requested {
+                self.egui_ctx.request_repaint_after(IOS_IME_HOLD);
+            }
+            held
+        };
         #[cfg(all(
             feature = "wayland",
             unix,
@@ -3463,9 +3474,16 @@ impl State {
             if let Some(request) = reset_request {
                 window.reset_ime_with_request(request.as_u64());
             } else {
+                // iOS: allowed(false) resigns first responder and the keyboard slides down and up on every tap in the field;
+                // dropping the composition is all the interruption needs.
+                #[cfg(target_os = "ios")]
+                window.reset_ime();
                 // Preserve the stock untokened interruption operation and timing.
-                window.set_ime_allowed(false);
-                window.set_ime_allowed(true);
+                #[cfg(not(target_os = "ios"))]
+                {
+                    window.set_ime_allowed(false);
+                    window.set_ime_allowed(true);
+                }
             }
             #[cfg(all(
                 feature = "wayland",
@@ -5139,9 +5157,39 @@ pub fn short_window_event_description(event: &winit::event::WindowEvent) -> &'st
     }
 }
 
+/// How long iOS keeps the IME (the keyboard) after egui stops asking for it.
+#[cfg(any(target_os = "ios", test))]
+const IOS_IME_HOLD: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// iOS: a focus move between fields (or a press on the focused one) leaves egui without an IME request for a frame or two, and
+/// `set_ime_allowed(false)` resigns first responder, so the keyboard dips and comes back. Returns the request to act on: true
+/// while the real one lasts and for [`IOS_IME_HOLD`] after it ends; `off_since` is the caller's state.
+#[cfg(any(target_os = "ios", test))]
+fn ime_hold(allowed: bool, requested: bool, off_since: &mut Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    if requested || !allowed {
+        *off_since = None;
+        return requested;
+    }
+    now.duration_since(*off_since.get_or_insert(now)) < IOS_IME_HOLD
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ios_ime_is_held_across_a_focus_move_but_released_for_real() {
+        let t = std::time::Instant::now();
+        let mut off = None;
+        assert!(ime_hold(true, true, &mut off, t), "asked");
+        assert!(ime_hold(true, false, &mut off, t), "gap frame: keep the keyboard");
+        assert!(ime_hold(true, false, &mut off, t + std::time::Duration::from_millis(100)), "still inside the hold");
+        assert!(ime_hold(true, true, &mut off, t + std::time::Duration::from_millis(120)), "new field asks again");
+        assert_eq!(off, None);
+        assert!(ime_hold(true, false, &mut off, t + std::time::Duration::from_millis(200)));
+        assert!(!ime_hold(true, false, &mut off, t + std::time::Duration::from_millis(400)), "really gone: release");
+        assert!(!ime_hold(false, false, &mut off, t + std::time::Duration::from_millis(500)), "already off");
+    }
 
     #[test]
     fn destroyed_window_resets_ime_cursor_purpose_and_allow_on_every_platform() {
@@ -5383,3 +5431,4 @@ mod tests {
         assert_eq!(letter_key(enter, None, true), Some(Key::Enter));
     }
 }
+

@@ -102,6 +102,12 @@ pub fn target(desktop: f32) -> f32 {
     if touch() { desktop.max(TOUCH) } else { desktop }
 }
 
+/// Bottom band the layout leaves free: the keyboard when it is up (it already covers the home indicator), else the home indicator.
+/// Never the sum, and never the safe inset above a keyboard: that was a blank band between the content and the keys.
+fn bottom_reserved(safe_bottom: f32, keyboard: f32) -> f32 {
+    if keyboard > 0. { keyboard } else { safe_bottom }
+}
+
 /// The insets of the last window event, with the keyboard folded into the bottom one.
 #[derive(Default)]
 pub struct Insets(egui::SafeAreaInsets, bool);
@@ -135,7 +141,7 @@ impl Insets {
         if landscape && all.0.left + all.0.right == 0. && all.0.top > 40. {
             (all.0.left, all.0.right, all.0.top, all.0.bottom) = (all.0.top, all.0.top, 0., LANDSCAPE_HOME);
         }
-        all.0.bottom = all.0.bottom.max(f32::from_bits(KEYBOARD.load(Ordering::Relaxed)));
+        all.0.bottom = bottom_reserved(all.0.bottom, f32::from_bits(KEYBOARD.load(Ordering::Relaxed)));
         raw.safe_area_insets = Some(all);
         raw.screen_rect.is_some() && std::mem::replace(&mut self.1, landscape) != landscape
     }
@@ -180,9 +186,48 @@ pub fn rail_background(ui: &egui::Ui, fill: egui::Color32) {
     }
 }
 
+/// A child ui for a phone list that runs on into the home-indicator band (clip included, so no invisible line cuts a row) and the
+/// band's height, to add as scrollable padding so the last row can be brought above the indicator. With the keyboard up (it covers
+/// the band) or not on a phone: the plain remaining space and 0.
+pub fn extend_list(ui: &mut egui::Ui, single: bool) -> (egui::Ui, f32) {
+    let (screen, safe) = (ui.ctx().viewport_rect(), ui.ctx().content_rect());
+    let band = if single && f32::from_bits(KEYBOARD.load(Ordering::Relaxed)) <= 0. { (screen.bottom() - safe.bottom()).max(0.) } else { 0. };
+    let mut rect = ui.available_rect_before_wrap();
+    rect.max.y += band;
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    let mut clip = child.clip_rect();
+    clip.max.y = (clip.max.y + band).min(screen.bottom());
+    child.set_clip_rect(clip);
+    (child, band)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyboard_replaces_the_home_indicator_band_instead_of_adding_to_it() {
+        assert_eq!(bottom_reserved(34., 336.), 336.);
+        assert_eq!(bottom_reserved(300., 336.), 336., "a stale or oversized safe inset never shows above the keys");
+        assert_eq!(bottom_reserved(34., 0.), 34.);
+    }
+
+    #[test]
+    fn phone_list_extends_clip_and_reserves_the_bottom_inset() {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(393., 852.));
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(screen), safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 59., bottom: 34., ..Default::default() })), ..Default::default() };
+        let mut out = ctx.run_ui(raw, |ui| {
+            let mut ui = safe_ui(ui, egui::Color32::BLACK);
+            ui.set_clip_rect(ctx.content_rect());
+            let top = ui.cursor().min.y;
+            let (child, band) = extend_list(&mut ui, true);
+            assert_eq!((band, child.max_rect().bottom(), child.clip_rect().bottom(), child.max_rect().top()), (34., 852., 852., top));
+            let (child, band) = extend_list(&mut ui, false);
+            assert_eq!((band, child.max_rect().bottom()), (0., 818.), "wide layout: untouched");
+        });
+        out.textures_delta.clear();
+    }
 
     #[test]
     fn back_swipe_needs_a_horizontal_drag_far_or_fast() {
