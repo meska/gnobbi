@@ -50,10 +50,39 @@ pub enum VaultError {
     Locked,
 }
 
+#[cfg(any(test, all(feature = "ios-vault", target_os = "ios")))]
+pub(crate) fn ios_profile_item(path: &std::path::Path) -> Option<String> {
+    let worker = path.file_name()?.to_str()?.strip_prefix("account-")?.parse::<u64>().ok()?;
+    let root = path.parent()?;
+    let name = root.file_name()?.to_str()?;
+    let profile = if name == "profile" {
+        "profile".to_owned()
+    } else if root.parent()?.file_name()? == "accounts" {
+        let id = name.parse::<u64>().ok()?;
+        if id.to_string() != name { return None; }
+        format!("accounts/{id}")
+    } else {
+        return None;
+    };
+    Some(format!("profile-id:{profile}:account-{worker}"))
+}
+
+#[cfg(any(test, all(feature = "ios-vault", target_os = "ios")))]
+pub(crate) fn ios_lookup_order<'a>(profile: &'a str, legacy: &'a str) -> [(&'a str, bool); 3] {
+    [(profile, true), (legacy, true), (legacy, false)]
+}
+
+#[cfg(any(test, all(feature = "ios-vault", target_os = "ios")))]
+pub(crate) fn ios_first_valid<T>(values: impl IntoIterator<Item = T>, mut valid: impl FnMut(&T) -> bool) -> Option<T> {
+    values.into_iter().find(|value| valid(value))
+}
+
 /// Generated protection secret for one account store. Blocking: call from a backend worker.
 pub trait ProtectionSource {
     fn create(&self, store: &AccountStore) -> Result<Secret, VaultError>;
     fn read(&self, store: &AccountStore) -> Result<Secret, VaultError>;
+    /// A new store must not overwrite an item left by an earlier install.
+    fn available(&self, _store: &std::path::Path) -> Result<bool, VaultError> { Ok(true) }
 }
 
 /// Per-account OS vault keyed by the stable account ID (mobile; also the macOS account items).
@@ -64,6 +93,9 @@ pub trait AccountProtectionSource: ProtectionSource {
     fn read_account(&self, id: AccountId) -> Result<Secret, VaultError>;
     /// Removes only this account's item; an absent item is fine.
     fn delete_account(&self, id: AccountId) -> Result<(), VaultError>;
+    fn delete_profile(&self, id: AccountId, _store: &std::path::Path) -> Result<(), VaultError> {
+        self.delete_account(id)
+    }
 }
 
 /// The 32 random bytes as the 64-hex protection secret (same format as every desktop vault).
@@ -418,6 +450,7 @@ pub struct PendingSignIn {
     trust_root: Option<Vec<u8>>,
     source: Option<std::sync::Arc<dyn ProtectionSource + Send + Sync>>,
     vault_timeout: std::time::Duration,
+    password_login: bool,
     events: crate::Sender<SignInEvent>,
     setup: crate::Sender<SetupEvent>,
     commands: crate::Receiver<SignInCommand>,
@@ -456,10 +489,13 @@ pub fn forget_secrets(id: AccountId, stores: &[PathBuf]) -> Result<(), VaultErro
             .iter()
             .try_for_each(|s| crate::vault::delete_store_secret(s))
     }
-    #[cfg(any(
-        all(feature = "mac-vault", target_os = "macos"),
-        all(feature = "ios-vault", target_os = "ios")
-    ))]
+    #[cfg(all(feature = "ios-vault", target_os = "ios"))]
+    {
+        let _ = id;
+        let keychain = crate::keychain::AccountKeychain::new();
+        stores.iter().try_for_each(|s| keychain.delete_profile_store(s))
+    }
+    #[cfg(all(feature = "mac-vault", target_os = "macos"))]
     {
         let keychain = crate::keychain::AccountKeychain::new();
         keychain.delete(id)?;
@@ -503,6 +539,7 @@ fn route(
             trust_root,
             source: source.map(Into::into),
             vault_timeout: VAULT_READ_TIMEOUT,
+            password_login: false,
             events,
             setup: setup_events,
             commands: requests,
@@ -510,8 +547,17 @@ fn route(
     )
 }
 /// Upper bound for one OS-vault read; a locked or absent keyring must not stall start-up.
+#[cfg(not(target_os = "ios"))]
 const VAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+// Migrating ambiguous legacy items may require several expensive authenticated decryptions.
+#[cfg(target_os = "ios")]
+const VAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 impl PendingSignIn {
+    /// Ask for credentials while keeping the old sealed profile intact until login succeeds.
+    pub fn with_password_login(mut self) -> Self {
+        self.password_login = true;
+        self
+    }
     pub fn with_vault_timeout(mut self, timeout: std::time::Duration) -> Self {
         self.vault_timeout = timeout;
         self
@@ -594,7 +640,7 @@ impl PendingSignIn {
                 return Err(error);
             }
         };
-        let mode = if profile.active_account().is_none() {
+        let mode = if self.password_login || profile.active_account().is_none() {
             SignInMode::Password
         } else if profile.vault_mode && self.source.is_some() {
             SignInMode::UnlockVault
@@ -647,15 +693,11 @@ impl PendingSignIn {
                     password,
                 } if mode == SignInMode::Password && self.source.is_some() => {
                     let source = self.source.as_deref().unwrap();
-                    let session = profile
-                        .password_login_vault(
-                            source,
-                            homeserver,
-                            user,
-                            password,
-                            self.trust_root.clone(),
-                        )
-                        .await;
+                    let session = if self.password_login {
+                        profile.replace_vault_login(source, homeserver, user, password, self.trust_root.clone()).await
+                    } else {
+                        profile.password_login_vault(source, homeserver, user, password, self.trust_root.clone()).await
+                    };
                     if let Ok(session) = session {
                         return self.recovery_step(session).await;
                     }
@@ -816,7 +858,7 @@ impl SignInProfile {
         if self.vault_mode {
             return Err(SignInError::ProtectionMismatch);
         }
-        self.login(None, homeserver, user, password, Some(phrase), trust_root)
+        self.login(None, homeserver, user, password, Some(phrase), trust_root, false)
             .await
     }
 
@@ -829,8 +871,19 @@ impl SignInProfile {
         password: Secret,
         trust_root: Option<Vec<u8>>,
     ) -> Result<AccountSession, SignInError> {
-        self.login(Some(source), homeserver, user, password, None, trust_root)
+        self.login(Some(source), homeserver, user, password, None, trust_root, false)
             .await
+    }
+
+    async fn replace_vault_login(
+        &mut self,
+        source: &dyn ProtectionSource,
+        homeserver: String,
+        user: String,
+        password: Secret,
+        trust_root: Option<Vec<u8>>,
+    ) -> Result<AccountSession, SignInError> {
+        self.login(Some(source), homeserver, user, password, None, trust_root, true).await
     }
 
     async fn login(
@@ -841,21 +894,27 @@ impl SignInProfile {
         password: Secret,
         phrase: Option<Secret>,
         trust_root: Option<Vec<u8>>,
+        replace: bool,
     ) -> Result<AccountSession, SignInError> {
         use std::io::Write;
-        if self.active.is_some() {
+        if self.active.is_some() && !replace {
             return Err(SignInError::AlreadySignedIn);
         }
         match std::fs::symlink_metadata(self.root.join("active-account.pending")) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
             _ => return Err(SignInError::Storage),
         }
-        ensure_no_sealed_attempt(&self.root)?;
+        if !replace || self.active.is_none() {
+            ensure_no_sealed_attempt(&self.root)?;
+        }
         let mut available = None;
         let ids = self.fixed.map_or(1..=128, |a| a.as_u64()..=a.as_u64());
         for id in ids {
             match std::fs::symlink_metadata(self.root.join(format!("account-{id}"))) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    if let Some(source) = source
+                        && !source.available(&self.root.join(format!("account-{id}"))).map_err(SignInError::Vault)?
+                    { continue; }
                     available = Some(AccountId::new(id));
                     break;
                 }
@@ -903,9 +962,13 @@ impl SignInProfile {
         file.write_all(account.as_u64().to_string().as_bytes())
             .map_err(|_| SignInError::Storage)?;
         file.sync_all().map_err(|_| SignInError::Storage)?;
-        crate::fsx::publish_new(&pending, &self.root.join("active-account"))
-            .map_err(|_| SignInError::Storage)?;
-        crate::fsx::remove_pending(&pending).map_err(|_| SignInError::Storage)?;
+        if replace && self.active.is_some() {
+            std::fs::rename(&pending, self.root.join("active-account")).map_err(|_| SignInError::Storage)?;
+        } else {
+            crate::fsx::publish_new(&pending, &self.root.join("active-account"))
+                .map_err(|_| SignInError::Storage)?;
+            crate::fsx::remove_pending(&pending).map_err(|_| SignInError::Storage)?;
+        }
         crate::fsx::sync_dir(&self.root).map_err(|_| SignInError::Storage)?;
         self.active = Some(account);
         Ok(session)
@@ -1017,6 +1080,48 @@ fn validate_store(
 #[cfg(test)]
 mod vault_format_tests {
     use super::*;
+
+    #[test]
+    fn ios_lookup_order_is_profile_then_shared_and_default_legacy() {
+        assert_eq!(ios_lookup_order("profile", "legacy"), [("profile", true), ("legacy", true), ("legacy", false)]);
+    }
+
+    #[test]
+    fn ios_profile_items_are_isolated_even_with_the_same_worker_id() {
+        let a = ios_profile_item(std::path::Path::new("/old/container/accounts/2/account-1")).unwrap();
+        let b = ios_profile_item(std::path::Path::new("/new/container/accounts/3/account-1")).unwrap();
+        assert_ne!(a, b);
+        assert_eq!(a, ios_profile_item(std::path::Path::new("/new/container/accounts/2/account-1")).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ios_legacy_is_assigned_only_to_the_store_it_decrypts() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("gnobbi-ios-legacy-test-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("accounts/2")).unwrap();
+        std::fs::create_dir_all(root.join("accounts/3")).unwrap();
+        for path in [root.clone(), root.join("accounts"), root.join("accounts/2"), root.join("accounts/3")] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let first = AccountStore::create(&root.join("accounts/2"), AccountId::new(1)).unwrap();
+        let second = AccountStore::create(&root.join("accounts/3"), AccountId::new(1)).unwrap();
+        let a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        first.seal(a, &serde_json::json!({"test": 1})).unwrap();
+        second.seal(b, &serde_json::json!({"test": 2})).unwrap();
+        assert!(first.unseal(b).is_err());
+        assert!(second.unseal(b).is_ok());
+        assert_eq!(ios_first_valid([a, b], |candidate| second.unseal(candidate).is_ok()), Some(b));
+        assert_eq!(ios_first_valid([b], |candidate| first.unseal(candidate).is_ok()), None);
+        let mut names = std::collections::HashMap::new();
+        names.insert(ios_profile_item(&first.path).unwrap(), a);
+        names.insert(ios_profile_item(&second.path).unwrap(), b);
+        names.remove(&ios_profile_item(&first.path).unwrap());
+        assert_eq!(names.get(&ios_profile_item(&second.path).unwrap()), Some(&b));
+        drop((first, second));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn random_bytes_become_64_lowercase_hex() {

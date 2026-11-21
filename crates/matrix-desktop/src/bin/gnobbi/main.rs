@@ -166,6 +166,13 @@ struct App {
     hook_menu_at: Option<std::time::Instant>,
     /// Why the backend could not start, shown instead of the form.
     start_error: Option<String>,
+    startup: Option<std::collections::VecDeque<std::path::PathBuf>>,
+    startup_notice: Option<String>,
+    account_notice: Option<String>,
+    reopening: Option<(Option<matrix_engine::WorkerControl>, bool)>,
+    remembered_root: Option<std::path::PathBuf>,
+    signing_in_again: bool,
+    recovery_switch: bool,
 }
 
 impl App {
@@ -181,6 +188,16 @@ impl App {
             desktop_entry::install_at_start(prefs.icon, prefs.desktop_entry_dont_ask);
         }
         let theme = Theme::Classic;
+        let candidates = if multi {
+            dirs.map(|d| {
+                let catalog = matrix_desktop::AccountCatalog::load(d);
+                let roots = catalog.accounts().iter().filter_map(|e| catalog.data_dir(d, e.id)).collect();
+                let last = std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok();
+                startup_roots(root.clone(), roots, last.as_deref().map(str::trim))
+            }).unwrap_or_else(|| vec![root.clone()])
+        } else { vec![root.clone()] };
+        let root = candidates[0].clone();
+        let startup = multi.then(|| candidates.into_iter().skip(1).collect());
         let (session, start_error) = match dirs.map(|d| Session::start(d, root.clone(), trust.clone())) {
             Some(Ok(s)) => (Some(s), None),
             Some(Err(e)) => (None, Some(e)),
@@ -199,42 +216,87 @@ impl App {
                 }
             }
         }
-        // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
-        let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, nav: mobile::Nav::from_env(), rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        App { prefs, dirs: dirs.cloned(), list_open: false, nav: mobile::Nav::from_env(), rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
-            auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false };
-        if let Some(i) = last {
-            app.switch_to(i);
-        }
-        app
+            auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false, startup, startup_notice: None, account_notice: None, reopening: None, remembered_root: None, signing_in_again: false, recovery_switch: false }
     }
 
     /// Brings parked account `i` on screen; the shown one takes its place in the list.
     fn switch_to(&mut self, i: usize) {
-        let Some(p) = self.parked.get_mut(i) else {
-            eprintln!("Gnobbi: account switch request index={i} result=missing");
-            return;
-        };
-        if let Some(shown) = &mut self.session {
-            std::mem::swap(shown, &mut p.session);
-            std::mem::swap(&mut self.root, &mut p.root);
-            std::mem::swap(&mut self.recorded, &mut p.recorded);
-            // The window states of the account that left must not follow the new one.
-            self.new_form = Default::default();
-            self.device_fields = Default::default();
-            self.account_form = Default::default();
-            self.poll_form = Default::default();
-            self.confirm = None;
-            self.rail.settings = false;
-            self.rail.devices = false;
-            self.rail.customize = false;
-            if let Some(d) = &self.dirs {
-                let _ = std::fs::write(d.data.join(LAST_ACCOUNT), self.root.to_string_lossy().as_bytes());
+        if i >= self.parked.len() { return; }
+        let target = self.dirs.as_ref().and_then(|d| matrix_desktop::AccountCatalog::load(d).id_for_root(d, &self.parked[i].root)).map(|id| id.as_u64());
+        eprintln!("Gnobbi: switch request catalog={target:?}");
+        self.wake = None;
+        let p = self.parked.remove(i);
+        if let Some(session) = self.session.take() {
+            self.parked.push(Parked { root: self.root.clone(), session, recorded: self.recorded });
+        }
+        (self.session, self.root, self.recorded) = (Some(p.session), p.root, p.recorded);
+        self.start_error = None;
+        self.account_notice = None;
+        self.signing_in_again = false;
+        self.recovery_switch = false;
+        self.remembered_root = None;
+        self.reset_account_ui();
+        self.remember_current();
+    }
+
+    fn reset_account_ui(&mut self) {
+        (self.new_form, self.device_fields, self.account_form, self.poll_form, self.confirm) = Default::default();
+        self.rail.settings = false;
+        self.rail.accounts = false;
+        self.rail.devices = false;
+        self.rail.customize = false;
+        self.rail_account = None;
+    }
+
+    fn catalog_entry(&self) -> Option<matrix_desktop::AccountEntry> {
+        let d = self.dirs.as_ref()?;
+        let c = matrix_desktop::AccountCatalog::load(d);
+        c.accounts().iter().find(|e| c.data_dir(d, e.id).as_deref() == Some(&self.root)).cloned()
+    }
+
+    fn open_failed(&self) -> bool {
+        self.reopening.is_none() && (self.start_error.is_some() || (self.catalog_entry().is_some()
+            && self.session.as_ref().is_some_and(|s| s.account.is_none()
+                && if self.signing_in_again { matches!(s.status(), FormStatus::Failed(_)) } else { restore_failed(s.status()) })))
+    }
+
+    fn remember_current(&mut self) {
+        let opened = self.session.as_ref().is_some_and(|s| s.account.is_some());
+        if opened && self.remembered_root.as_ref() != Some(&self.root)
+            && let Some(d) = &self.dirs
+            && remember_open_account(&d.data.join(LAST_ACCOUNT), &self.root, opened).is_ok()
+        {
+            let id = self.catalog_entry().map(|e| e.id.as_u64());
+            eprintln!("Gnobbi: switch result catalog={id:?} result=Ok");
+            self.remembered_root = Some(self.root.clone());
+        }
+    }
+
+    /// Wait for the actual authentication outcome, not just the worker's creation.
+    fn selection_step(&mut self) {
+        let opened = self.session.as_ref().is_some_and(|s| s.account.is_some());
+        let failed = !opened && self.open_failed();
+        match startup_step(&mut self.startup, opened, failed) {
+            StartupAction::Ready => {
+                self.start_error = None;
+                if let Some(line) = self.startup_notice.take() {
+                    let id = self.catalog_entry().map(|e| e.id.as_u64());
+                    eprintln!("Gnobbi: fallback chosen catalog={id:?} result=Ok");
+                    self.account_notice = Some(line);
+                }
+                self.remember_current();
             }
-            eprintln!("Gnobbi: account switch request index={i} result=switched");
-        } else {
-            eprintln!("Gnobbi: account switch request index={i} result=no-active-session");
+            StartupAction::Open(next) => {
+                if self.startup_notice.is_none() {
+                    let identity = self.catalog_entry().map(|e| e.user_id.unwrap_or(e.label)).unwrap_or_default();
+                    self.startup_notice = Some(i18n::t("Could not open {account}. Switched to another account.").replace("{account}", &identity));
+                }
+                self.open_account(next);
+            }
+            StartupAction::Exhausted => self.startup_notice = None,
+            StartupAction::Wait => {}
         }
     }
 
@@ -267,7 +329,7 @@ impl App {
                     control.logout_and_stop();
                     so.wait_for(control);
                 } else {
-                    self.sign_out = None;
+                    so.local_only();
                 }
             }
             // The worker was stopped for the logout: the account starts again from its saved profile.
@@ -278,6 +340,8 @@ impl App {
                 {
                     if dir == self.root {
                         self.session = Some(fresh);
+                        self.start_error = None;
+                        self.signing_in_again = false;
                     } else if let Some(p) = self.parked.iter_mut().find(|p| p.root == dir) {
                         p.session = fresh;
                     }
@@ -294,6 +358,11 @@ impl App {
     fn remove_account(&mut self, dir: &std::path::Path) {
         let Some(d) = self.dirs.clone() else { return };
         if dir == self.root {
+            self.start_error = None;
+            self.startup = None;
+            self.signing_in_again = false;
+            self.remembered_root = None;
+            self.account_notice = None;
             // The next remaining account comes on screen; with none left the sign-in screen starts on a fresh folder.
             if self.parked.is_empty() {
                 let next = matrix_desktop::AccountCatalog::load(&d).next_root(&d);
@@ -310,7 +379,8 @@ impl App {
                 self.rail.settings = false;
                 self.rail.devices = false;
                 self.rail.customize = false;
-                let _ = std::fs::write(d.data.join(LAST_ACCOUNT), self.root.to_string_lossy().as_bytes());
+                self.remembered_root = None;
+                self.remember_current();
             }
         } else {
             self.parked.retain(|p| p.root != dir);
@@ -345,7 +415,17 @@ impl App {
                 let last = self.parked.len() - 1;
                 self.switch_to(last);
             }
-            Err(_) => eprintln!("Gnobbi: account switch request result=start-failed"),
+            Err(error) => {
+                if let Some(session) = self.session.take() {
+                    self.parked.push(Parked { root: self.root.clone(), session, recorded: self.recorded });
+                }
+                self.root = dir;
+                self.recorded = true;
+                self.start_error = Some(error);
+                self.signing_in_again = false;
+                self.remembered_root = None;
+                self.reset_account_ui();
+            }
         }
     }
 
@@ -396,7 +476,15 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_millis(100));
             return;
         }
-        let Some(session) = &mut self.session else { return };
+        if self.reopening.as_ref().is_some_and(|(control, _)| control.as_ref().is_none_or(|c| c.is_done())) {
+            let (_, again) = self.reopening.take().unwrap();
+            self.reopen_account(again);
+        }
+        let Some(session) = &mut self.session else {
+            self.selection_step();
+            ctx.request_repaint_after(Duration::from_millis(100));
+            return;
+        };
         // Out of sight nothing is being read: the flags of the last painted frame would still say "focused".
         if ctx.input(|i| i.viewport().minimized == Some(true) || i.viewport().occluded == Some(true)) {
             session.reading.0 = false;
@@ -446,6 +534,7 @@ impl eframe::App for App {
             }
         }
         self.wake = wake;
+        self.selection_step();
         // The backend answers off-thread and cannot wake the UI: poll it ten times a second.
         // shortcut: a fixed tick, replace by a repaint signal from the workers when idle power matters.
         ctx.request_repaint_after(Duration::from_millis(100));
@@ -621,14 +710,29 @@ impl eframe::App for App {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
             }
         });
-        if self.session.as_ref().is_some_and(|s| s.account.is_some() && !s.recovering()) {
+        if let Some(line) = &self.account_notice {
+            egui::Panel::top("account-selection-notice").frame(bar(&t)).show(ui, |ui| {
+                ui.add(egui::Label::new(line).truncate());
+            });
+        }
+        if self.open_failed() {
+            self.account_recovery(ui, &t);
+        } else if self.session.as_ref().is_some_and(|s| s.account.is_some() && !s.recovering()) {
             self.shell(ui, &t);
             if self.nav.wants_repaint(self.list_open) {
                 ctx.request_repaint();
             }
         } else {
+            if self.signing_in_again {
+                egui::Panel::top("account-sign-in-back").frame(bar(&t)).show(ui, |ui| {
+                    if ui.button(i18n::t("Cancel")).clicked() {
+                        self.signing_in_again = false;
+                    }
+                });
+            }
             self.sign_in(ui, &t);
         }
+        if self.open_failed() { self.sign_out_step(&ctx); }
         if let Some(s) = &mut self.session { s.show_viewer(&ctx); }
         #[cfg(debug_assertions)]
         if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("avatar-editor") { self.account_form.demo(&ctx, &t); }
@@ -1708,6 +1812,84 @@ impl App {
         }
     }
 
+    fn account_recovery(&mut self, ui: &mut egui::Ui, t: &DesignTokens) {
+        let entry = self.catalog_entry();
+        let mut retry = false;
+        let mut again = false;
+        let mut switch = None;
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.set_max_width(400.);
+                ui.heading(i18n::t("Account unavailable"));
+                if let Some(e) = &entry {
+                    ui.label(&e.label);
+                    if let Some(id) = &e.user_id { ui.label(id); }
+                }
+                let line = self.session.as_ref().and_then(|s| s.status().error_message()).unwrap_or(i18n::t("Could not open this account."));
+                ui.add(egui::Label::new(RichText::new(line).color(rgb(t.error))).truncate());
+                let size = egui::vec2(ui.available_width(), metrics::button() + 4.);
+                retry = ui.add_sized(size, egui::Button::new(i18n::t("Retry"))).clicked();
+                if let Some(d) = &self.dirs {
+                    let c = matrix_desktop::AccountCatalog::load(d);
+                    let others: Vec<_> = c.accounts().iter().filter_map(|e| {
+                        let path = c.data_dir(d, e.id)?;
+                        (path != self.root && self.parked.iter().any(|p| p.root == path && p.session.account.is_some()))
+                            .then(|| (path, e.label.clone(), e.user_id.clone().unwrap_or_default()))
+                    }).collect();
+                    if ui.add_enabled(!others.is_empty(), egui::Button::new(i18n::t("Switch account")).min_size(size)).clicked() {
+                        self.recovery_switch = !self.recovery_switch;
+                    }
+                    if self.recovery_switch {
+                        for (path, name, id) in others {
+                            if accounts::switch_row(ui, &name, &id, &avatar::Avatar::Missing, false, 0, t).clicked() { switch = Some(path); }
+                        }
+                    }
+                }
+                again = ui.add_enabled(entry.is_some(), egui::Button::new(i18n::t("Sign in again")).min_size(size)).clicked();
+                if ui.add_sized(size, egui::Button::new(i18n::t("Sign out of this account"))).clicked() {
+                    let name = entry.as_ref().map_or("", |e| e.label.as_str());
+                    let id = entry.as_ref().and_then(|e| e.user_id.as_deref()).unwrap_or("");
+                    self.sign_out = Some(accounts::SignOut::new(self.root.clone(), name, id));
+                }
+            });
+        });
+        if let Some(path) = switch {
+            self.startup = None;
+            self.open_account(path);
+        } else if retry || again {
+            self.startup = None;
+            self.account_notice = None;
+            self.sign_out = None;
+            let control = self.session.take().map(|s| {
+                let c = s.control();
+                c.stop();
+                c
+            });
+            self.reopening = Some((control, again));
+        }
+    }
+
+    fn reopen_account(&mut self, again: bool) {
+        let entry = self.catalog_entry();
+        if let Some(d) = &self.dirs {
+            match Session::start_mode(d, self.root.clone(), self.trust.clone(), again) {
+                Ok(mut s) => {
+                    if again && let Some(e) = entry {
+                        let (server, user) = account_login_fields(e.homeserver.as_deref(), e.user_id.as_deref());
+                        s.homeserver = server;
+                        s.user = user;
+                    }
+                    self.session = Some(s);
+                    self.start_error = None;
+                    self.signing_in_again = again;
+                    self.remembered_root = None;
+                    self.login_sent = false;
+                }
+                Err(e) => self.start_error = Some(e),
+            }
+        }
+    }
+
     fn sign_in(&mut self, ui: &mut egui::Ui, t: &DesignTokens) {
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
             let room = ui.available_height();
@@ -1722,9 +1904,8 @@ impl App {
                 ui.vertical_centered(|ui| {
                     ui.allocate_ui_with_layout(egui::vec2(width, 0.), dir::col(), |ui| match &mut self.session {
                         Some(session) => sign_in_form(ui, session, t),
-                        None => {
-                            ui.label(self.start_error.as_deref().unwrap_or(i18n::t("Start failed")));
-                        }
+                        None if self.reopening.is_some() => { ui.spinner(); }
+                        None => { ui.label(i18n::t("Start failed")); }
                     });
                 });
                 ui.add_space(m.gap * 3.);
@@ -2299,6 +2480,56 @@ fn main() -> eframe::Result {
     result
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum StartupAction { Wait, Ready, Open(std::path::PathBuf), Exhausted }
+
+fn startup_step(pending: &mut Option<std::collections::VecDeque<std::path::PathBuf>>, opened: bool, failed: bool) -> StartupAction {
+    if opened {
+        *pending = None;
+        return StartupAction::Ready;
+    }
+    if failed && let Some(queue) = pending {
+        if let Some(root) = queue.pop_front() { return StartupAction::Open(root); }
+        *pending = None;
+        return StartupAction::Exhausted;
+    }
+    StartupAction::Wait
+}
+
+fn startup_roots(default: std::path::PathBuf, mut catalog: Vec<std::path::PathBuf>, saved: Option<&str>) -> Vec<std::path::PathBuf> {
+    if catalog.is_empty() { return vec![default]; }
+    if let Some(i) = saved.and_then(|s| catalog.iter().position(|p| p.to_str() == Some(s))) {
+        let selected = catalog.remove(i);
+        catalog.insert(0, selected);
+    }
+    catalog
+}
+
+fn remember_open_account(file: &std::path::Path, root: &std::path::Path, opened: bool) -> std::io::Result<()> {
+    if opened { std::fs::write(file, root.to_string_lossy().as_bytes()) } else { Ok(()) }
+}
+
+fn restore_failed(status: FormStatus) -> bool {
+    use matrix_engine::signin::{SignInMode, SignInPrompt};
+    match status {
+        FormStatus::Failed(_) => true,
+        FormStatus::Prompt(SignInPrompt { mode: SignInMode::Unlock, .. }) => false,
+        FormStatus::Prompt(SignInPrompt { mode: SignInMode::UnlockVault, error: None }) => false,
+        FormStatus::Prompt(_) => true,
+        _ => false,
+    }
+}
+
+fn account_login_fields(homeserver: Option<&str>, user: Option<&str>) -> (String, String) {
+    let user = user.unwrap_or_default().to_owned();
+    let server = homeserver.filter(|s| !s.trim().is_empty()).map(str::to_owned).unwrap_or_else(|| server_for_user(&user));
+    (server, user)
+}
+
+fn server_for_user(user: &str) -> String {
+    user.split_once(':').map(|(_, host)| format!("https://{host}")).unwrap_or_default()
+}
+
 fn account_row_label<'a>(name: Option<&'a str>, saved: Option<&'a str>, user: Option<&'a str>) -> &'a str {
     [name, saved, user].into_iter().flatten().map(str::trim).find(|s| !s.is_empty()).unwrap_or("?")
 }
@@ -2310,6 +2541,87 @@ fn account_switch_effect(pick: Option<std::path::PathBuf>, active: &std::path::P
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_recovery_fallback_waits_for_open_and_stops_at_first_success() {
+        let mut pending = Some(std::collections::VecDeque::from(["/data/a".into(), "/data/c".into()]));
+        assert_eq!(startup_step(&mut pending, false, false), StartupAction::Wait);
+        assert_eq!(pending.as_ref().unwrap().len(), 2);
+        assert_eq!(startup_step(&mut pending, false, true), StartupAction::Open("/data/a".into()));
+        assert_eq!(startup_step(&mut pending, false, false), StartupAction::Wait);
+        assert_eq!(startup_step(&mut pending, true, false), StartupAction::Ready);
+        assert!(pending.is_none());
+    }
+
+    #[test]
+    fn account_recovery_exhausts_catalog_once_then_leaves_recovery_actions() {
+        let mut pending = Some(std::collections::VecDeque::from(["/data/other".into()]));
+        assert_eq!(startup_step(&mut pending, false, true), StartupAction::Open("/data/other".into()));
+        assert_eq!(startup_step(&mut pending, false, true), StartupAction::Exhausted);
+        assert!(pending.is_none());
+        assert_eq!(startup_step(&mut pending, false, true), StartupAction::Wait);
+    }
+
+    #[test]
+    fn account_recovery_translations_cover_english_and_italian() {
+        for (source, italian) in [
+            ("Account unavailable", "Account non disponibile"),
+            ("Could not open this account.", "Impossibile aprire questo account."),
+            ("Could not open {account}. Switched to another account.", "Impossibile aprire {account}. Aperto un altro account."),
+            ("Switch account", "Cambia account"),
+            ("Sign in again", "Accedi di nuovo"),
+            ("Retry", "Riprova"),
+            ("Sign out of this account", "Esci da questo account"),
+        ] {
+            assert_eq!(i18n::tr("en", "", source), source);
+            assert_eq!(i18n::tr("it", "", source), italian);
+        }
+    }
+
+    #[test]
+    fn account_recovery_prefills_catalog_identity_and_server() {
+        let user = Some("@test:example.org:8448");
+        assert_eq!(account_login_fields(Some("https://matrix.example.org"), user), ("https://matrix.example.org".into(), "@test:example.org:8448".into()));
+        assert_eq!(account_login_fields(None, user).0, "https://example.org:8448");
+        assert_eq!(account_login_fields(Some(" "), user).0, "https://example.org:8448");
+        assert_eq!(account_login_fields(None, None), (String::new(), String::new()));
+    }
+
+    #[test]
+    fn account_recovery_startup_order_prefers_saved_then_catalog() {
+        let roots: Vec<std::path::PathBuf> = vec!["/data/a".into(), "/data/b".into(), "/data/c".into()];
+        assert_eq!(startup_roots("/data/profile".into(), roots.clone(), Some("/data/b")), vec![std::path::PathBuf::from("/data/b"), "/data/a".into(), "/data/c".into()]);
+        assert_eq!(startup_roots("/data/profile".into(), roots.clone(), Some("/gone")), roots);
+        assert_eq!(startup_roots("/data/profile".into(), vec![], None), vec![std::path::PathBuf::from("/data/profile")]);
+    }
+
+    #[test]
+    fn account_recovery_last_account_changes_only_after_open() {
+        let dir = std::env::temp_dir().join(format!("gnobbi-last-account-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(LAST_ACCOUNT);
+        std::fs::write(&file, "previous").unwrap();
+        remember_open_account(&file, std::path::Path::new("failed"), false).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "previous");
+        remember_open_account(&file, std::path::Path::new("opened"), true).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "opened");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn account_recovery_classifies_saved_profile_prompts() {
+        use matrix_engine::signin::{SignInMode, SignInPrompt, SignInError};
+        let prompt = |mode, error| FormStatus::Prompt(SignInPrompt { mode, error });
+        assert!(!restore_failed(FormStatus::Opening));
+        assert!(!restore_failed(FormStatus::Busy));
+        assert!(!restore_failed(FormStatus::Authenticated(matrix_domain::AccountId::new(1))));
+        assert!(restore_failed(prompt(SignInMode::UnlockVault, Some(SignInError::Storage))));
+        assert!(restore_failed(prompt(SignInMode::Password, None)));
+        assert!(!restore_failed(prompt(SignInMode::Unlock, None)));
+        assert!(!restore_failed(prompt(SignInMode::Unlock, Some(SignInError::InvalidSecret))));
+        assert!(!restore_failed(prompt(SignInMode::UnlockVault, None)));
+        assert!(restore_failed(FormStatus::Failed(SignInError::NoSession)));
+    }
 
     #[test]
     fn account_row_label_falls_back_without_blank_names() {

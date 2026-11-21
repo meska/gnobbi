@@ -688,3 +688,10 @@ menu	Bring All to Front	Porta tutto in primo piano
 
 # update
 	helper out of place	helper fuori posto
+
+	Account unavailable	Account non disponibile
+	Could not open this account.	Impossibile aprire questo account.
+	Sign out of this account	Esci da questo account
+	Could not open {account}. Switched to another account.	Impossibile aprire {account}. Aperto un altro account.
+	Switch account	Cambia account
+	Sign in again	Accedi di nuovo

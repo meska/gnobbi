@@ -290,6 +290,10 @@ impl Session {
     }
 
     pub fn start(dirs: &AppDirs, root: std::path::PathBuf, trust: Option<Vec<u8>>) -> Result<Session, String> {
+        Self::start_mode(dirs, root, trust, false)
+    }
+
+    pub fn start_mode(dirs: &AppDirs, root: std::path::PathBuf, trust: Option<Vec<u8>>, password_login: bool) -> Result<Session, String> {
         matrix_desktop::create_private_dir(&root).map_err(|e| e.to_string())?;
         let status_dir = root.clone();
         let last_file = root.join("last_room");
@@ -301,6 +305,7 @@ impl Session {
             Some(source) => signin::interactive_with_source(root, trust, source),
             None => signin::interactive(root, trust),
         };
+        let pending = if password_login { pending.with_password_login() } else { pending };
         let (mut worker, rooms) = RoomListWorker::spawn(move || async move {
             pending.run().await.map_err(|_| matrix_engine::auth::AuthError::Storage)
         })

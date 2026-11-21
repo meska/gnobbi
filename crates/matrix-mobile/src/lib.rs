@@ -442,7 +442,7 @@ impl MobileSession {
             return Err(MobileError::Network);
         }
         self.vault
-            .delete_account(self.account)
+            .delete_profile(self.account, &self.root.join(format!("account-{}", self.account.as_u64())))
             .map_err(|_| MobileError::SecretStore)?;
         std::fs::remove_dir_all(&self.root).map_err(|_| MobileError::Storage)
     }
@@ -631,7 +631,7 @@ pub fn remove_local_account(
         other => other.ok(),
     };
     source
-        .delete_account(id)
+        .delete_profile(id, &root.join(format!("account-{}", id.as_u64())))
         .map_err(|_| MobileError::SecretStore)?;
     std::fs::remove_dir_all(root).map_err(|_| MobileError::Storage)
 }

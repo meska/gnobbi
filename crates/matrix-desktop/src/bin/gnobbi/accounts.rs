@@ -408,6 +408,11 @@ impl SignOut {
         SignOut { dir, name: name.to_owned(), user_id: user_id.to_owned(), phase: Phase::Ask }
     }
 
+    /// No worker could open the profile: keep the existing explicit local-removal confirmation.
+    pub fn local_only(&mut self) {
+        self.phase = Phase::Failed;
+    }
+
     pub fn wait_for(&mut self, control: matrix_engine::WorkerControl) {
         self.phase = Phase::Waiting(control);
     }
@@ -464,11 +469,18 @@ impl SignOut {
 /// Deletes everything one account left on this device: vault items, profile folder (the `-video` sibling and the media cache too).
 /// Blocking. Vault and file errors are ignored: nothing here may stop the removal of the others' data being untouched.
 pub fn wipe(dir: &std::path::Path, cache: Option<PathBuf>) {
+    wipe_with(dir, cache, |id, stores| {
+        // iOS forget_secrets preserves legacy worker-ID items and deletes only these profile stores.
+        let _ = matrix_engine::signin::forget_secrets(id, stores);
+    });
+}
+
+fn wipe_with(dir: &std::path::Path, cache: Option<PathBuf>, mut forget: impl FnMut(matrix_domain::AccountId, &[PathBuf])) {
     // The store folders are `account-<n>`; their vault items are keyed by that path and number.
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if let Some(n) = name.strip_prefix("account-").and_then(|n| n.parse::<u64>().ok()) {
-            let _ = matrix_engine::signin::forget_secrets(matrix_domain::AccountId::new(n), &[entry.path()]);
+            forget(matrix_domain::AccountId::new(n), &[entry.path()]);
         }
     }
     let mut video = dir.file_name().unwrap_or_default().to_owned();
@@ -480,6 +492,21 @@ pub fn wipe(dir: &std::path::Path, cache: Option<PathBuf>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn wipe_only_forgets_stores_under_the_selected_catalog_profile() {
+        let base = std::env::temp_dir().join(format!("gnobbi-wipe-stores-{}", std::process::id()));
+        let (a, b) = (base.join("accounts/2"), base.join("accounts/3"));
+        for path in [a.join("account-1"), b.join("account-1"), a.join("unrelated")] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        let mut forgotten = Vec::new();
+        super::wipe_with(&a, None, |id, paths| forgotten.push((id.as_u64(), paths.to_vec())));
+        assert_eq!(forgotten, vec![(1, vec![a.join("account-1")])]);
+        assert!(b.join("account-1").is_dir());
+        assert!(!a.exists());
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
     #[test]
     fn wipe_removes_the_profile_its_video_folder_and_cache_only() {
         let base = std::env::temp_dir().join(format!("gnobbi-wipe-{}", std::process::id()));

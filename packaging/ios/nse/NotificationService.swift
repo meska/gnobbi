@@ -49,7 +49,8 @@ final class NotificationService: UNNotificationServiceExtension {
     /// nil = failure of any kind (no store, signed out, offline...): the generic text stays.
     static func fetch(tag: String, room: String, event: String) -> [String: Any]? {
         let parts = tag.split(separator: ":", maxSplits: 2).map(String.init)
-        guard parts.count == 3, let secret = secret(account: "account-id:\(parts[1])"),
+        guard parts.count == 3,
+              let secret = secret(account: "profile-id:\(parts[2]):account-\(parts[1])") ?? secret(account: "account-id:\(parts[1])"),
               let base = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)?
                 .appendingPathComponent("Library/Application Support/Gnobbi").path else { return nil }
         var out: UnsafeMutablePointer<CChar>?

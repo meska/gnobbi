@@ -163,6 +163,39 @@ impl AccountKeychain {
         Ok(value)
     }
 
+    /// Read exactly the requested namespace; the legacy item may belong to another profile.
+    fn find_group(&self, account: &str, shared: bool) -> Result<zeroize::Zeroizing<Vec<u8>>, VaultError> {
+        use security_framework::passwords::{generic_password, PasswordOptions};
+        let mut options = PasswordOptions::new_generic_password(SERVICE, account);
+        #[cfg(not(target_abi = "sim"))]
+        if shared { options.set_access_group(SHARED_GROUP); }
+        #[cfg(target_abi = "sim")]
+        let _ = shared;
+        generic_password(options).map(zeroize::Zeroizing::new).map_err(|e| {
+            eprintln!("Gnobbi: keychain lookup group={} result=code:{}", if shared { "shared" } else { "default" }, e.code());
+            classify(&e)
+        })
+    }
+
+    fn find_all_groups(&self, account: &str) -> Result<Vec<zeroize::Zeroizing<Vec<u8>>>, VaultError> {
+        use security_framework::item::{ItemClass, ItemSearchOptions, Limit, SearchResult};
+        let mut options = ItemSearchOptions::new();
+        options.class(ItemClass::generic_password()).service(SERVICE).account(account).load_data(true).limit(Limit::All);
+        match options.search() {
+            Ok(items) => Ok(items.into_iter().filter_map(|item| match item {
+                SearchResult::Data(data) => Some(zeroize::Zeroizing::new(data)),
+                _ => None,
+            }).collect()),
+            Err(e) if classify(&e) == VaultError::Missing => Ok(Vec::new()),
+            Err(e) => Err(classify(&e)),
+        }
+    }
+
+    pub fn delete_profile_store(&self, path: &std::path::Path) -> Result<(), VaultError> {
+        let name = crate::signin::ios_profile_item(path).ok_or(VaultError::Unavailable)?;
+        self.delete_named(&name)
+    }
+
     fn add(&self, account: &str, value: &[u8]) -> Result<(), VaultError> {
         use security_framework::{
             access_control::{ProtectionMode, SecAccessControl},
@@ -311,25 +344,84 @@ impl Default for AccountKeychain {
 pub struct IosKeychain;
 #[cfg(target_os = "ios")]
 impl ProtectionSource for IosKeychain {
+    fn available(&self, path: &std::path::Path) -> Result<bool, VaultError> {
+        let name = crate::signin::ios_profile_item(path).ok_or(VaultError::Unavailable)?;
+        let keychain = AccountKeychain::new();
+        for shared in [true, false] {
+            match keychain.find_group(&name, shared) {
+                Ok(_) => return Ok(false),
+                Err(VaultError::Missing) => (),
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(true)
+    }
     fn create(&self, store: &crate::persistence::AccountStore) -> Result<Secret, VaultError> {
-        self.create_account(store.account_id())
+        let name = crate::signin::ios_profile_item(&store.path).ok_or(VaultError::Unavailable)?;
+        let mut random = zeroize::Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut *random).map_err(|_| VaultError::Unavailable)?;
+        let secret = crate::signin::secret_from_random(&random)?;
+        AccountKeychain::new().store_new(&name, secret.0.as_bytes())?;
+        Ok(secret)
     }
     fn read(&self, store: &crate::persistence::AccountStore) -> Result<Secret, VaultError> {
-        self.read_account(store.account_id())
+        let name = crate::signin::ios_profile_item(&store.path).ok_or(VaultError::Unavailable)?;
+        let keychain = AccountKeychain::new();
+        eprintln!("Gnobbi: unlock profile={name} attempt");
+        let legacy = AccountKeychain::name(store.account_id());
+        let order = crate::signin::ios_lookup_order(&name, &legacy);
+        match keychain.find_group(order[0].0, order[0].1) {
+            Ok(value) => {
+                let secret = crate::signin::secret_from_item(&value)?;
+                if store.unseal(&secret.0).is_ok() {
+                    eprintln!("Gnobbi: unlock profile={name} group=shared result=Ok");
+                    return Ok(secret);
+                }
+                // Never replace an existing profile-specific item with an ambiguous legacy value.
+                eprintln!("Gnobbi: unlock profile={name} group=shared result=Error");
+                return Err(VaultError::InvalidItem);
+            }
+            Err(VaultError::Missing) => (),
+            Err(e) => return Err(e),
+        }
+        for (item, shared) in order.into_iter().skip(1) {
+            let values = if shared {
+                match keychain.find_group(item, true) {
+                    Ok(value) => vec![value],
+                    Err(VaultError::Missing) => Vec::new(),
+                    Err(e) => return Err(e),
+                }
+            } else {
+                keychain.find_all_groups(item)?
+            };
+            if let Some(value) = crate::signin::ios_first_valid(values, |value| {
+                crate::signin::secret_from_item(value).is_ok_and(|secret| store.unseal(&secret.0).is_ok())
+            }) {
+                keychain.store_new(&name, &value)?;
+                let copied = keychain.find_group(&name, true)?;
+                let verified = crate::signin::secret_from_item(&copied)?;
+                if store.unseal(&verified.0).is_err() { return Err(VaultError::InvalidItem); }
+                eprintln!("Gnobbi: unlock profile={name} group={} result=Ok migration=copied", if shared { "shared" } else { "accessible" });
+                return Ok(verified);
+            }
+        }
+        eprintln!("Gnobbi: unlock profile={name} result=Missing");
+        Err(VaultError::Missing)
     }
 }
 #[cfg(target_os = "ios")]
 impl AccountProtectionSource for IosKeychain {
     fn create_account(&self, id: AccountId) -> Result<Secret, VaultError> {
-        // iOS keeps Keychain items after uninstall while the data dir is gone: an item for a
-        // free ID is an orphan, so replace it instead of failing every future sign-in.
-        AccountKeychain::new().delete(id)?;
         AccountKeychain::new().create(id)
     }
     fn read_account(&self, id: AccountId) -> Result<Secret, VaultError> {
         AccountKeychain::new().read(id)
     }
-    fn delete_account(&self, id: AccountId) -> Result<(), VaultError> {
-        AccountKeychain::new().delete(id)
+    fn delete_account(&self, _id: AccountId) -> Result<(), VaultError> {
+        // The unscoped legacy item may still be needed by another profile.
+        Ok(())
+    }
+    fn delete_profile(&self, _id: AccountId, store: &std::path::Path) -> Result<(), VaultError> {
+        AccountKeychain::new().delete_profile_store(store)
     }
 }
