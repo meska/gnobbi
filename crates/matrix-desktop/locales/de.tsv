@@ -7,3 +7,681 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of de in this order, separated by |: one|other.
 # See TRANSLATING.md.
+
+# list
+	Pinned	Angeheftet
+	Low priority	Niedrige Priorität
+	New chat	Neuer Chat
+	Explore public rooms	Öffentliche Räume entdecken
+	Search conversations	Unterhaltungen durchsuchen
+	Mark as read	Als gelesen markieren
+	Mark as unread	Als ungelesen markieren
+	Add to a space…	Zu einem Space hinzufügen …
+	Leave?	Verlassen?
+	Leave	Verlassen
+	Add to a space	Zu einem Space hinzufügen
+	Add	Hinzufügen
+	Cancel	Abbrechen
+	Unpin	Lösen
+	Pin to top	Oben anheften
+	Remove from low priority	Aus „Niedrige Priorität“ entfernen
+	Mark as low priority	Als niedrige Priorität markieren
+	Remove from {name}	Aus {name} entfernen
+	All messages	Alle Nachrichten
+	Mentions only	Nur Erwähnungen
+	Muted	Stumm
+
+# composer
+banner	Reply	Antworten
+	Edit	Bearbeiten
+	Send note	Notiz senden
+	Reply in thread	Im Thread antworten
+	Write a message	Nachricht schreiben
+	Emoji	Emoji
+	Sticker	Sticker
+	Poll	Umfrage
+	Attach a file	Datei anhängen
+	Voice note	Sprachnachricht
+	Send	Senden
+
+# composer (emoji names)
+	Grinning face	Grinsendes Gesicht
+	Beaming face	Strahlendes Gesicht
+	Face with tears of joy	Gesicht mit Freudentränen
+	Rolling on the floor laughing	Sich vor Lachen auf dem Boden wälzen
+	Smiling face with smiling eyes	Lächelndes Gesicht mit lächelnden Augen
+	Smiling face with heart eyes	Lächelndes Gesicht mit Herzaugen
+	Face blowing a kiss	Kusshand werfendes Gesicht
+	Smiling face with sunglasses	Lächelndes Gesicht mit Sonnenbrille
+	Thinking face	Nachdenkliches Gesicht
+	Grinning face with sweat	Grinsendes Gesicht mit Schweißtropfen
+	Winking face	Zwinkerndes Gesicht
+	Upside-down face	Umgedrehtes Gesicht
+	Crying face	Weinendes Gesicht
+	Loudly crying face	Laut weinendes Gesicht
+	Angry face	Wütendes Gesicht
+	Screaming face	Vor Angst schreiendes Gesicht
+	Thumbs up	Daumen hoch
+	Thumbs down	Daumen runter
+	Clapping hands	Klatschende Hände
+	Folded hands	Gefaltete Hände
+	Flexed biceps	Angespannter Bizeps
+	Waving hand	Winkende Hand
+	Handshake	Handschlag
+	Raising hands	Erhobene Hände
+	Party popper	Konfettibombe
+	Fire	Feuer
+	Sparkles	Funkelnde Sterne
+	Hundred points	Hundert Punkte
+	Check mark	Häkchen
+	Cross mark	Kreuz
+	Eyes	Augen
+	Cup of coffee	Tasse Kaffee
+
+# timeline
+	Today	Heute
+	Yesterday	Gestern
+	Message deleted	Nachricht gelöscht
+	Message unavailable	Nachricht nicht verfügbar
+	Encrypted message	Verschlüsselte Nachricht
+	Loading…	Wird geladen …
+	Go to bottom	Nach unten
+	image	Bild
+	video	Video
+@plural	{n} reply	{n} Antwort|{n} Antworten
+
+# info
+	Encrypted	Verschlüsselt
+	Status messages	Statusmeldungen
+	Same as settings	Wie in den Einstellungen
+	Show	Anzeigen
+	Hide	Ausblenden
+@plural	{n} status message hidden	{n} Statusmeldung ausgeblendet|{n} Statusmeldungen ausgeblendet
+	Search in room	Im Raum suchen
+	No results	Keine Ergebnisse
+	Search failed	Suche fehlgeschlagen
+	Retry	Erneut versuchen
+	More results	Weitere Ergebnisse
+	Profile link	Profillink
+	Verified	Verifiziert
+	Not verified	Nicht verifiziert
+	Message	Nachricht
+	Mention	Erwähnen
+	Verify	Verifizieren
+	Disconnect	Trennen
+	Last read	Zuletzt gelesen
+	Chat unavailable	Chat nicht verfügbar
+	Ignore	Ignorieren
+	Confirm	Bestätigen
+	Kick	Entfernen
+	Ban	Verbannen
+	Failed	Fehlgeschlagen
+	Thread unavailable	Thread nicht verfügbar
+	Thread	Thread
+	Reply	Antworten
+	Addresses	Adressen
+	main	haupt
+	Main	Haupt
+	name	Name
+@plural	{n} member	{n} Mitglied|{n} Mitglieder
+@plural	Delete {n} message	{n} Nachricht löschen|{n} Nachrichten löschen
+	Reply to {name}	Antwort an {name}
+
+# members
+	Admin	Admin
+	Moderator	Moderator
+	Member	Mitglied
+	Invite	Einladen
+	Banned	Verbannt
+	Banned list unavailable	Liste der Verbannten nicht verfügbar
+	Unban	Verbannung aufheben
+	Reason	Grund
+	Actions for {name}	Aktionen für {name}
+
+# roomedit
+	Name	Name
+	Topic	Thema
+	Drop an image here for the photo	Bild hier ablegen, um es als Foto zu verwenden
+	Choose photo…	Foto auswählen …
+	Room photo	Raumfoto
+	Save	Speichern
+	Photo: {name}	Foto: {name}
+
+# poll
+	New poll	Neue Umfrage
+	Question	Frage
+	Add option	Option hinzufügen
+	Multiple choice	Mehrfachauswahl
+	Results visible right away	Ergebnisse sofort sichtbar
+	Option {n}	Option {n}
+
+# viewer
+	Video	Video
+	Image	Bild
+	Save as	Speichern unter
+	Open	Öffnen
+	Cannot open the content	Inhalt kann nicht geöffnet werden
+
+# stickers
+	Stickers are not encrypted, like an unencrypted image	Sticker sind nicht verschlüsselt, wie ein unverschlüsseltes Bild
+	No sticker packs	Keine Sticker-Pakete
+	Stickers unavailable	Sticker nicht verfügbar
+
+# settings
+	Settings	Einstellungen
+	Account and security	Konto und Sicherheit
+	Account	Konto
+	Devices	Geräte
+	Appearance	Darstellung
+	Language	Sprache
+	Theme	Design
+	System	System
+	Accent	Akzent
+	Icon	Symbol
+	Automatic night	Automatisch dunkel
+	Chat	Chat
+	Read receipts	Lesebestätigungen
+	Hide deleted messages	Gelöschte Nachrichten ausblenden
+	Show status messages	Statusmeldungen anzeigen
+	Message preview	Nachrichtenvorschau
+	Notifications	Benachrichtigungen
+	Close to tray	In den Infobereich schließen
+	Add to menu	Zum Menü hinzufügen
+	Added to menu	Zum Menü hinzugefügt
+	Could not add to menu	Hinzufügen zum Menü fehlgeschlagen
+	Classic	Klassisch
+	Day	Hell
+	Dark	Dunkel
+	Night	Nacht
+	No	Nein
+	Schedule	Zeitplan
+	Minimal mark	Minimales Zeichen
+	Gnome	Gnom
+	Little monster	Kleines Monster
+	Blue	Blau
+	Teal	Petrol
+	Green	Grün
+	Orange	Orange
+	Red	Rot
+	Pink	Rosa
+	Purple	Violett
+
+# notifications, tray, menu bar, errors
+	A save is already in progress	Es läuft bereits ein Speichervorgang
+	Account no longer connected	Konto nicht mehr verbunden
+	Actions not available for this event	Aktionen für dieses Ereignis nicht verfügbar
+	Address already in use	Adresse bereits in Verwendung
+	Already joined	Bereits beigetreten
+	Checking permissions…	Berechtigungen werden geprüft …
+	Choose a file that does not exist yet	Wähle eine Datei, die noch nicht existiert
+	Connected	Verbunden
+	Connecting…	Verbindung wird hergestellt …
+	Connection failed	Verbindung fehlgeschlagen
+	Data folder not available	Datenordner nicht verfügbar
+	Delete the selected message? This cannot be undone.	Ausgewählte Nachricht löschen? Das kann nicht rückgängig gemacht werden.
+	File cannot be attached	Datei kann nicht angehängt werden
+	Image cannot be attached	Bild kann nicht angehängt werden
+	Invalid name	Ungültiger Name
+	Joining…	Beitritt läuft …
+	Message not available	Nachricht nicht verfügbar
+	No audio recorded	Kein Audio aufgenommen
+	Not allowed	Nicht erlaubt
+	Not allowed by the server	Vom Server nicht erlaubt
+	Operation failed	Vorgang fehlgeschlagen
+	Operation not confirmed · Retry uses the same ID (even if you change room)	Vorgang nicht bestätigt · Erneut versuchen verwendet dieselbe ID (auch wenn du den Raum wechselst)
+	Operation pending · no server confirmation	Vorgang ausstehend · keine Bestätigung vom Server
+	Operation refused or unavailable	Vorgang abgelehnt oder nicht verfügbar
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Antworten/Bearbeiten: im Entwurf schreiben und dann die Schaltfläche verwenden. Enter sendet wie gewohnt.
+	Room not found	Raum nicht gefunden
+	Saved	Gespeichert
+	Saving failed	Speichern fehlgeschlagen
+	Server unreachable	Server nicht erreichbar
+	Sign-in failed	Anmeldung fehlgeschlagen
+	Sticker not sent	Sticker nicht gesendet
+	Still joining…	Beitritt läuft noch …
+	Sync interrupted	Synchronisierung unterbrochen
+	Voice note cannot be played	Sprachnachricht kann nicht abgespielt werden
+	You are offline	Du bist offline
+	The name cannot be empty.	Der Name darf nicht leer sein.
+	The name is too long (256 characters at most).	Der Name ist zu lang (höchstens 256 Zeichen).
+	This server does not allow editing the profile.	Dieser Server erlaubt keine Profilbearbeitung.
+	Cannot read the chosen file.	Die gewählte Datei kann nicht gelesen werden.
+	The image is too large (25 MB at most).	Das Bild ist zu groß (höchstens 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	Wähle ein gültiges PNG-, JPEG- oder WebP-Bild.
+	Connection failed: try again shortly.	Verbindung fehlgeschlagen: gleich noch einmal versuchen.
+	The server rejected the change.	Der Server hat die Änderung abgelehnt.
+	Space not found	Space nicht gefunden
+	Operation failed, try again	Vorgang fehlgeschlagen, bitte erneut versuchen
+	Minimize	Minimieren
+	Show Gnobbi	Gnobbi anzeigen
+	Quit Gnobbi	Gnobbi beenden
+	{name}, active account	{name}, aktives Konto
+	New messages	Neue Nachrichten
+	1 new message	1 neue Nachricht
+	New message	Neue Nachricht
+	📷 Photo	📷 Foto
+	🎥 Video	🎥 Video
+	🎤 Voice message	🎤 Sprachnachricht
+	🎵 Audio	🎵 Audio
+	📎 File	📎 Datei
+	📍 Location	📍 Standort
+menu	Quit Gnobbi	Gnobbi beenden
+menu	About Gnobbi	Über Gnobbi
+menu	Settings…	Einstellungen …
+menu	Services	Dienste
+menu	Hide Gnobbi	Gnobbi ausblenden
+menu	Hide Others	Andere ausblenden
+menu	Show All	Alle einblenden
+menu	Edit	Bearbeiten
+menu	Undo	Widerrufen
+menu	Redo	Wiederholen
+menu	Cut	Ausschneiden
+menu	Copy	Kopieren
+menu	Paste	Einsetzen
+menu	Select All	Alles auswählen
+menu	Start Dictation…	Diktat starten …
+menu	Emoji & Symbols	Emoji & Symbole
+menu	Window	Fenster
+menu	Minimize	Im Dock ablegen
+menu	Zoom	Zoom
+menu	Bring All to Front	Alle nach vorne bringen
+@plural	Gnobbi, {n} unread	Gnobbi, {n} ungelesen|Gnobbi, {n} ungelesen
+
+# Phosphor icons, sizes and Personalizza
+	Customize	Anpassen
+	Sizes	Größen
+	Text size	Textgröße
+	Buttons and icons size	Größe von Schaltflächen und Symbolen
+	Follow the system	Dem System folgen
+	Follow the text	Dem Text folgen
+	Small	Klein
+	Normal	Normal
+	Large	Groß
+	Compact	Kompakt
+	Comfortable	Bequem
+	Restore defaults	Standard wiederherstellen
+	Preview	Vorschau
+	A sample message	Eine Beispielnachricht
+	Button	Schaltfläche
+	Remove attachment	Anhang entfernen
+	Cancel reply	Antwort abbrechen
+	Close card	Karte schließen
+	Close thread	Thread schließen
+	Remove address	Adresse entfernen
+	Copy	Kopieren
+	Menu	Menü
+	Back	Zurück
+	Chat list	Chatliste
+	Info	Info
+	Copy key	Schlüssel kopieren
+	Remove option	Option entfernen
+	Pause	Pause
+	Play	Wiedergabe
+	New	Neu
+	New space	Neuer Space
+	Close	Schließen
+	Add account	Konto hinzufügen
+	Rename	Umbenennen
+
+# avatar editor
+	Profile photo	Profilbild
+	Edit photo	Foto bearbeiten
+	Apply	Anwenden
+	Reset	Zurücksetzen
+	Rotate left	Nach links drehen
+	Rotate right	Nach rechts drehen
+	Mirror	Spiegeln
+	Zoom	Zoom
+	Rotation	Drehung
+	Brightness	Helligkeit
+	Contrast	Kontrast
+	Saturation	Sättigung
+	Original	Original
+	B&W	S/W
+	Sepia	Sepia
+	Vivid	Lebhaft
+	Cool	Kühl
+	Warm	Warm
+	Fade	Verblasst
+	High contrast	Hoher Kontrast
+	Preview: drag to move the photo	Vorschau: zum Verschieben des Fotos ziehen
+	Could not download the current photo.	Das aktuelle Foto konnte nicht heruntergeladen werden.
+	Could not prepare the photo.	Das Foto konnte nicht vorbereitet werden.
+	Open link	Link öffnen
+	Could not open the link.	Der Link konnte nicht geöffnet werden.
+	Copy link	Link kopieren
+	Server	Server
+	Matrix ID	Matrix-ID
+	Password	Passwort
+	Local passphrase	Lokale Passphrase
+	Sign in	Anmelden
+	Unlock	Entsperren
+	Signing in…	Anmeldung läuft …
+	Unlocking…	Entsperren läuft …
+	Show password	Passwort anzeigen
+	Hide password	Passwort verbergen
+# main
+	Accept	Annehmen
+	Decline	Ablehnen
+	Edit space	Space bearbeiten
+	Edit room	Raum bearbeiten
+	Start failed	Start fehlgeschlagen
+	Search	Suchen
+	Conversations	Unterhaltungen
+	Users	Nutzer
+	Public rooms	Öffentliche Räume
+	React	Reagieren
+	Confirm closing	Schließen bestätigen
+	Close poll	Umfrage beenden
+	Confirm deletion	Löschen bestätigen
+	Delete	Löschen
+	Encrypted history	Verschlüsselter Verlauf
+	Matrix recovery key	Matrix-Wiederherstellungsschlüssel
+	I saved the key: continue	Ich habe den Schlüssel gesichert: weiter
+	Recover encrypted history	Verschlüsselten Verlauf wiederherstellen
+	Try creating the key again	Schlüssel erneut erstellen
+	Create recovery key	Wiederherstellungsschlüssel erstellen
+	Continue without recovery	Ohne Wiederherstellung fortfahren
+# rail
+	A space cannot go inside itself	Ein Space kann nicht in sich selbst liegen
+	You do not have permission to edit «{name}»	Du hast keine Berechtigung, „{name}“ zu bearbeiten
+	{label}, {n} unread	{label}, {n} ungelesen
+	Move {name}	{name} verschieben
+	Move {name} down	{name} nach unten verschieben
+	Move {name} up	{name} nach oben verschieben
+	Organise spaces	Spaces ordnen
+	Unread	Ungelesen
+	All chats	Alle Chats
+	Spaces	Spaces
+	No spaces	Keine Spaces
+# space
+	Rooms unlinked: {n}	Verknüpfung gelöst bei Räumen: {n}
+	Rooms not unlinked: {n}	Verknüpfung nicht gelöst bei Räumen: {n}
+	Members removed: {n}	Entfernte Mitglieder: {n}
+	Not removed: {names}	Nicht entfernt: {names}
+	Members who will be removed: {n}	Mitglieder, die entfernt werden: {n}
+	Rooms unlinked (they stay existing): {n}	Räume, deren Verknüpfung gelöst wird (sie bleiben bestehen): {n}
+	Space menu	Space-Menü
+	Space info	Space-Info
+	Members	Mitglieder
+	Hand over the admin role…	Admin-Rolle übergeben …
+	Leave space	Space verlassen
+	Delete space	Space löschen
+	Forget	Vergessen
+	Failed, no change guaranteed: try again	Fehlgeschlagen, keine Änderung garantiert: erneut versuchen
+	Member list not read	Mitgliederliste nicht gelesen
+	Space left and forgotten	Space verlassen und vergessen
+	Space not left: try again	Space nicht verlassen: erneut versuchen
+	Space not left: members remain	Space nicht verlassen: Mitglieder bleiben
+	This cannot be undone	Das kann nicht rückgängig gemacht werden
+	You still have rooms in this space.	Du hast noch Räume in diesem Space.
+	You are the last admin of the space.	Du bist der letzte Admin des Spaces.
+	Make admin	Zum Admin machen
+	Rooms not available	Räume nicht verfügbar
+	Add existing room	Vorhandenen Raum hinzufügen
+	No rooms	Keine Räume
+	Rooms	Räume
+	Remove	Entfernen
+# explore
+	Search public rooms	Öffentliche Räume durchsuchen
+	Your server	Dein Server
+	Other server…	Anderer Server …
+	server name	Servername
+	Already in	Bereits drin
+	Join	Beitreten
+# accounts
+	Remove photo	Foto entfernen
+	Active	Aktiv
+	Active account	Aktives Konto
+	Other accounts	Andere Konten
+# devices
+	Last active {when}	Zuletzt aktiv {when}
+	{text} in {path}	{text} in {path}
+	This device	Dieses Gerät
+	Keys	Schlüssel
+	Export password	Passwort für Export
+	Export keys	Schlüssel exportieren
+	Regenerate recovery key	Wiederherstellungsschlüssel neu erzeugen
+	Recover keys	Schlüssel wiederherstellen
+	Recovery key	Wiederherstellungsschlüssel
+	Recover	Wiederherstellen
+	Other devices	Andere Geräte
+	Sign out	Abmelden
+	Device name	Gerätename
+	New recovery key	Neuer Wiederherstellungsschlüssel
+	Done	Fertig
+# newchat
+	Direct chat	Direktnachricht
+	Room	Raum
+	Space	Space
+	Join a room	Raum beitreten
+	Public	Öffentlich
+	Create	Erstellen
+	#room:server or !id:server	#raum:server oder !id:server
+	Search people	Personen suchen
+# pick
+	Images	Bilder
+# time_fmt
+	last message at {when}	letzte Nachricht um {when}
+	last message on {when}	letzte Nachricht am {when}
+	last message {when}	letzte Nachricht {when}
+# engine text (status rows, attachment labels)
+	A user	Ein Nutzer
+	{actor} created this room.	{actor} hat diesen Raum erstellt.
+	{actor} created this chat.	{actor} hat diesen Chat erstellt.
+	{actor} invited {subject}	{actor} hat {subject} eingeladen
+	{subject} joined the room	{subject} ist dem Raum beigetreten
+	{subject} left the room	{subject} hat den Raum verlassen
+	{actor} banned {subject}	{actor} hat {subject} verbannt
+	{actor} unbanned {subject}	{actor} hat die Verbannung von {subject} aufgehoben
+	{actor} removed {subject} from the room	{actor} hat {subject} aus dem Raum entfernt
+	{subject} declined the invitation	{subject} hat die Einladung abgelehnt
+	{actor} revoked the invitation for {subject}	{actor} hat die Einladung für {subject} zurückgezogen
+	{actor} removed the room name	{actor} hat den Raumnamen entfernt
+	{actor} changed the room name to «{name}»	{actor} hat den Raumnamen in „{name}“ geändert
+	{actor} removed the room topic	{actor} hat das Raumthema entfernt
+	{actor} changed the room topic to «{topic}»	{actor} hat das Raumthema in „{topic}“ geändert
+	{actor} changed the room avatar	{actor} hat das Raumbild geändert
+	{old} changed their name to {new}	{old} hat den Namen in {new} geändert
+	{subject} set their name to {new}	{subject} hat den Namen auf {new} gesetzt
+	{subject} removed their display name	{subject} hat den Anzeigenamen entfernt
+	{subject} changed their avatar	{subject} hat das Profilbild geändert
+	{text} (reason: {reason})	{text} (Grund: {reason})
+	Audio	Audio
+	File	Datei
+	Photo	Foto
+	Log out	Abmelden
+	Encryption keys on this device not backed up are lost.	Nicht gesicherte Verschlüsselungsschlüssel auf diesem Gerät gehen verloren.
+	The server did not answer. Remove it from this device anyway?	Der Server hat nicht geantwortet. Trotzdem von diesem Gerät entfernen?
+	Remove from this device	Von diesem Gerät entfernen
+
+# src/signin_form.rs
+	Wrong key. Check it and try again.	Falscher Schlüssel. Prüfe ihn und versuche es erneut.
+	Server unreachable. Try again later or continue without recovery.	Server nicht erreichbar. Versuche es später erneut oder fahre ohne Wiederherstellung fort.
+	Recovery took too long. Try again or continue without recovery.	Die Wiederherstellung hat zu lange gedauert. Versuche es erneut oder fahre ohne Wiederherstellung fort.
+	No key backup on the server. Continue without recovery.	Keine Schlüsselsicherung auf dem Server. Fahre ohne Wiederherstellung fort.
+	Recovery failed. Try again or continue without recovery.	Wiederherstellung fehlgeschlagen. Versuche es erneut oder fahre ohne Wiederherstellung fort.
+	This account has no Matrix secret storage: no recovery key to enter.	Dieses Konto hat keinen Matrix-Geheimspeicher: kein Wiederherstellungsschlüssel einzugeben.
+	The server offers no key backup: no recovery to create. Continue without recovery.	Der Server bietet keine Schlüsselsicherung: keine Wiederherstellung zu erstellen. Fahre ohne Wiederherstellung fort.
+	This account already has a recovery: enter the existing recovery key.	Dieses Konto hat bereits eine Wiederherstellung: gib den vorhandenen Wiederherstellungsschlüssel ein.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Die Wiederherstellung dieses Kontos ist nur halb eingerichtet: Gnobbi ändert sie nicht. Fahre ohne Wiederherstellung fort.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	Dieses Konto hat bereits eine kryptografische Identität, die dieses Gerät nicht besitzt: Gnobbi ersetzt sie nicht. Fahre ohne Wiederherstellung fort.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	Der Server verlangt eine zusätzliche Bestätigung, die Gnobbi nicht unterstützt. Fahre ohne Wiederherstellung fort.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	Server nicht erreichbar: die Wiederherstellung wurde nicht erstellt. Versuche es erneut oder fahre ohne Wiederherstellung fort.
+	Creation took too long. Try again or continue without recovery.	Die Erstellung hat zu lange gedauert. Versuche es erneut oder fahre ohne Wiederherstellung fort.
+	Creating the recovery failed. Try again or continue without recovery.	Erstellen der Wiederherstellung fehlgeschlagen. Versuche es erneut oder fahre ohne Wiederherstellung fort.
+	Enter a server name or a valid HTTPS address.	Gib einen Servernamen oder eine gültige HTTPS-Adresse ein.
+	Enter the full Matrix ID: @name:server.	Gib die vollständige Matrix-ID ein: @name:server.
+	Enter the profile's local passphrase.	Gib die lokale Passphrase des Profils ein.
+	Password required; local passphrase of at least 16 characters.	Passwort erforderlich; lokale Passphrase mit mindestens 16 Zeichen.
+	This server offers no password login. SSO/OIDC are not supported.	Dieser Server bietet keine Anmeldung per Passwort. SSO/OIDC werden nicht unterstützt.
+	This server does not support sliding sync	Dieser Server unterstützt Sliding Sync nicht
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	Der Server hat mit einem Fehler geantwortet: prüfe die Adresse (z. B. https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	Server nicht erreichbar oder ungültiges TLS-Zertifikat.
+	Credentials not accepted. Try again.	Zugangsdaten nicht akzeptiert. Versuche es erneut.
+	Too many attempts: try again in a moment.	Zu viele Versuche: versuche es gleich noch einmal.
+	Sign-in/unlock failed. Check the credentials and try again.	Anmeldung/Entsperren fehlgeschlagen. Prüfe die Zugangsdaten und versuche es erneut.
+	System keychain unavailable or locked. Unlock it and try again.	System-Schlüsselbund nicht verfügbar oder gesperrt. Entsperre ihn und versuche es erneut.
+	The profile key is not in the system keychain. The profile was not changed.	Der Profilschlüssel ist nicht im System-Schlüsselbund. Das Profil wurde nicht geändert.
+	Profile already open in another instance. Close it and restart.	Profil bereits in einer anderen Instanz geöffnet. Schließe sie und starte neu.
+	Local profile unavailable. Close and check the profile path.	Lokales Profil nicht verfügbar. Schließe und prüfe den Profilpfad.
+	Enter the Matrix password.	Gib das Matrix-Passwort ein.
+
+# signin
+	Creating the recovery and backup…	Wiederherstellung und Sicherung werden erstellt …
+
+# devices
+@plural	{n} device to sign out	{n} Gerät zum Abmelden|{n} Geräte zum Abmelden
+@plural	{n} device without last activity not included	{n} Gerät ohne letzte Aktivität nicht enthalten|{n} Geräte ohne letzte Aktivität nicht enthalten
+
+# devices
+	Last activity {time}	Letzte Aktivität {time}
+	They match	Sie stimmen überein
+	They don't match	Sie stimmen nicht überein
+	Yes	Ja
+	Not available with this account	Mit diesem Konto nicht verfügbar
+	Incorrect password	Falsches Passwort
+	Failed. Try again.	Fehlgeschlagen. Versuche es erneut.
+	Verification failed	Verifizierung fehlgeschlagen
+	Verification request	Verifizierungsanfrage
+	Cancel the verification?	Verifizierung abbrechen?
+	Verification cancelled	Verifizierung abgebrochen
+	The emoji don't match	Die Emoji stimmen nicht überein
+	Verification	Verifizierung
+
+# key export
+@plural	{n} key exported	{n} Schlüssel exportiert|{n} Schlüssel exportiert
+
+# key export
+	Gnobbi recovery key	Gnobbi-Wiederherstellungsschlüssel
+	Wrong unlock passphrase	Falsche Entsperr-Passphrase
+	Password too short: at least 12 characters	Passwort zu kurz: mindestens 12 Zeichen
+	Password too long: at most 4096 bytes	Passwort zu lang: höchstens 4096 Bytes
+	The passwords don't match	Die Passwörter stimmen nicht überein
+	No keys to export on this device	Keine Schlüssel zum Exportieren auf diesem Gerät
+	Can't write to this location	An diesem Ort kann nicht geschrieben werden
+	Export failed: try again	Export fehlgeschlagen: erneut versuchen
+	Recover the keys on this device first	Stelle zuerst die Schlüssel auf diesem Gerät wieder her
+	The server asks for a confirmation that is not supported here	Der Server verlangt eine Bestätigung, die hier nicht unterstützt wird
+	Server unreachable: try again	Server nicht erreichbar: erneut versuchen
+	Regeneration failed: try again	Neuerzeugung fehlgeschlagen: erneut versuchen
+
+# key export
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	Dieses Gerät hat die Wiederherstellungsschlüssel des Kontos nicht: gib den Schlüssel ein, um alte verschlüsselte Nachrichten zu lesen
+	This account has no recovery key: without one, encrypted messages are lost with the devices	Dieses Konto hat keinen Wiederherstellungsschlüssel: ohne ihn gehen verschlüsselte Nachrichten mit den Geräten verloren
+	Restoring…	Wird wiederhergestellt …
+	Restore	Wiederherstellen
+	Not now	Nicht jetzt
+	Don't ask again for this account	Für dieses Konto nicht mehr fragen
+	Copy recovery key	Wiederherstellungsschlüssel kopieren
+	Save it now: it will not be shown again	Sichere ihn jetzt: er wird nicht noch einmal angezeigt
+	Save to file	In Datei speichern
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	Wird neu erzeugt …
+	I kept it elsewhere	Ich habe ihn anderswo gesichert
+
+# search list and add server
+	The server does not respond	Der Server antwortet nicht
+	Not a Matrix server	Kein Matrix-Server
+	The server does not show its rooms	Der Server zeigt seine Räume nicht an
+	Your server cannot reach this server	Dein Server kann diesen Server nicht erreichen
+	Invalid server certificate	Ungültiges Serverzertifikat
+	Searching	Suche läuft
+	Partial results	Teilergebnisse
+	Invalid server name	Ungültiger Servername
+	Timed out	Zeitüberschreitung
+	Loading	Wird geladen
+	More results not loaded	Weitere Ergebnisse nicht geladen
+
+# search list and add server
+	The server name is needed, for example matrix.org	Der Servername ist erforderlich, zum Beispiel matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Das ist eine Nutzer-ID: der Servername ist erforderlich, zum Beispiel matrix.org
+	Only https addresses are allowed	Nur https-Adressen sind erlaubt
+	Write only the server name, without a path	Schreibe nur den Servernamen, ohne Pfad
+	The server name is needed, without user or password	Der Servername ist erforderlich, ohne Nutzer oder Passwort
+	Invalid port	Ungültiger Port
+	Invalid IP address	Ungültige IP-Adresse
+	Already present	Bereits vorhanden
+
+# sidebar
+	Favorites	Favoriten
+	All	Alle
+	Demo room {n}	Demoraum {n}
+
+# history
+@plural	{n} unread	{n} ungelesen|{n} ungelesen
+
+# history
+	edited	bearbeitet
+	[Message deleted]	[Nachricht gelöscht]
+	Server ack · Reply	Server-Ack · Antwort
+	Server ack	Server-Ack
+	local	lokal
+
+# audio
+	Microphone not available	Mikrofon nicht verfügbar
+
+# audio
+	Audio playback not available	Audiowiedergabe nicht verfügbar
+
+# search
+	Public spaces	Öffentliche Spaces
+	People	Personen
+
+# engine placeholders
+	Location	Standort
+	Message without text	Nachricht ohne Text
+	Image.png	Bild.png
+
+# update
+	invalid staging	ungültiges Staging
+	placement failed and restore failed	Platzierung fehlgeschlagen und Wiederherstellung fehlgeschlagen
+	start failed and restore failed	Start fehlgeschlagen und Wiederherstellung fehlgeschlagen
+	another installation in progress	andere Installation läuft
+	channel without in-app update	Kanal ohne In-App-Update
+	binary to update not found	zu aktualisierende Binärdatei nicht gefunden
+	staging not found	Staging nicht gefunden
+	staging outside the target folder	Staging außerhalb des Zielordners
+	previous update pending	vorheriges Update ausstehend
+	staging has a different size	Staging hat eine andere Größe
+	staging has a different hash	Staging hat einen anderen Hash
+	folder not writable	Ordner nicht beschreibbar
+	staging cannot be verified	Staging kann nicht überprüft werden
+	Update failed: {cause}	Update fehlgeschlagen: {cause}
+	remove {name}	{name} entfernen
+	error	Fehler
+
+# update
+	invalid helper parameters	ungültige Helper-Parameter
+	invalid binary to update	ungültige zu aktualisierende Binärdatei
+	backup to restore not found	wiederherzustellende Sicherung nicht gefunden
+	no pending restore	keine ausstehende Wiederherstellung
+	Windows update not available	Windows-Update nicht verfügbar
+	data folder not found	Datenordner nicht gefunden
+	the program did not close	das Programm wurde nicht beendet
+	running binary differs from the target	laufende Binärdatei weicht vom Ziel ab
+	helper without channel	Helper ohne Kanal
+	helper not ready	Helper nicht bereit
+
+# update
+	Update available · {version}	Update verfügbar · {version}
+	Update available, version {version}	Update verfügbar, Version {version}
+	Updated to {version}	Auf {version} aktualisiert
+	Update failed: restored {version}	Update fehlgeschlagen: {version} wiederhergestellt
+	Update failed: error	Update fehlgeschlagen: Fehler
+	Update postponed: message not sent	Update verschoben: Nachricht nicht gesendet
+
+# update
+	backup differs from the binary, kept	Sicherung weicht von der Binärdatei ab, behalten
+
+# key export
+	gnobbi-keys.txt	gnobbi-keys.txt
+
+# search
+	Filter: {label}	Filter: {label}
+
+# devices
+	Sign out inactive	Inaktive abmelden
+
+# update
+	helper out of place	Helper am falschen Ort
