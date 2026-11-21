@@ -7,3 +7,596 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of hu in this order, separated by |: one|other.
 # See TRANSLATING.md.
+
+	Pinned	Kitűzve
+	Low priority	Alacsony prioritás
+	New chat	Új csevegés
+	Explore public rooms	Nyilvános szobák felfedezése
+	Search conversations	Beszélgetések keresése
+	Mark as read	Megjelölés olvasottként
+	Mark as unread	Megjelölés olvasatlanként
+	Add to a space…	Hozzáadás térhez…
+	Leave?	Kilépsz?
+	Leave	Kilépés
+	Add to a space	Hozzáadás térhez
+	Add	Hozzáadás
+	Cancel	Mégse
+	Unpin	Kitűzés megszüntetése
+	Pin to top	Kitűzés felülre
+	Remove from low priority	Eltávolítás az alacsony prioritásból
+	Mark as low priority	Megjelölés alacsony prioritásúként
+	Remove from {name}	Eltávolítás innen: {name}
+	All messages	Minden üzenet
+	Mentions only	Csak említések
+	Muted	Némítva
+banner	Reply	Válasz
+	Edit	Szerkesztés
+	Send note	Jegyzet küldése
+	Reply in thread	Válasz a szálban
+	Write a message	Írj egy üzenetet
+	Emoji	Emoji
+	Sticker	Matrica
+	Poll	Szavazás
+	Attach a file	Fájl csatolása
+	Voice note	Hangüzenet
+	Send	Küldés
+	Grinning face	Vigyorgó arc
+	Beaming face	Sugárzó arc
+	Face with tears of joy	Örömkönnyes arc
+	Rolling on the floor laughing	Földön fetrengő nevetés
+	Smiling face with smiling eyes	Mosolygó arc mosolygó szemmel
+	Smiling face with heart eyes	Mosolygó arc szív alakú szemmel
+	Face blowing a kiss	Csókot dobó arc
+	Smiling face with sunglasses	Mosolygó arc napszemüvegben
+	Thinking face	Gondolkodó arc
+	Grinning face with sweat	Vigyorgó arc izzadsággal
+	Winking face	Kacsintó arc
+	Upside-down face	Fejjel lefelé fordított arc
+	Crying face	Síró arc
+	Loudly crying face	Hangosan síró arc
+	Angry face	Dühös arc
+	Screaming face	Sikoltó arc
+	Thumbs up	Felfelé mutató hüvelykujj
+	Thumbs down	Lefelé mutató hüvelykujj
+	Clapping hands	Tapsoló kezek
+	Folded hands	Összekulcsolt kezek
+	Flexed biceps	Megfeszített bicepsz
+	Waving hand	Integető kéz
+	Handshake	Kézfogás
+	Raising hands	Felemelt kezek
+	Party popper	Konfettiágyú
+	Fire	Tűz
+	Sparkles	Szikrák
+	Hundred points	Száz pont
+	Check mark	Pipa
+	Cross mark	Kereszt
+	Eyes	Szemek
+	Cup of coffee	Csésze kávé
+	Today	Ma
+	Yesterday	Tegnap
+	Message deleted	Üzenet törölve
+	Message unavailable	Az üzenet nem érhető el
+	Encrypted message	Titkosított üzenet
+	Loading…	Betöltés…
+	Go to bottom	Ugrás az aljára
+	image	kép
+	video	videó
+@plural	{n} reply	{n} válasz|{n} válasz
+	Encrypted	Titkosított
+	Status messages	Állapotüzenetek
+	Same as settings	Mint a beállításokban
+	Show	Megjelenítés
+	Hide	Elrejtés
+@plural	{n} status message hidden	{n} állapotüzenet elrejtve|{n} állapotüzenet elrejtve
+	Search in room	Keresés a szobában
+	No results	Nincs találat
+	Search failed	A keresés sikertelen
+	Retry	Újra
+	More results	További találatok
+	Profile link	Profil hivatkozása
+	Verified	Ellenőrzött
+	Not verified	Nem ellenőrzött
+	Message	Üzenet
+	Mention	Megemlítés
+	Verify	Ellenőrzés
+	Disconnect	Leválasztás
+	Last read	Utoljára olvasva
+	Chat unavailable	A csevegés nem érhető el
+	Ignore	Mellőzés
+	Confirm	Megerősítés
+	Kick	Kirúgás
+	Ban	Kitiltás
+	Failed	Sikertelen
+	Thread unavailable	A szál nem érhető el
+	Thread	Szál
+	Reply	Válasz
+	Addresses	Címek
+	main	fő
+	Main	Fő
+	name	név
+@plural	{n} member	{n} tag|{n} tag
+@plural	Delete {n} message	{n} üzenet törlése|{n} üzenet törlése
+	Reply to {name}	Válasz neki: {name}
+	Admin	Adminisztrátor
+	Moderator	Moderátor
+	Member	Tag
+	Invite	Meghívás
+	Banned	Kitiltottak
+	Banned list unavailable	A kitiltottak listája nem érhető el
+	Unban	Kitiltás feloldása
+	Reason	Ok
+	Actions for {name}	Műveletek: {name}
+	Name	Név
+	Topic	Téma
+	Drop an image here for the photo	Húzz ide egy képet a fotóhoz
+	Choose photo…	Fotó kiválasztása…
+	Room photo	A szoba fotója
+	Save	Mentés
+	Photo: {name}	Fotó: {name}
+	New poll	Új szavazás
+	Question	Kérdés
+	Add option	Lehetőség hozzáadása
+	Multiple choice	Több választás
+	Results visible right away	Az eredmények azonnal láthatók
+	Option {n}	{n}. lehetőség
+	Video	Videó
+	Image	Kép
+	Save as	Mentés másként
+	Open	Megnyitás
+	Cannot open the content	A tartalom nem nyitható meg
+	Stickers are not encrypted, like an unencrypted image	A matricák nem titkosítottak, akár egy titkosítatlan kép
+	No sticker packs	Nincsenek matricacsomagok
+	Stickers unavailable	A matricák nem érhetők el
+	Settings	Beállítások
+	Account and security	Fiók és biztonság
+	Account	Fiók
+	Devices	Eszközök
+	Appearance	Megjelenés
+	Language	Nyelv
+	Theme	Téma
+	System	Rendszer
+	Accent	Kiemelőszín
+	Icon	Ikon
+	Automatic night	Automatikus éjszaka
+	Chat	Csevegés
+	Read receipts	Olvasási visszaigazolások
+	Hide deleted messages	Törölt üzenetek elrejtése
+	Show status messages	Állapotüzenetek megjelenítése
+	Message preview	Üzenet előnézete
+	Notifications	Értesítések
+	Close to tray	Bezárás a tálcára
+	Add to menu	Hozzáadás a menühöz
+	Added to menu	Hozzáadva a menühöz
+	Could not add to menu	Nem sikerült hozzáadni a menühöz
+	Classic	Klasszikus
+	Day	Nappal
+	Dark	Sötét
+	Night	Éjszaka
+	No	Nem
+	Schedule	Ütemezés
+	Minimal mark	Minimális jel
+	Gnome	Manó
+	Little monster	Kis szörny
+	Blue	Kék
+	Teal	Pávakék
+	Green	Zöld
+	Orange	Narancs
+	Red	Piros
+	Pink	Rózsaszín
+	Purple	Lila
+	A save is already in progress	Már folyamatban van egy mentés
+	Account no longer connected	A fiók már nincs csatlakoztatva
+	Actions not available for this event	Ehhez az eseményhez nincsenek műveletek
+	Address already in use	A cím már használatban van
+	Already joined	Már csatlakoztál
+	Checking permissions…	Jogosultságok ellenőrzése…
+	Choose a file that does not exist yet	Válassz egy még nem létező fájlt
+	Connected	Csatlakoztatva
+	Connecting…	Csatlakozás…
+	Connection failed	A csatlakozás sikertelen
+	Data folder not available	Az adatmappa nem érhető el
+	Delete the selected message? This cannot be undone.	Törlöd a kijelölt üzenetet? Ez nem vonható vissza.
+	File cannot be attached	A fájl nem csatolható
+	Image cannot be attached	A kép nem csatolható
+	Invalid name	Érvénytelen név
+	Joining…	Csatlakozás…
+	Message not available	Az üzenet nem érhető el
+	No audio recorded	Nincs rögzített hang
+	Not allowed	Nem engedélyezett
+	Not allowed by the server	A szerver nem engedi
+	Operation failed	A művelet sikertelen
+	Operation not confirmed · Retry uses the same ID (even if you change room)	A művelet nincs megerősítve · Az újrapróbálás ugyanazt az azonosítót használja (szobaváltás esetén is)
+	Operation pending · no server confirmation	A művelet függőben · nincs szerveri megerősítés
+	Operation refused or unavailable	A művelet elutasítva vagy nem érhető el
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Válasz/szerkesztés: írd a vázlatba, majd használd a gombot. Az Enter a szokásos módon küld.
+	Room not found	A szoba nem található
+	Saved	Mentve
+	Saving failed	A mentés sikertelen
+	Server unreachable	A szerver nem érhető el
+	Sign-in failed	A bejelentkezés sikertelen
+	Sticker not sent	A matrica nem lett elküldve
+	Still joining…	Még csatlakozik…
+	Sync interrupted	A szinkronizálás megszakadt
+	Voice note cannot be played	A hangüzenet nem játszható le
+	You are offline	Offline vagy
+	The name cannot be empty.	A név nem lehet üres.
+	The name is too long (256 characters at most).	A név túl hosszú (legfeljebb 256 karakter).
+	This server does not allow editing the profile.	Ez a szerver nem engedi a profil szerkesztését.
+	Cannot read the chosen file.	A kiválasztott fájl nem olvasható.
+	The image is too large (25 MB at most).	A kép túl nagy (legfeljebb 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	Válassz érvényes PNG, JPEG vagy WebP képet.
+	Connection failed: try again shortly.	A csatlakozás sikertelen: próbáld újra egy kis idő múlva.
+	The server rejected the change.	A szerver elutasította a módosítást.
+	Space not found	A tér nem található
+	Operation failed, try again	A művelet sikertelen, próbáld újra
+	Minimize	Kis méret
+	Show Gnobbi	Gnobbi megjelenítése
+	Quit Gnobbi	Gnobbi bezárása
+	{name}, active account	{name}, aktív fiók
+	New messages	Új üzenetek
+	1 new message	1 új üzenet
+	New message	Új üzenet
+	📷 Photo	📷 Fotó
+	🎥 Video	🎥 Videó
+	🎤 Voice message	🎤 Hangüzenet
+	🎵 Audio	🎵 Hang
+	📎 File	📎 Fájl
+	📍 Location	📍 Helyadat
+menu	Quit Gnobbi	Kilépés a Gnobbiból
+menu	About Gnobbi	A Gnobbi névjegye
+menu	Settings…	Beállítások…
+menu	Services	Szolgáltatások
+menu	Hide Gnobbi	Gnobbi elrejtése
+menu	Hide Others	Többi elrejtése
+menu	Show All	Összes megjelenítése
+menu	Edit	Szerkesztés
+menu	Undo	Visszavonás
+menu	Redo	Mégis
+menu	Cut	Kivágás
+menu	Copy	Másolás
+menu	Paste	Beillesztés
+menu	Select All	Összes kijelölése
+menu	Start Dictation…	Diktálás indítása…
+menu	Emoji & Symbols	Emoji és szimbólumok
+menu	Window	Ablak
+menu	Minimize	Minimalizálás
+menu	Zoom	Nagyítás
+menu	Bring All to Front	Összes előtérbe hozása
+@plural	Gnobbi, {n} unread	Gnobbi, {n} olvasatlan|Gnobbi, {n} olvasatlan
+	Customize	Testreszabás
+	Sizes	Méretek
+	Text size	Szövegméret
+	Buttons and icons size	Gombok és ikonok mérete
+	Follow the system	Rendszer követése
+	Follow the text	Szöveg követése
+	Small	Kicsi
+	Normal	Normál
+	Large	Nagy
+	Compact	Kompakt
+	Comfortable	Kényelmes
+	Restore defaults	Alapértékek visszaállítása
+	Preview	Előnézet
+	A sample message	Egy minta üzenet
+	Button	Gomb
+	Remove attachment	Melléklet eltávolítása
+	Cancel reply	Válasz elvetése
+	Close card	Kártya bezárása
+	Close thread	Szál bezárása
+	Remove address	Cím eltávolítása
+	Copy	Másolás
+	Menu	Menü
+	Back	Vissza
+	Chat list	Csevegések listája
+	Info	Infó
+	Copy key	Kulcs másolása
+	Remove option	Lehetőség eltávolítása
+	Pause	Szünet
+	Play	Lejátszás
+	New	Új
+	New space	Új tér
+	Close	Bezárás
+	Add account	Fiók hozzáadása
+	Rename	Átnevezés
+	Profile photo	Profilkép
+	Edit photo	Fotó szerkesztése
+	Apply	Alkalmaz
+	Reset	Alaphelyzet
+	Rotate left	Forgatás balra
+	Rotate right	Forgatás jobbra
+	Mirror	Tükrözés
+	Zoom	Nagyítás
+	Rotation	Forgatás
+	Brightness	Fényerő
+	Contrast	Kontraszt
+	Saturation	Telítettség
+	Original	Eredeti
+	B&W	F/F
+	Sepia	Szépia
+	Vivid	Élénk
+	Cool	Hideg
+	Warm	Meleg
+	Fade	Halványítás
+	High contrast	Magas kontraszt
+	Preview: drag to move the photo	Előnézet: húzással mozgathatod a fotót
+	Could not download the current photo.	Nem sikerült letölteni a jelenlegi fotót.
+	Could not prepare the photo.	Nem sikerült előkészíteni a fotót.
+	Open link	Hivatkozás megnyitása
+	Could not open the link.	A hivatkozás nem nyitható meg.
+	Copy link	Hivatkozás másolása
+	Server	Szerver
+	Matrix ID	Matrix-azonosító
+	Password	Jelszó
+	Local passphrase	Helyi jelmondat
+	Sign in	Bejelentkezés
+	Unlock	Feloldás
+	Signing in…	Bejelentkezés…
+	Unlocking…	Feloldás…
+	Show password	Jelszó megjelenítése
+	Hide password	Jelszó elrejtése
+	Accept	Elfogadás
+	Decline	Elutasítás
+	Edit space	Tér szerkesztése
+	Edit room	Szoba szerkesztése
+	Start failed	Az indítás sikertelen
+	Search	Keresés
+	Conversations	Beszélgetések
+	Users	Felhasználók
+	Public rooms	Nyilvános szobák
+	React	Reagálás
+	Confirm closing	Bezárás megerősítése
+	Close poll	Szavazás lezárása
+	Confirm deletion	Törlés megerősítése
+	Delete	Törlés
+	Encrypted history	Titkosított előzmények
+	Matrix recovery key	Matrix helyreállítási kulcs
+	I saved the key: continue	Elmentettem a kulcsot: tovább
+	Recover encrypted history	Titkosított előzmények helyreállítása
+	Try creating the key again	Kulcs létrehozásának újrapróbálása
+	Create recovery key	Helyreállítási kulcs létrehozása
+	Continue without recovery	Folytatás helyreállítás nélkül
+	A space cannot go inside itself	Egy tér nem kerülhet önmagába
+	You do not have permission to edit «{name}»	Nincs jogosultságod szerkeszteni: «{name}»
+	{label}, {n} unread	{label}, {n} olvasatlan
+	Move {name}	{name} áthelyezése
+	Move {name} down	{name} mozgatása lefelé
+	Move {name} up	{name} mozgatása felfelé
+	Organise spaces	Terek rendezése
+	Unread	Olvasatlan
+	All chats	Minden csevegés
+	Spaces	Terek
+	No spaces	Nincsenek terek
+	Rooms unlinked: {n}	Leválasztott szobák: {n}
+	Rooms not unlinked: {n}	Nem leválasztott szobák: {n}
+	Members removed: {n}	Eltávolított tagok: {n}
+	Not removed: {names}	Nem lettek eltávolítva: {names}
+	Members who will be removed: {n}	Eltávolítandó tagok: {n}
+	Rooms unlinked (they stay existing): {n}	Leválasztott szobák (megmaradnak): {n}
+	Space menu	Térmenü
+	Space info	Tér adatai
+	Members	Tagok
+	Hand over the admin role…	Adminisztrátori szerep átadása…
+	Leave space	Kilépés a térből
+	Delete space	Tér törlése
+	Forget	Elfelejtés
+	Failed, no change guaranteed: try again	Sikertelen, a változás nem garantált: próbáld újra
+	Member list not read	A taglista nem lett beolvasva
+	Space left and forgotten	Kiléptél a térből, és elfelejtetted
+	Space not left: try again	Nem léptél ki a térből: próbáld újra
+	Space not left: members remain	Nem léptél ki a térből: maradtak tagok
+	This cannot be undone	Ez nem vonható vissza
+	You still have rooms in this space.	Még vannak szobáid ebben a térben.
+	You are the last admin of the space.	Te vagy a tér utolsó adminisztrátora.
+	Make admin	Adminisztrátorrá tétel
+	Rooms not available	A szobák nem érhetők el
+	Add existing room	Meglévő szoba hozzáadása
+	No rooms	Nincsenek szobák
+	Rooms	Szobák
+	Remove	Eltávolítás
+	Search public rooms	Nyilvános szobák keresése
+	Your server	A te szervered
+	Other server…	Másik szerver…
+	server name	szerver neve
+	Already in	Már benne vagy
+	Join	Csatlakozás
+	Remove photo	Fotó eltávolítása
+	Active	Aktív
+	Active account	Aktív fiók
+	Other accounts	Más fiókok
+	Last active {when}	Utoljára aktív: {when}
+	{text} in {path}	{text} itt: {path}
+	This device	Ez az eszköz
+	Keys	Kulcsok
+	Export password	Exportálási jelszó
+	Export keys	Kulcsok exportálása
+	Regenerate recovery key	Helyreállítási kulcs újragenerálása
+	Recover keys	Kulcsok helyreállítása
+	Recovery key	Helyreállítási kulcs
+	Recover	Helyreállítás
+	Other devices	Más eszközök
+	Sign out	Kijelentkezés
+	Device name	Eszköz neve
+	New recovery key	Új helyreállítási kulcs
+	Done	Kész
+	Direct chat	Közvetlen csevegés
+	Room	Szoba
+	Space	Tér
+	Join a room	Csatlakozás szobához
+	Public	Nyilvános
+	Create	Létrehozás
+	#room:server or !id:server	#szoba:szerver vagy !azonosító:szerver
+	Search people	Személyek keresése
+	Images	Képek
+	last message at {when}	utolsó üzenet: {when}
+	last message on {when}	utolsó üzenet: {when}
+	last message {when}	utolsó üzenet: {when}
+	A user	Egy felhasználó
+	{actor} created this room.	{actor} létrehozta ezt a szobát.
+	{actor} created this chat.	{actor} létrehozta ezt a csevegést.
+	{actor} invited {subject}	{actor} meghívta: {subject}
+	{subject} joined the room	{subject} csatlakozott a szobához
+	{subject} left the room	{subject} elhagyta a szobát
+	{actor} banned {subject}	{actor} kitiltotta: {subject}
+	{actor} unbanned {subject}	{actor} feloldotta {subject} kitiltását
+	{actor} removed {subject} from the room	{actor} eltávolította {subject} felhasználót a szobából
+	{subject} declined the invitation	{subject} elutasította a meghívást
+	{actor} revoked the invitation for {subject}	{actor} visszavonta {subject} meghívását
+	{actor} removed the room name	{actor} eltávolította a szoba nevét
+	{actor} changed the room name to «{name}»	{actor} a szoba nevét erre változtatta: «{name}»
+	{actor} removed the room topic	{actor} eltávolította a szoba témáját
+	{actor} changed the room topic to «{topic}»	{actor} a szoba témáját erre változtatta: «{topic}»
+	{actor} changed the room avatar	{actor} megváltoztatta a szoba profilképét
+	{old} changed their name to {new}	{old} új neve: {new}
+	{subject} set their name to {new}	{subject} neve mostantól: {new}
+	{subject} removed their display name	{subject} eltávolította a megjelenített nevét
+	{subject} changed their avatar	{subject} megváltoztatta a profilképét
+	{text} (reason: {reason})	{text} (ok: {reason})
+	Audio	Hang
+	File	Fájl
+	Photo	Fotó
+	Log out	Kijelentkezés
+	Encryption keys on this device not backed up are lost.	Az ezen az eszközön lévő, nem mentett titkosítási kulcsok elvesznek.
+	The server did not answer. Remove it from this device anyway?	A szerver nem válaszol. Mégis eltávolítod erről az eszközről?
+	Remove from this device	Eltávolítás erről az eszközről
+	Wrong key. Check it and try again.	Hibás kulcs. Ellenőrizd, és próbáld újra.
+	Server unreachable. Try again later or continue without recovery.	A szerver nem érhető el. Próbáld később, vagy folytasd helyreállítás nélkül.
+	Recovery took too long. Try again or continue without recovery.	A helyreállítás túl sokáig tartott. Próbáld újra, vagy folytasd helyreállítás nélkül.
+	No key backup on the server. Continue without recovery.	A szerveren nincs kulcsmentés. Folytasd helyreállítás nélkül.
+	Recovery failed. Try again or continue without recovery.	A helyreállítás sikertelen. Próbáld újra, vagy folytasd helyreállítás nélkül.
+	This account has no Matrix secret storage: no recovery key to enter.	Ennek a fióknak nincs Matrix titkos tárolója: nincs megadható helyreállítási kulcs.
+	The server offers no key backup: no recovery to create. Continue without recovery.	A szerver nem kínál kulcsmentést: nincs létrehozható helyreállítás. Folytasd helyreállítás nélkül.
+	This account already has a recovery: enter the existing recovery key.	Ennek a fióknak már van helyreállítása: add meg a meglévő helyreállítási kulcsot.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	Ennek a fióknak a helyreállítása csak félig van beállítva: a Gnobbi nem módosítja. Folytasd helyreállítás nélkül.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	Ennek a fióknak már van kriptográfiai identitása, amellyel ez az eszköz nem rendelkezik: a Gnobbi nem cseréli le. Folytasd helyreállítás nélkül.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	A szerver további megerősítést kér, amelyet a Gnobbi nem támogat. Folytasd helyreállítás nélkül.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	A szerver nem érhető el: a helyreállítás nem jött létre. Próbáld újra, vagy folytasd helyreállítás nélkül.
+	Creation took too long. Try again or continue without recovery.	A létrehozás túl sokáig tartott. Próbáld újra, vagy folytasd helyreállítás nélkül.
+	Creating the recovery failed. Try again or continue without recovery.	A helyreállítás létrehozása sikertelen. Próbáld újra, vagy folytasd helyreállítás nélkül.
+	Enter a server name or a valid HTTPS address.	Adj meg egy szervernevet vagy érvényes HTTPS-címet.
+	Enter the full Matrix ID: @name:server.	Add meg a teljes Matrix-azonosítót: @név:szerver.
+	Enter the profile's local passphrase.	Add meg a profil helyi jelmondatát.
+	Password required; local passphrase of at least 16 characters.	Jelszó szükséges; a helyi jelmondat legalább 16 karakteres legyen.
+	This server offers no password login. SSO/OIDC are not supported.	Ez a szerver nem kínál jelszavas bejelentkezést. Az SSO/OIDC nem támogatott.
+	This server does not support sliding sync	Ez a szerver nem támogatja a sliding sync-et
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	A szerver hibával válaszolt: ellenőrizd a címet (pl. https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	A szerver nem érhető el, vagy érvénytelen a TLS-tanúsítvány.
+	Credentials not accepted. Try again.	A hitelesítő adatok nem elfogadottak. Próbáld újra.
+	Too many attempts: try again in a moment.	Túl sok próbálkozás: próbáld újra egy kis idő múlva.
+	Sign-in/unlock failed. Check the credentials and try again.	A bejelentkezés/feloldás sikertelen. Ellenőrizd az adatokat, és próbáld újra.
+	System keychain unavailable or locked. Unlock it and try again.	A rendszer kulcstartója nem érhető el, vagy zárolva van. Told fel, és próbáld újra.
+	The profile key is not in the system keychain. The profile was not changed.	A profil kulcsa nincs a rendszer kulcstartójában. A profil nem változott.
+	Profile already open in another instance. Close it and restart.	A profil már meg van nyitva egy másik példányban. Zárd be, és indítsd újra.
+	Local profile unavailable. Close and check the profile path.	A helyi profil nem érhető el. Zárd be, és ellenőrizd a profil elérési útját.
+	Enter the Matrix password.	Add meg a Matrix-jelszót.
+	Creating the recovery and backup…	Helyreállítás és mentés létrehozása…
+@plural	{n} device to sign out	{n} kijelentkeztetendő eszköz|{n} kijelentkeztetendő eszköz
+@plural	{n} device without last activity not included	{n} utolsó aktivitás nélküli eszköz nincs belevéve|{n} utolsó aktivitás nélküli eszköz nincs belevéve
+	Last activity {time}	Utolsó aktivitás: {time}
+	They match	Egyeznek
+	They don't match	Nem egyeznek
+	Yes	Igen
+	Not available with this account	Ezzel a fiókkal nem érhető el
+	Incorrect password	Hibás jelszó
+	Failed. Try again.	Sikertelen. Próbáld újra.
+	Verification failed	Az ellenőrzés sikertelen
+	Verification request	Ellenőrzési kérés
+	Cancel the verification?	Megszakítod az ellenőrzést?
+	Verification cancelled	Ellenőrzés megszakítva
+	The emoji don't match	Az emojik nem egyeznek
+	Verification	Ellenőrzés
+@plural	{n} key exported	{n} kulcs exportálva|{n} kulcs exportálva
+	Gnobbi recovery key	Gnobbi helyreállítási kulcs
+	Wrong unlock passphrase	Hibás feloldó jelmondat
+	Password too short: at least 12 characters	A jelszó túl rövid: legalább 12 karakter
+	Password too long: at most 4096 bytes	A jelszó túl hosszú: legfeljebb 4096 bájt
+	The passwords don't match	A jelszavak nem egyeznek
+	No keys to export on this device	Ezen az eszközön nincs exportálható kulcs
+	Can't write to this location	Erre a helyre nem lehet írni
+	Export failed: try again	Az exportálás sikertelen: próbáld újra
+	Recover the keys on this device first	Előbb állítsd helyre a kulcsokat ezen az eszközön
+	The server asks for a confirmation that is not supported here	A szerver olyan megerősítést kér, amely itt nem támogatott
+	Server unreachable: try again	A szerver nem érhető el: próbáld újra
+	Regeneration failed: try again	Az újragenerálás sikertelen: próbáld újra
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	Ezen az eszközön nincsenek meg a fiók helyreállítási kulcsai: add meg a kulcsot a régi titkosított üzenetek olvasásához
+	This account has no recovery key: without one, encrypted messages are lost with the devices	Ennek a fióknak nincs helyreállítási kulcsa: anélkül a titkosított üzenetek az eszközökkel együtt elvesznek
+	Restoring…	Visszaállítás…
+	Restore	Visszaállítás
+	Not now	Most nem
+	Don't ask again for this account	Ne kérdezd újra ennél a fióknál
+	Copy recovery key	Helyreállítási kulcs másolása
+	Save it now: it will not be shown again	Mentsd el most: többé nem jelenik meg
+	Save to file	Mentés fájlba
+	gnobbi-recovery-key.txt	gnobbi-helyreallitasi-kulcs.txt
+	Regenerating…	Újragenerálás…
+	I kept it elsewhere	Máshol megőriztem
+	The server does not respond	A szerver nem válaszol
+	Not a Matrix server	Nem Matrix-szerver
+	The server does not show its rooms	A szerver nem jeleníti meg a szobáit
+	Your server cannot reach this server	A te szervered nem éri el ezt a szervert
+	Invalid server certificate	Érvénytelen szervertanúsítvány
+	Searching	Keresés
+	Partial results	Részleges találatok
+	Invalid server name	Érvénytelen szervernév
+	Timed out	Időtúllépés
+	Loading	Betöltés
+	More results not loaded	További találatok nincsenek betöltve
+	The server name is needed, for example matrix.org	Szükség van a szerver nevére, például matrix.org
+	This is a user ID: the server name is needed, for example matrix.org	Ez egy felhasználói azonosító: a szerver nevére van szükség, például matrix.org
+	Only https addresses are allowed	Csak https-címek engedélyezettek
+	Write only the server name, without a path	Csak a szerver nevét írd be, útvonal nélkül
+	The server name is needed, without user or password	Szükség van a szerver nevére, felhasználó és jelszó nélkül
+	Invalid port	Érvénytelen port
+	Invalid IP address	Érvénytelen IP-cím
+	Already present	Már szerepel
+	Favorites	Kedvencek
+	All	Mind
+	Demo room {n}	{n}. demószoba
+@plural	{n} unread	{n} olvasatlan|{n} olvasatlan
+	edited	szerkesztve
+	[Message deleted]	[Üzenet törölve]
+	Server ack · Reply	Szerver visszaigazolás · Válasz
+	Server ack	Szerver visszaigazolás
+	local	helyi
+	Microphone not available	A mikrofon nem érhető el
+	Audio playback not available	A hanglejátszás nem érhető el
+	Public spaces	Nyilvános terek
+	People	Személyek
+	Location	Helyadat
+	Message without text	Szöveg nélküli üzenet
+	Image.png	Kép.png
+	invalid staging	érvénytelen staging
+	placement failed and restore failed	az elhelyezés és a visszaállítás is sikertelen
+	start failed and restore failed	az indítás és a visszaállítás is sikertelen
+	another installation in progress	másik telepítés van folyamatban
+	channel without in-app update	csatorna alkalmazáson belüli frissítés nélkül
+	binary to update not found	a frissítendő bináris nem található
+	staging not found	a staging nem található
+	staging outside the target folder	a staging a célmappán kívül van
+	previous update pending	előző frissítés függőben
+	staging has a different size	a staging mérete eltér
+	staging has a different hash	a staging hash-e eltér
+	folder not writable	a mappa nem írható
+	staging cannot be verified	a staging nem ellenőrizhető
+	Update failed: {cause}	A frissítés sikertelen: {cause}
+	remove {name}	{name} eltávolítása
+	error	hiba
+	invalid helper parameters	érvénytelen segédparaméterek
+	invalid binary to update	érvénytelen frissítendő bináris
+	backup to restore not found	a visszaállítandó mentés nem található
+	no pending restore	nincs függő visszaállítás
+	Windows update not available	A Windows-frissítés nem érhető el
+	data folder not found	az adatmappa nem található
+	the program did not close	a program nem záródott be
+	running binary differs from the target	a futó bináris eltér a céltól
+	helper without channel	segéd csatorna nélkül
+	helper not ready	a segéd nem áll készen
+	Update available · {version}	Frissítés érhető el · {version}
+	Update available, version {version}	Frissítés érhető el, verzió: {version}
+	Updated to {version}	Frissítve erre: {version}
+	Update failed: restored {version}	A frissítés sikertelen: visszaállítva: {version}
+	Update failed: error	A frissítés sikertelen: hiba
+	Update postponed: message not sent	Frissítés elhalasztva: az üzenet nem lett elküldve
+	backup differs from the binary, kept	a mentés eltér a binárisról, megtartva
+	gnobbi-keys.txt	gnobbi-kulcsok.txt
+	Filter: {label}	Szűrő: {label}
+	Sign out inactive	Inaktívak kijelentkeztetése
+	helper out of place	a segéd rossz helyen van
