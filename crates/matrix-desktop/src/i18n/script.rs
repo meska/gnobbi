@@ -65,6 +65,13 @@ fn system_has_font(script: Script) -> bool {
     })
 }
 
+/// Picks system fallback fonts by the app language, not the system locale: otherwise Han characters missing from the
+/// system-locale font (e.g. 复 in a Japanese font, 戻 in a Chinese one) come from a second font of another weight.
+pub fn use_locale_fonts(ctx: &eframe::egui::Context, code: &str) {
+    let provider = egui_system_font_provider::SystemFontProvider::new().with_locale(Some(code));
+    ctx.set_font_providers(vec![std::sync::Arc::new(provider)]);
+}
+
 /// `code` when its script can be drawn, else `en`.
 pub fn usable(code: &'static str) -> &'static str {
     usable_with(code, system_has_font)

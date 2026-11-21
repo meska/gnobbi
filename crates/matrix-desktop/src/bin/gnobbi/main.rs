@@ -2200,7 +2200,9 @@ fn main() -> eframe::Result {
         }
         #[cfg(target_os = "ios")]
         pick::purge_temp();
-        Ok(Box::new(App::new(dirs.as_ref(), root, trust, link, multi)))
+        let app = App::new(dirs.as_ref(), root, trust, link, multi);
+        matrix_desktop::i18n::script::use_locale_fonts(&cc.egui_ctx, matrix_desktop::i18n::current());
+        Ok(Box::new(app))
     }));
     result
 }

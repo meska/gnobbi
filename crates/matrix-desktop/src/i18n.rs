@@ -345,6 +345,7 @@ pub fn apply(pref: Preference, ctx: Option<&eframe::egui::Context>) -> &'static 
         }
     }
     if let Some(ctx) = ctx {
+        script::use_locale_fonts(ctx, code);
         ctx.request_repaint();
     }
     code
