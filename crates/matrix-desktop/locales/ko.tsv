@@ -7,3 +7,596 @@
 # In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
 # @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of ko in this order, separated by |: other (a single form, no |).
 # See TRANSLATING.md.
+
+	Pinned	고정됨
+	Low priority	낮은 우선순위
+	New chat	새 채팅
+	Explore public rooms	공개 방 둘러보기
+	Search conversations	대화 검색
+	Mark as read	읽음으로 표시
+	Mark as unread	읽지 않음으로 표시
+	Add to a space…	스페이스에 추가…
+	Leave?	나갈까요?
+	Leave	나가기
+	Add to a space	스페이스에 추가
+	Add	추가
+	Cancel	취소
+	Unpin	고정 해제
+	Pin to top	맨 위에 고정
+	Remove from low priority	낮은 우선순위에서 제거
+	Mark as low priority	낮은 우선순위로 표시
+	Remove from {name}	{name}에서 제거
+	All messages	모든 메시지
+	Mentions only	멘션만
+	Muted	알림 끔
+banner	Reply	답장
+	Edit	편집
+	Send note	메모 보내기
+	Reply in thread	스레드에서 답장
+	Write a message	메시지 쓰기
+	Emoji	이모지
+	Sticker	스티커
+	Poll	투표
+	Attach a file	파일 첨부
+	Voice note	음성 메모
+	Send	보내기
+	Grinning face	활짝 웃는 얼굴
+	Beaming face	빛나는 눈으로 웃는 얼굴
+	Face with tears of joy	기쁨의 눈물을 흘리는 얼굴
+	Rolling on the floor laughing	바닥을 구르며 웃는 얼굴
+	Smiling face with smiling eyes	웃는 눈으로 웃는 얼굴
+	Smiling face with heart eyes	하트 눈으로 웃는 얼굴
+	Face blowing a kiss	키스를 보내는 얼굴
+	Smiling face with sunglasses	선글라스를 쓰고 웃는 얼굴
+	Thinking face	생각하는 얼굴
+	Grinning face with sweat	식은땀을 흘리며 웃는 얼굴
+	Winking face	윙크하는 얼굴
+	Upside-down face	거꾸로 된 얼굴
+	Crying face	우는 얼굴
+	Loudly crying face	크게 우는 얼굴
+	Angry face	화난 얼굴
+	Screaming face	비명을 지르는 얼굴
+	Thumbs up	엄지 척
+	Thumbs down	엄지 아래로
+	Clapping hands	박수
+	Folded hands	모은 두 손
+	Flexed biceps	근육질 팔
+	Waving hand	손 흔들기
+	Handshake	악수
+	Raising hands	만세
+	Party popper	폭죽
+	Fire	불꽃
+	Sparkles	반짝임
+	Hundred points	100점
+	Check mark	체크 표시
+	Cross mark	엑스 표시
+	Eyes	눈
+	Cup of coffee	커피 한 잔
+	Today	오늘
+	Yesterday	어제
+	Message deleted	삭제된 메시지
+	Message unavailable	사용할 수 없는 메시지
+	Encrypted message	암호화된 메시지
+	Loading…	불러오는 중…
+	Go to bottom	맨 아래로 이동
+	image	이미지
+	video	동영상
+@plural	{n} reply	답글 {n}개
+	Encrypted	암호화됨
+	Status messages	상태 메시지
+	Same as settings	설정에 따름
+	Show	표시
+	Hide	숨기기
+@plural	{n} status message hidden	숨겨진 상태 메시지 {n}개
+	Search in room	방에서 검색
+	No results	결과 없음
+	Search failed	검색하지 못했습니다
+	Retry	다시 시도
+	More results	결과 더 보기
+	Profile link	프로필 링크
+	Verified	인증됨
+	Not verified	인증되지 않음
+	Message	메시지
+	Mention	멘션
+	Verify	인증
+	Disconnect	연결 끊기
+	Last read	마지막으로 읽은 위치
+	Chat unavailable	사용할 수 없는 채팅
+	Ignore	무시
+	Confirm	확인
+	Kick	추방
+	Ban	출입 금지
+	Failed	실패
+	Thread unavailable	사용할 수 없는 스레드
+	Thread	스레드
+	Reply	답장
+	Addresses	주소
+	main	메인
+	Main	메인
+	name	이름
+@plural	{n} member	멤버 {n}명
+@plural	Delete {n} message	메시지 {n}개 삭제
+	Reply to {name}	{name}에게 답장
+	Admin	관리자
+	Moderator	중재자
+	Member	멤버
+	Invite	초대
+	Banned	출입 금지됨
+	Banned list unavailable	차단 목록을 사용할 수 없습니다
+	Unban	출입 금지 해제
+	Reason	사유
+	Actions for {name}	{name}에 대한 작업
+	Name	이름
+	Topic	주제
+	Drop an image here for the photo	사진을 여기에 끌어다 놓으세요
+	Choose photo…	사진 선택…
+	Room photo	방 사진
+	Save	저장
+	Photo: {name}	사진: {name}
+	New poll	새 투표
+	Question	질문
+	Add option	옵션 추가
+	Multiple choice	복수 선택
+	Results visible right away	결과 바로 공개
+	Option {n}	옵션 {n}
+	Video	동영상
+	Image	이미지
+	Save as	다른 이름으로 저장
+	Open	열기
+	Cannot open the content	콘텐츠를 열 수 없습니다
+	Stickers are not encrypted, like an unencrypted image	스티커는 암호화되지 않은 이미지처럼 암호화되지 않습니다
+	No sticker packs	스티커 팩 없음
+	Stickers unavailable	스티커를 사용할 수 없습니다
+	Settings	설정
+	Account and security	계정 및 보안
+	Account	계정
+	Devices	기기
+	Appearance	모양
+	Language	언어
+	Theme	테마
+	System	시스템
+	Accent	강조 색상
+	Icon	아이콘
+	Automatic night	자동 야간 모드
+	Chat	채팅
+	Read receipts	읽음 확인
+	Hide deleted messages	삭제된 메시지 숨기기
+	Show status messages	상태 메시지 표시
+	Message preview	메시지 미리보기
+	Notifications	알림
+	Close to tray	닫으면 트레이로
+	Add to menu	메뉴에 추가
+	Added to menu	메뉴에 추가됨
+	Could not add to menu	메뉴에 추가하지 못했습니다
+	Classic	클래식
+	Day	낮
+	Dark	어두운 테마
+	Night	밤
+	No	아니요
+	Schedule	일정
+	Minimal mark	미니멀 마크
+	Gnome	그놈
+	Little monster	꼬마 몬스터
+	Blue	파랑
+	Teal	청록
+	Green	초록
+	Orange	주황
+	Red	빨강
+	Pink	분홍
+	Purple	보라
+	A save is already in progress	이미 저장 중입니다
+	Account no longer connected	계정이 더 이상 연결되어 있지 않습니다
+	Actions not available for this event	이 이벤트에는 사용할 수 없는 작업입니다
+	Address already in use	이미 사용 중인 주소입니다
+	Already joined	이미 참여했습니다
+	Checking permissions…	권한 확인 중…
+	Choose a file that does not exist yet	아직 없는 파일을 선택하세요
+	Connected	연결됨
+	Connecting…	연결 중…
+	Connection failed	연결하지 못했습니다
+	Data folder not available	데이터 폴더를 사용할 수 없습니다
+	Delete the selected message? This cannot be undone.	선택한 메시지를 삭제할까요? 이 작업은 되돌릴 수 없습니다.
+	File cannot be attached	파일을 첨부할 수 없습니다
+	Image cannot be attached	이미지를 첨부할 수 없습니다
+	Invalid name	잘못된 이름
+	Joining…	참여 중…
+	Message not available	사용할 수 없는 메시지
+	No audio recorded	녹음된 오디오가 없습니다
+	Not allowed	허용되지 않음
+	Not allowed by the server	서버에서 허용하지 않음
+	Operation failed	작업에 실패했습니다
+	Operation not confirmed · Retry uses the same ID (even if you change room)	작업이 확인되지 않았습니다 · 다시 시도하면 같은 ID를 사용합니다(방을 바꿔도 마찬가지)
+	Operation pending · no server confirmation	작업 대기 중 · 서버 확인 없음
+	Operation refused or unavailable	작업이 거부되었거나 사용할 수 없습니다
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	답장/편집: 초안에 작성한 다음 버튼을 누르세요. Enter는 평소처럼 전송합니다.
+	Room not found	방을 찾을 수 없습니다
+	Saved	저장됨
+	Saving failed	저장하지 못했습니다
+	Server unreachable	서버에 연결할 수 없습니다
+	Sign-in failed	로그인하지 못했습니다
+	Sticker not sent	스티커를 보내지 못했습니다
+	Still joining…	아직 참여 중…
+	Sync interrupted	동기화가 중단되었습니다
+	Voice note cannot be played	음성 메모를 재생할 수 없습니다
+	You are offline	오프라인입니다
+	The name cannot be empty.	이름은 비워 둘 수 없습니다.
+	The name is too long (256 characters at most).	이름이 너무 깁니다(최대 256자).
+	This server does not allow editing the profile.	이 서버에서는 프로필을 편집할 수 없습니다.
+	Cannot read the chosen file.	선택한 파일을 읽을 수 없습니다.
+	The image is too large (25 MB at most).	이미지가 너무 큽니다(최대 25MB).
+	Choose a valid PNG, JPEG or WebP image.	올바른 PNG, JPEG 또는 WebP 이미지를 선택하세요.
+	Connection failed: try again shortly.	연결하지 못했습니다. 잠시 후 다시 시도하세요.
+	The server rejected the change.	서버에서 변경을 거부했습니다.
+	Space not found	스페이스를 찾을 수 없습니다
+	Operation failed, try again	작업에 실패했습니다. 다시 시도하세요
+	Minimize	최소화
+	Show Gnobbi	Gnobbi 보기
+	Quit Gnobbi	Gnobbi 종료
+	{name}, active account	{name}, 활성 계정
+	New messages	새 메시지
+	1 new message	새 메시지 1개
+	New message	새 메시지
+	📷 Photo	📷 사진
+	🎥 Video	🎥 동영상
+	🎤 Voice message	🎤 음성 메시지
+	🎵 Audio	🎵 오디오
+	📎 File	📎 파일
+	📍 Location	📍 위치
+menu	Quit Gnobbi	Gnobbi 종료
+menu	About Gnobbi	Gnobbi 정보
+menu	Settings…	설정…
+menu	Services	서비스
+menu	Hide Gnobbi	Gnobbi 숨기기
+menu	Hide Others	다른 앱 숨기기
+menu	Show All	모두 보기
+menu	Edit	편집
+menu	Undo	실행 취소
+menu	Redo	다시 실행
+menu	Cut	잘라내기
+menu	Copy	복사
+menu	Paste	붙여넣기
+menu	Select All	모두 선택
+menu	Start Dictation…	받아쓰기 시작…
+menu	Emoji & Symbols	이모지 및 기호
+menu	Window	윈도우
+menu	Minimize	최소화
+menu	Zoom	확대/축소
+menu	Bring All to Front	모두 앞으로 가져오기
+@plural	Gnobbi, {n} unread	Gnobbi, 읽지 않음 {n}개
+	Customize	사용자 지정
+	Sizes	크기
+	Text size	글자 크기
+	Buttons and icons size	버튼 및 아이콘 크기
+	Follow the system	시스템에 따름
+	Follow the text	글자에 따름
+	Small	작게
+	Normal	보통
+	Large	크게
+	Compact	촘촘하게
+	Comfortable	여유롭게
+	Restore defaults	기본값 복원
+	Preview	미리보기
+	A sample message	샘플 메시지
+	Button	버튼
+	Remove attachment	첨부 파일 제거
+	Cancel reply	답장 취소
+	Close card	카드 닫기
+	Close thread	스레드 닫기
+	Remove address	주소 제거
+	Copy	복사
+	Menu	메뉴
+	Back	뒤로
+	Chat list	채팅 목록
+	Info	정보
+	Copy key	키 복사
+	Remove option	옵션 제거
+	Pause	일시정지
+	Play	재생
+	New	새로 만들기
+	New space	새 스페이스
+	Close	닫기
+	Add account	계정 추가
+	Rename	이름 바꾸기
+	Profile photo	프로필 사진
+	Edit photo	사진 편집
+	Apply	적용
+	Reset	초기화
+	Rotate left	왼쪽으로 회전
+	Rotate right	오른쪽으로 회전
+	Mirror	좌우 반전
+	Zoom	확대/축소
+	Rotation	회전
+	Brightness	밝기
+	Contrast	대비
+	Saturation	채도
+	Original	원본
+	B&W	흑백
+	Sepia	세피아
+	Vivid	선명하게
+	Cool	차갑게
+	Warm	따뜻하게
+	Fade	페이드
+	High contrast	높은 대비
+	Preview: drag to move the photo	미리보기: 끌어서 사진을 이동하세요
+	Could not download the current photo.	현재 사진을 다운로드하지 못했습니다.
+	Could not prepare the photo.	사진을 준비하지 못했습니다.
+	Open link	링크 열기
+	Could not open the link.	링크를 열 수 없습니다.
+	Copy link	링크 복사
+	Server	서버
+	Matrix ID	Matrix ID
+	Password	비밀번호
+	Local passphrase	로컬 암호
+	Sign in	로그인
+	Unlock	잠금 해제
+	Signing in…	로그인 중…
+	Unlocking…	잠금 해제 중…
+	Show password	비밀번호 표시
+	Hide password	비밀번호 숨기기
+	Accept	수락
+	Decline	거절
+	Edit space	스페이스 편집
+	Edit room	방 편집
+	Start failed	시작하지 못했습니다
+	Search	검색
+	Conversations	대화
+	Users	사용자
+	Public rooms	공개 방
+	React	반응
+	Confirm closing	닫기 확인
+	Close poll	투표 종료
+	Confirm deletion	삭제 확인
+	Delete	삭제
+	Encrypted history	암호화된 기록
+	Matrix recovery key	Matrix 복구 키
+	I saved the key: continue	키를 저장했습니다: 계속
+	Recover encrypted history	암호화된 기록 복구
+	Try creating the key again	키 다시 만들기 시도
+	Create recovery key	복구 키 만들기
+	Continue without recovery	복구 없이 계속
+	A space cannot go inside itself	스페이스는 자기 자신 안에 넣을 수 없습니다
+	You do not have permission to edit «{name}»	«{name}»을(를) 편집할 권한이 없습니다
+	{label}, {n} unread	{label}, 읽지 않음 {n}개
+	Move {name}	{name} 이동
+	Move {name} down	{name} 아래로 이동
+	Move {name} up	{name} 위로 이동
+	Organise spaces	스페이스 정리
+	Unread	읽지 않음
+	All chats	모든 채팅
+	Spaces	스페이스
+	No spaces	스페이스 없음
+	Rooms unlinked: {n}	연결 해제된 방: {n}개
+	Rooms not unlinked: {n}	연결 해제되지 않은 방: {n}개
+	Members removed: {n}	제거된 멤버: {n}명
+	Not removed: {names}	제거되지 않음: {names}
+	Members who will be removed: {n}	제거될 멤버: {n}명
+	Rooms unlinked (they stay existing): {n}	연결 해제될 방(방은 그대로 유지됨): {n}개
+	Space menu	스페이스 메뉴
+	Space info	스페이스 정보
+	Members	멤버
+	Hand over the admin role…	관리자 역할 넘겨주기…
+	Leave space	스페이스 나가기
+	Delete space	스페이스 삭제
+	Forget	잊기
+	Failed, no change guaranteed: try again	실패했습니다. 변경되지 않았을 수 있습니다. 다시 시도하세요
+	Member list not read	멤버 목록을 읽지 못했습니다
+	Space left and forgotten	스페이스를 나가고 잊었습니다
+	Space not left: try again	스페이스를 나가지 못했습니다. 다시 시도하세요
+	Space not left: members remain	스페이스를 나가지 못했습니다. 멤버가 남아 있습니다
+	This cannot be undone	이 작업은 되돌릴 수 없습니다
+	You still have rooms in this space.	이 스페이스에 아직 방이 있습니다.
+	You are the last admin of the space.	회원님은 이 스페이스의 마지막 관리자입니다.
+	Make admin	관리자로 지정
+	Rooms not available	사용할 수 없는 방
+	Add existing room	기존 방 추가
+	No rooms	방 없음
+	Rooms	방
+	Remove	제거
+	Search public rooms	공개 방 검색
+	Your server	내 서버
+	Other server…	다른 서버…
+	server name	서버 이름
+	Already in	이미 참여 중
+	Join	참여
+	Remove photo	사진 제거
+	Active	활성
+	Active account	활성 계정
+	Other accounts	다른 계정
+	Last active {when}	마지막 활동 {when}
+	{text} in {path}	{path}의 {text}
+	This device	이 기기
+	Keys	키
+	Export password	내보내기 비밀번호
+	Export keys	키 내보내기
+	Regenerate recovery key	복구 키 다시 생성
+	Recover keys	키 복구
+	Recovery key	복구 키
+	Recover	복구
+	Other devices	다른 기기
+	Sign out	로그아웃
+	Device name	기기 이름
+	New recovery key	새 복구 키
+	Done	완료
+	Direct chat	1:1 채팅
+	Room	방
+	Space	스페이스
+	Join a room	방 참여
+	Public	공개
+	Create	만들기
+	#room:server or !id:server	#방:서버 또는 !id:서버
+	Search people	사람 검색
+	Images	이미지
+	last message at {when}	마지막 메시지 {when}
+	last message on {when}	마지막 메시지 {when}
+	last message {when}	마지막 메시지 {when}
+	A user	사용자
+	{actor} created this room.	{actor}님이 이 방을 만들었습니다.
+	{actor} created this chat.	{actor}님이 이 채팅을 만들었습니다.
+	{actor} invited {subject}	{actor}님이 {subject}님을 초대했습니다
+	{subject} joined the room	{subject}님이 방에 참여했습니다
+	{subject} left the room	{subject}님이 방을 나갔습니다
+	{actor} banned {subject}	{actor}님이 {subject}님을 출입 금지했습니다
+	{actor} unbanned {subject}	{actor}님이 {subject}님의 출입 금지를 해제했습니다
+	{actor} removed {subject} from the room	{actor}님이 {subject}님을 방에서 내보냈습니다
+	{subject} declined the invitation	{subject}님이 초대를 거절했습니다
+	{actor} revoked the invitation for {subject}	{actor}님이 {subject}님의 초대를 취소했습니다
+	{actor} removed the room name	{actor}님이 방 이름을 삭제했습니다
+	{actor} changed the room name to «{name}»	{actor}님이 방 이름을 «{name}»(으)로 변경했습니다
+	{actor} removed the room topic	{actor}님이 방 주제를 삭제했습니다
+	{actor} changed the room topic to «{topic}»	{actor}님이 방 주제를 «{topic}»(으)로 변경했습니다
+	{actor} changed the room avatar	{actor}님이 방 아바타를 변경했습니다
+	{old} changed their name to {new}	{old}님이 이름을 {new}(으)로 변경했습니다
+	{subject} set their name to {new}	{subject}님이 이름을 {new}(으)로 설정했습니다
+	{subject} removed their display name	{subject}님이 표시 이름을 삭제했습니다
+	{subject} changed their avatar	{subject}님이 아바타를 변경했습니다
+	{text} (reason: {reason})	{text}(사유: {reason})
+	Audio	오디오
+	File	파일
+	Photo	사진
+	Log out	로그아웃
+	Encryption keys on this device not backed up are lost.	이 기기에서 백업되지 않은 암호화 키는 사라집니다.
+	The server did not answer. Remove it from this device anyway?	서버가 응답하지 않았습니다. 그래도 이 기기에서 제거할까요?
+	Remove from this device	이 기기에서 제거
+	Wrong key. Check it and try again.	잘못된 키입니다. 확인하고 다시 시도하세요.
+	Server unreachable. Try again later or continue without recovery.	서버에 연결할 수 없습니다. 나중에 다시 시도하거나 복구 없이 계속하세요.
+	Recovery took too long. Try again or continue without recovery.	복구가 너무 오래 걸렸습니다. 다시 시도하거나 복구 없이 계속하세요.
+	No key backup on the server. Continue without recovery.	서버에 키 백업이 없습니다. 복구 없이 계속하세요.
+	Recovery failed. Try again or continue without recovery.	복구하지 못했습니다. 다시 시도하거나 복구 없이 계속하세요.
+	This account has no Matrix secret storage: no recovery key to enter.	이 계정에는 Matrix 비밀 저장소가 없습니다. 입력할 복구 키가 없습니다.
+	The server offers no key backup: no recovery to create. Continue without recovery.	서버가 키 백업을 제공하지 않아 복구를 만들 수 없습니다. 복구 없이 계속하세요.
+	This account already has a recovery: enter the existing recovery key.	이 계정에는 이미 복구가 있습니다. 기존 복구 키를 입력하세요.
+	This account's recovery is only half set up: Gnobbi does not change it. Continue without recovery.	이 계정의 복구는 반쪽만 설정되어 있어 Gnobbi가 변경하지 않습니다. 복구 없이 계속하세요.
+	This account already has a cryptographic identity this device does not hold: Gnobbi does not replace it. Continue without recovery.	이 계정에는 이 기기에 없는 암호화 ID가 이미 있어 Gnobbi가 교체하지 않습니다. 복구 없이 계속하세요.
+	The server asks for an extra confirmation that Gnobbi does not support. Continue without recovery.	서버가 Gnobbi에서 지원하지 않는 추가 확인을 요구합니다. 복구 없이 계속하세요.
+	Server unreachable: the recovery was not created. Try again or continue without recovery.	서버에 연결할 수 없어 복구를 만들지 못했습니다. 다시 시도하거나 복구 없이 계속하세요.
+	Creation took too long. Try again or continue without recovery.	생성이 너무 오래 걸렸습니다. 다시 시도하거나 복구 없이 계속하세요.
+	Creating the recovery failed. Try again or continue without recovery.	복구를 만들지 못했습니다. 다시 시도하거나 복구 없이 계속하세요.
+	Enter a server name or a valid HTTPS address.	서버 이름 또는 올바른 HTTPS 주소를 입력하세요.
+	Enter the full Matrix ID: @name:server.	전체 Matrix ID를 입력하세요: @이름:서버.
+	Enter the profile's local passphrase.	프로필의 로컬 암호를 입력하세요.
+	Password required; local passphrase of at least 16 characters.	비밀번호가 필요합니다. 로컬 암호는 16자 이상이어야 합니다.
+	This server offers no password login. SSO/OIDC are not supported.	이 서버는 비밀번호 로그인을 제공하지 않습니다. SSO/OIDC는 지원되지 않습니다.
+	This server does not support sliding sync	이 서버는 슬라이딩 싱크를 지원하지 않습니다
+	The server answered with an error: check the address (e.g. https://matrix.example.org).	서버가 오류로 응답했습니다. 주소를 확인하세요(예: https://matrix.example.org).
+	Server unreachable or invalid TLS certificate.	서버에 연결할 수 없거나 TLS 인증서가 올바르지 않습니다.
+	Credentials not accepted. Try again.	자격 증명이 허용되지 않았습니다. 다시 시도하세요.
+	Too many attempts: try again in a moment.	시도 횟수가 너무 많습니다. 잠시 후 다시 시도하세요.
+	Sign-in/unlock failed. Check the credentials and try again.	로그인/잠금 해제에 실패했습니다. 자격 증명을 확인하고 다시 시도하세요.
+	System keychain unavailable or locked. Unlock it and try again.	시스템 키체인을 사용할 수 없거나 잠겨 있습니다. 잠금을 해제하고 다시 시도하세요.
+	The profile key is not in the system keychain. The profile was not changed.	프로필 키가 시스템 키체인에 없습니다. 프로필은 변경되지 않았습니다.
+	Profile already open in another instance. Close it and restart.	프로필이 다른 인스턴스에서 이미 열려 있습니다. 닫고 다시 시작하세요.
+	Local profile unavailable. Close and check the profile path.	로컬 프로필을 사용할 수 없습니다. 닫고 프로필 경로를 확인하세요.
+	Enter the Matrix password.	Matrix 비밀번호를 입력하세요.
+	Creating the recovery and backup…	복구 및 백업 생성 중…
+@plural	{n} device to sign out	로그아웃할 기기 {n}대
+@plural	{n} device without last activity not included	마지막 활동이 없는 기기 {n}대 제외됨
+	Last activity {time}	마지막 활동 {time}
+	They match	일치합니다
+	They don't match	일치하지 않습니다
+	Yes	예
+	Not available with this account	이 계정에서는 사용할 수 없습니다
+	Incorrect password	잘못된 비밀번호
+	Failed. Try again.	실패했습니다. 다시 시도하세요.
+	Verification failed	인증에 실패했습니다
+	Verification request	인증 요청
+	Cancel the verification?	인증을 취소할까요?
+	Verification cancelled	인증이 취소되었습니다
+	The emoji don't match	이모지가 일치하지 않습니다
+	Verification	인증
+@plural	{n} key exported	키 {n}개 내보냄
+	Gnobbi recovery key	Gnobbi 복구 키
+	Wrong unlock passphrase	잘못된 잠금 해제 암호
+	Password too short: at least 12 characters	비밀번호가 너무 짧습니다: 12자 이상
+	Password too long: at most 4096 bytes	비밀번호가 너무 깁니다: 최대 4096바이트
+	The passwords don't match	비밀번호가 일치하지 않습니다
+	No keys to export on this device	이 기기에 내보낼 키가 없습니다
+	Can't write to this location	이 위치에 쓸 수 없습니다
+	Export failed: try again	내보내지 못했습니다. 다시 시도하세요
+	Recover the keys on this device first	먼저 이 기기에서 키를 복구하세요
+	The server asks for a confirmation that is not supported here	서버가 여기서 지원되지 않는 확인을 요구합니다
+	Server unreachable: try again	서버에 연결할 수 없습니다. 다시 시도하세요
+	Regeneration failed: try again	다시 생성하지 못했습니다. 다시 시도하세요
+	This device does not have the account's recovery keys: enter the key to read old encrypted messages	이 기기에는 계정의 복구 키가 없습니다. 이전 암호화 메시지를 읽으려면 키를 입력하세요
+	This account has no recovery key: without one, encrypted messages are lost with the devices	이 계정에는 복구 키가 없습니다. 복구 키가 없으면 기기를 잃을 때 암호화 메시지도 사라집니다
+	Restoring…	복원 중…
+	Restore	복원
+	Not now	나중에
+	Don't ask again for this account	이 계정에서는 다시 묻지 않기
+	Copy recovery key	복구 키 복사
+	Save it now: it will not be shown again	지금 저장하세요. 다시 표시되지 않습니다
+	Save to file	파일로 저장
+	gnobbi-recovery-key.txt	gnobbi-recovery-key.txt
+	Regenerating…	다시 생성 중…
+	I kept it elsewhere	다른 곳에 보관했습니다
+	The server does not respond	서버가 응답하지 않습니다
+	Not a Matrix server	Matrix 서버가 아닙니다
+	The server does not show its rooms	서버가 방을 표시하지 않습니다
+	Your server cannot reach this server	내 서버가 이 서버에 연결할 수 없습니다
+	Invalid server certificate	잘못된 서버 인증서
+	Searching	검색 중
+	Partial results	일부 결과
+	Invalid server name	잘못된 서버 이름
+	Timed out	시간 초과
+	Loading	불러오는 중
+	More results not loaded	결과를 더 불러오지 못했습니다
+	The server name is needed, for example matrix.org	서버 이름이 필요합니다(예: matrix.org)
+	This is a user ID: the server name is needed, for example matrix.org	사용자 ID입니다. 서버 이름이 필요합니다(예: matrix.org)
+	Only https addresses are allowed	https 주소만 허용됩니다
+	Write only the server name, without a path	경로 없이 서버 이름만 입력하세요
+	The server name is needed, without user or password	사용자 이름이나 비밀번호 없이 서버 이름이 필요합니다
+	Invalid port	잘못된 포트
+	Invalid IP address	잘못된 IP 주소
+	Already present	이미 있음
+	Favorites	즐겨찾기
+	All	전체
+	Demo room {n}	데모 방 {n}
+@plural	{n} unread	읽지 않음 {n}개
+	edited	편집됨
+	[Message deleted]	[삭제된 메시지]
+	Server ack · Reply	서버 확인 · 답장
+	Server ack	서버 확인
+	local	로컬
+	Microphone not available	마이크를 사용할 수 없습니다
+	Audio playback not available	오디오 재생을 사용할 수 없습니다
+	Public spaces	공개 스페이스
+	People	사람
+	Location	위치
+	Message without text	텍스트 없는 메시지
+	Image.png	Image.png
+	invalid staging	잘못된 스테이징
+	placement failed and restore failed	배치 실패 및 복원 실패
+	start failed and restore failed	시작 실패 및 복원 실패
+	another installation in progress	다른 설치가 진행 중입니다
+	channel without in-app update	앱 내 업데이트를 지원하지 않는 채널
+	binary to update not found	업데이트할 바이너리를 찾을 수 없음
+	staging not found	스테이징을 찾을 수 없음
+	staging outside the target folder	대상 폴더 밖의 스테이징
+	previous update pending	이전 업데이트 대기 중
+	staging has a different size	스테이징의 크기가 다름
+	staging has a different hash	스테이징의 해시가 다름
+	folder not writable	폴더에 쓸 수 없음
+	staging cannot be verified	스테이징을 확인할 수 없음
+	Update failed: {cause}	업데이트 실패: {cause}
+	remove {name}	{name} 제거
+	error	오류
+	invalid helper parameters	잘못된 도우미 매개변수
+	invalid binary to update	잘못된 업데이트 대상 바이너리
+	backup to restore not found	복원할 백업을 찾을 수 없음
+	no pending restore	대기 중인 복원 없음
+	Windows update not available	Windows 업데이트를 사용할 수 없음
+	data folder not found	데이터 폴더를 찾을 수 없음
+	the program did not close	프로그램이 종료되지 않았습니다
+	running binary differs from the target	실행 중인 바이너리가 대상과 다름
+	helper without channel	채널 없는 도우미
+	helper not ready	도우미가 준비되지 않음
+	Update available · {version}	업데이트 가능 · {version}
+	Update available, version {version}	업데이트 가능, 버전 {version}
+	Updated to {version}	{version}(으)로 업데이트됨
+	Update failed: restored {version}	업데이트 실패: {version} 복원됨
+	Update failed: error	업데이트 실패: 오류
+	Update postponed: message not sent	업데이트 보류: 메시지가 전송되지 않았습니다
+	backup differs from the binary, kept	백업이 바이너리와 달라 유지함
+	gnobbi-keys.txt	gnobbi-keys.txt
+	Filter: {label}	필터: {label}
+	Sign out inactive	비활성 기기 로그아웃
+	helper out of place	도우미 위치 오류
