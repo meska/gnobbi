@@ -210,7 +210,10 @@ impl App {
 
     /// Brings parked account `i` on screen; the shown one takes its place in the list.
     fn switch_to(&mut self, i: usize) {
-        let Some(p) = self.parked.get_mut(i) else { return };
+        let Some(p) = self.parked.get_mut(i) else {
+            eprintln!("Gnobbi: account switch request index={i} result=missing");
+            return;
+        };
         if let Some(shown) = &mut self.session {
             std::mem::swap(shown, &mut p.session);
             std::mem::swap(&mut self.root, &mut p.root);
@@ -227,6 +230,9 @@ impl App {
             if let Some(d) = &self.dirs {
                 let _ = std::fs::write(d.data.join(LAST_ACCOUNT), self.root.to_string_lossy().as_bytes());
             }
+            eprintln!("Gnobbi: account switch request index={i} result=switched");
+        } else {
+            eprintln!("Gnobbi: account switch request index={i} result=no-active-session");
         }
     }
 
@@ -323,11 +329,21 @@ impl App {
         if let Some(i) = self.parked.iter().position(|p| p.root == dir) {
             return self.switch_to(i);
         }
-        let Some(d) = &self.dirs else { return };
-        if let Ok(session) = Session::start(d, dir.clone(), self.trust.clone()) {
-            self.parked.push(Parked { root: dir, session, recorded: false });
-            let last = self.parked.len() - 1;
-            self.switch_to(last);
+        if crate::suspend::is_suspended() {
+            eprintln!("Gnobbi: account switch request result=suspended");
+            return;
+        }
+        let Some(d) = &self.dirs else {
+            eprintln!("Gnobbi: account switch request result=no-data-directory");
+            return;
+        };
+        match Session::start(d, dir.clone(), self.trust.clone()) {
+            Ok(session) => {
+                self.parked.push(Parked { root: dir, session, recorded: false });
+                let last = self.parked.len() - 1;
+                self.switch_to(last);
+            }
+            Err(_) => eprintln!("Gnobbi: account switch request result=start-failed"),
         }
     }
 
@@ -1055,6 +1071,7 @@ impl App {
         };
         // The shown account sits on top of the spaces rail: a click lists the others, each with a dot below it (filled = unread).
         let mut pick_account = None;
+        let mut list_only = false;
         let width = ui.ctx().content_rect().width();
         let narrow = width < NARROW_WIDTH;
         let single = width < SINGLE_WIDTH;
@@ -1101,7 +1118,28 @@ impl App {
         }
         let covered = side.is_some();
         let unread = |s: &Session| s.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
-        let others: Vec<(String, u64)> = self.parked.iter().map(|p| (p.session.account_name.clone(), unread(&p.session))).collect();
+        let catalog = self.dirs.as_ref().map(matrix_desktop::AccountCatalog::load);
+        let entry_for = |root: &std::path::Path| catalog.as_ref().zip(self.dirs.as_ref()).and_then(|(c, d)| c.accounts().iter().find(|e| c.data_dir(d, e.id).as_deref() == Some(root)));
+        let mut others: Vec<_> = self.parked.iter().map(|p| {
+            let entry = entry_for(&p.root);
+            let id = entry.and_then(|e| e.user_id.as_deref()).unwrap_or(&p.session.user);
+            let name = account_row_label(Some(&p.session.account_name), entry.map(|e| e.label.as_str()), Some(id));
+            (p.root.clone(), name.to_owned(), id.to_owned(), p.session.own_avatar(), Some(unread(&p.session)))
+        }).collect();
+        if let (Some(c), Some(d)) = (&catalog, &self.dirs) {
+            for entry in c.accounts() {
+                if let Some(root) = c.data_dir(d, entry.id)
+                    && root != self.root && !others.iter().any(|row| row.0 == root)
+                {
+                    let id = entry.user_id.as_deref().unwrap_or("");
+                    let name = account_row_label(None, Some(&entry.label), Some(id));
+                    others.push((root, name.to_owned(), id.to_owned(), avatar::Avatar::Missing, None));
+                }
+            }
+        }
+        let active_entry = entry_for(&self.root);
+        let active_id = active_entry.and_then(|e| e.user_id.as_deref()).filter(|id| !id.trim().is_empty()).or_else(|| self.session.as_ref().map(|s| s.user.as_str())).unwrap_or_default().to_owned();
+        let active_label = account_row_label(self.session.as_ref().map(|s| s.account_name.as_str()), active_entry.map(|e| e.label.as_str()), Some(&active_id)).to_owned();
         // The catalog lists the account once its login is recorded; until then the layout is the default one, kept under 0.
         if self.recorded && self.rail_account.as_ref().is_none_or(|(root, _)| *root != self.root)
             && let Some(d) = &self.dirs
@@ -1119,7 +1157,7 @@ impl App {
                     let dots = others.len().div_ceil(5) as f32 * 10.;
                     let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(rail::WIDTH, 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
                     let resp = crate::metrics::clickable(resp);
-                    let name = session.account_name.as_str();
+                    let name = active_label.as_str();
                     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
                     if !others.is_empty() && resp.hovered() {
                         ui.painter().rect_filled(rect.shrink2(egui::Vec2::new(6., 2.)), 10., rgb(t.input));
@@ -1127,10 +1165,10 @@ impl App {
                     let c = rect.center_top() + egui::Vec2::new(0., 26.);
                     let initial: String = name.trim_start_matches('@').chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned());
                     avatar::paint(ui, c, 36., rgb(AVATAR), &session.own_avatar(), &initial, 16., rgb(t.on_accent));
-                    for (i, (_, n)) in others.iter().enumerate() {
+                    for (i, (_, _, _, _, n)) in others.iter().enumerate() {
                         let in_row = (others.len() - i / 5 * 5).min(5);
                         let d = egui::Pos2::new(c.x + ((i % 5) as f32 - (in_row - 1) as f32 / 2.) * 10., rect.top() + 55. + (i / 5) as f32 * 10.);
-                        if *n > 0 {
+                        if n.is_some_and(|n| n > 0) {
                             ui.painter().circle_filled(d, 3., rgb(t.accent));
                         } else {
                             ui.painter().circle_stroke(d, 2.5, egui::Stroke::new(1., rgb(t.secondary)));
@@ -1143,18 +1181,10 @@ impl App {
                         }
                         egui::Popup::menu(&resp).align(if dir::rtl() { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START }).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| crate::dir::popup(ui, |ui| {
                             ui.spacing_mut().item_spacing.y = 0.;
-                            // The id line tells apart accounts with the same name; a migrated one without id shows its homeserver.
-                            let catalog = self.dirs.as_ref().map(matrix_desktop::AccountCatalog::load);
-                            let line = |root: &std::path::Path| -> String {
-                                let (Some(c), Some(d)) = (&catalog, &self.dirs) else { return String::new() };
-                                c.accounts().iter().find(|e| c.data_dir(d, e.id).as_deref() == Some(root)).and_then(|e| e.user_id.clone().or_else(|| e.homeserver.clone())).unwrap_or_default()
-                            };
-                            let shown_row = (name.to_owned(), line(&self.root), session.own_avatar());
-                            let rows: Vec<_> = self.parked.iter().map(|p| (p.session.account_name.clone(), line(&p.root), p.session.own_avatar())).collect();
-                            accounts::switch_row(ui, &shown_row.0, &shown_row.1, &shown_row.2, true, 0, t);
-                            for (i, ((other, id, pic), (_, n))) in rows.iter().zip(&others).enumerate() {
-                                if accounts::switch_row(ui, other, id, pic, false, *n, t).clicked() {
-                                    pick_account = Some(i);
+                            accounts::switch_row(ui, name, &active_id, &session.own_avatar(), true, 0, t);
+                            for (root, other, id, pic, unread) in &others {
+                                if accounts::switch_row(ui, other, id, pic, false, unread.unwrap_or(0), t).clicked() {
+                                    pick_account = Some(root.clone());
                                     ui.close();
                                 }
                             }
@@ -1222,13 +1252,17 @@ impl App {
                     }
                 }
                 if narrow {
-                    self.overlays(ui, t);
-                    return;
+                    list_only = true;
                 }
             }
         }
-        if let Some(i) = pick_account {
-            self.switch_to(i);
+        let (pick, list_only) = account_switch_effect(pick_account, &self.root, list_only);
+        if let Some(root) = pick {
+            self.open_account(root);
+        }
+        if list_only {
+            self.overlays(ui, t);
+            return;
         }
         let has_room = self.session.as_ref().is_some_and(|s| s.messages.is_some());
         let (info_on, search_on) = self.session.as_ref().map_or((false, false), |s| (s.info_open, s.search_open));
@@ -2231,9 +2265,35 @@ fn main() -> eframe::Result {
     result
 }
 
+fn account_row_label<'a>(name: Option<&'a str>, saved: Option<&'a str>, user: Option<&'a str>) -> &'a str {
+    [name, saved, user].into_iter().flatten().map(str::trim).find(|s| !s.is_empty()).unwrap_or("?")
+}
+
+fn account_switch_effect(pick: Option<std::path::PathBuf>, active: &std::path::Path, narrow: bool) -> (Option<std::path::PathBuf>, bool) {
+    (pick.filter(|path| path != active), narrow)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_row_label_falls_back_without_blank_names() {
+        assert_eq!(account_row_label(Some("Marco"), Some("Saved"), Some("@m:s")), "Marco");
+        assert_eq!(account_row_label(Some(""), Some("Saved"), Some("@m:s")), "Saved");
+        assert_eq!(account_row_label(Some("  "), Some("  "), Some("@m:s")), "@m:s");
+        assert_eq!(account_row_label(None, None, None), "?");
+    }
+
+    #[test]
+    fn account_switch_effect_preserves_narrow_picks() {
+        let active = std::path::Path::new("/active");
+        let other = std::path::PathBuf::from("/other");
+        assert_eq!(account_switch_effect(Some(other.clone()), active, true), (Some(other.clone()), true));
+        assert_eq!(account_switch_effect(Some(other.clone()), active, false), (Some(other), false));
+        assert_eq!(account_switch_effect(Some(active.into()), active, true), (None, true));
+        assert_eq!(account_switch_effect(None, active, false), (None, false));
+    }
 
     #[test]
     fn edit_entries_map_to_egui_input() {

@@ -357,7 +357,7 @@ pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: &crate::avat
     let p = ui.painter();
     let x = c.x + 20.;
     let right = rect.right() - 12.;
-    let (name_pos, id_pos) = if id.is_empty() { (egui::Pos2::new(x, rect.center().y - 8.), None) } else { (egui::Pos2::new(x, rect.top() + 6.), Some(egui::Pos2::new(x, rect.top() + 24.))) };
+    let (name_pos, id_pos) = if id.trim().is_empty() || id.trim() == name.trim() { (egui::Pos2::new(x, rect.center().y - 8.), None) } else { (egui::Pos2::new(x, rect.top() + 6.), Some(egui::Pos2::new(x, rect.top() + 24.))) };
     let g = crate::list::one_line(ui, name, 13., rgb(t.text), right - x - 32.);
     ui.painter().galley(place(name_pos, &g), g, rgb(t.text));
     if let Some(pos) = id_pos {
