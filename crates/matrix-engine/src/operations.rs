@@ -370,6 +370,8 @@ pub enum OperationCommand {
     StickerPacks { scope: RoomScope },
     /// Send an `m.sticker` with the pack's plain `url`; answered with `OperationResult::StickerSent`.
     SendSticker { scope: RoomScope, sticker: crate::stickers::Sticker },
+    /// One change of the sticker packs; answered with `OperationResult::StickerEdited`.
+    StickerEdit { edit: crate::stickers::PackEdit },
     /// A text into the thread: a plain thread message, or a reply to `reply_to` (a thread event).
     /// With `attachment` (file, image or voice note) `body` is its caption.
     ThreadSend {
@@ -398,6 +400,9 @@ pub enum OperationResult {
     StickerSent {
         scope: RoomScope,
         result: Result<EventId, OperationError>,
+    },
+    StickerEdited {
+        result: Result<(), OperationError>,
     },
     MessageSearch {
         scope: RoomScope,

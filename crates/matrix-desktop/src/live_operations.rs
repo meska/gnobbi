@@ -278,6 +278,7 @@ impl LiveOperations {
             | OperationResult::ThreadSent { .. }
             | OperationResult::StickerPacks { .. }
             | OperationResult::StickerSent { .. }
+            | OperationResult::StickerEdited { .. }
             | OperationResult::Members { .. }
             | OperationResult::MessageSearch { .. }
             | OperationResult::UserSearch { .. } => false,

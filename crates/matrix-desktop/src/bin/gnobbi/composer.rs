@@ -80,8 +80,13 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
     if let Some((name, data, revision)) = attachment {
         ui.horizontal(|ui| {
             ui.add_space(12.);
-            attachment_thumbnail(ui, nid("composer-thumbnail"), data, revision);
+            let picture = attachment_thumbnail(ui, nid("composer-thumbnail"), data, revision);
             ui.label(crate::icons::with_label(crate::icons::Icon::Paperclip, name));
+            // A picture (pasted, picked, or a Memoji from the iOS keyboard) can become a sticker instead of a message.
+            if picture && let Some((panel, _)) = stickers.as_mut() && crate::icons::button(ui, Icon::Sticker, false, i18n::t("Save as sticker")).clicked() {
+                panel.add_picture(data, &std::path::Path::new(name).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+                *drop_attachment = true;
+            }
             if crate::info::close_icon(ui, i18n::t("Remove attachment")).clicked() {
                 *drop_attachment = true;
             }
@@ -140,7 +145,8 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
         let emoji = icon_at(ui, rect, &format!("composer-emoji{salt}"), Icon::Smiley, 1., true, i18n::t("Emoji"));
-        egui::Popup::menu(&emoji).show(|ui| crate::dir::popup(ui, |ui| {
+        // Stays open on clicks inside (tabs, search, pack bar); a picked emoji or sticker closes it itself.
+        egui::Popup::menu(&emoji).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| crate::dir::popup(ui, |ui| {
             let tab = egui::Id::new(crate::stickers::TAB_ID);
             let mut sticker_tab = stickers.is_some() && ui.data(|d| d.get_temp::<bool>(tab)).unwrap_or(false);
             if stickers.is_some() {
@@ -151,7 +157,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
                 ui.data_mut(|d| d.insert_temp(tab, sticker_tab));
             }
             if let (true, Some((panel, textures))) = (sticker_tab, stickers.as_mut()) {
-                crate::stickers::show(ui, panel, textures);
+                crate::stickers::show(ui, panel, textures, t);
                 return;
             }
             egui::Grid::new(nid("emoji-grid")).show(ui, |ui| {
@@ -266,16 +272,19 @@ struct Thumbnail {
     texture: Option<egui::TextureHandle>,
 }
 
-fn attachment_thumbnail(ui: &mut egui::Ui, id: egui::Id, data: &[u8], revision: u64) {
+/// Draws the thumbnail; false when the attachment is not a picture.
+fn attachment_thumbnail(ui: &mut egui::Ui, id: egui::Id, data: &[u8], revision: u64) -> bool {
     let mut cached = ui.data(|d| d.get_temp::<Thumbnail>(id));
     if cached.as_ref().is_none_or(|c| c.revision != revision) {
         let texture = matrix_desktop::composer_image::thumbnail(data).map(|image| ui.ctx().load_texture("composer-attachment", image, Default::default()));
         cached = Some(Thumbnail { revision, texture });
         ui.data_mut(|d| d.insert_temp(id, cached.clone().unwrap()));
     }
-    if let Some(texture) = cached.and_then(|c| c.texture) {
-        ui.add(egui::Image::new(&texture).max_size(egui::vec2(64., 64.)));
+    let texture = cached.and_then(|c| c.texture);
+    if let Some(texture) = &texture {
+        ui.add(egui::Image::new(texture).max_size(egui::vec2(64., 64.)));
     }
+    texture.is_some()
 }
 
 #[cfg(test)]

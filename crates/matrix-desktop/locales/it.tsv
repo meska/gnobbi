@@ -172,6 +172,32 @@ banner	Reply	Risposta
 # stickers
 	Stickers are not encrypted, like an unencrypted image	Gli sticker non sono cifrati, come un'immagine non cifrata
 	No sticker packs	Nessun pacchetto di sticker
+	Add sticker	Aggiungi sticker
+	Manage stickers	Gestisci sticker
+	No stickers	Nessuno sticker
+	Recent	Recenti
+	Favourites	Preferiti
+	Remove from favourites	Togli dai preferiti
+	Add to favourites	Aggiungi ai preferiti
+	Move to pack	Sposta nel pacchetto
+	Remove from my pack	Togli dal mio pacchetto
+	New sticker	Nuovo sticker
+	Image cannot be used	Immagine non utilizzabile
+	Fill the square	Riempi il quadrato
+	Name already used	Nome già usato
+	Pack	Pacchetto
+	Stickers	Sticker
+	Show {name}	Mostra {name}
+	Move up	Sposta su
+	Move down	Sposta giù
+	Delete pack	Elimina pacchetto
+	New pack	Nuovo pacchetto
+	Create pack	Crea pacchetto
+	Room address	Indirizzo della stanza
+	Import packs from room	Importa i pacchetti della stanza
+	Stickers not saved	Sticker non salvati
+	Save as sticker	Salva come sticker
+	Add to my stickers	Aggiungi ai miei sticker
 	Stickers unavailable	Sticker non disponibili
 
 # settings

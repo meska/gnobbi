@@ -122,6 +122,8 @@ pub struct Session {
     pub confirm_leave: Option<matrix_domain::RoomScope>,
     pub room_error: Option<String>,
     pub stickers: crate::stickers::Panel,
+    /// The message whose picture is being fetched for the sticker editor.
+    pub sticker_from: Option<EventId>,
     /// Spaces for the room whose menu was opened last; `None` inside until the engine answers.
     pub space_choices: Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>,
     /// «Aggiungi a uno spazio» window: the room and the space picked so far.
@@ -302,6 +304,7 @@ impl Session {
         matrix_desktop::create_private_dir(&root).map_err(|e| e.to_string())?;
         let status_dir = root.clone();
         let last_file = root.join("last_room");
+        let sticker_file = root.join("stickers.json");
         let scroll_file = root.join("scroll_pos.json");
         let last_room = std::fs::read_to_string(&last_file).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
         let vault = signin::platform_source();
@@ -437,7 +440,8 @@ impl Session {
             query: String::new(),
             confirm_leave: None,
             room_error: None,
-            stickers: Default::default(),
+            stickers: crate::stickers::Panel::load(sticker_file),
+            sticker_from: None,
             space_choices: None,
             space_pick: None,
             space_view: None,
@@ -609,14 +613,31 @@ impl Session {
     fn drive_stickers(&mut self) -> bool {
         let Some(scope) = self.draft_scope.clone() else { return false };
         if self.stickers.scope.as_ref() != Some(&scope) {
-            self.stickers = crate::stickers::Panel { scope: Some(scope.clone()), ..Default::default() };
+            // The account's packs are the same in every room: keep them on screen until the new room's answer.
+            (self.stickers.scope, self.stickers.fetched) = (Some(scope.clone()), None);
         }
-        let open = std::mem::take(&mut self.stickers.open);
+        let open = self.stickers.wants_packs();
+        if cfg!(debug_assertions) && std::env::var_os("GNOBBI_DEBUG_STICKER_FIXTURE").is_some() {
+            self.stickers.edits.clear(); // painted packs, nothing to ask or change on a server
+            self.stickers.busy = false;
+            return false;
+        }
+        for edit in self.stickers.edits.drain(..) {
+            self.op_queue.push(OperationCommand::StickerEdit { edit });
+        }
         if open && self.stickers.fetched.is_none_or(|at| at.elapsed() > std::time::Duration::from_secs(30)) {
             self.stickers.fetched = Some(std::time::Instant::now());
             self.op_queue.push(OperationCommand::StickerPacks { scope });
         }
         false
+    }
+
+    /// «Add to my stickers» on a picture or sticker message: its original, then the editor.
+    pub fn sticker_from_message(&mut self, id: EventId) {
+        let Some(scope) = self.draft_scope.clone() else { return };
+        self.media.cancel_original();
+        self.media.request_original(scope, id.clone());
+        self.sticker_from = Some(id);
     }
 
     pub fn send_sticker(&mut self, sticker: matrix_engine::stickers::Sticker) {
@@ -732,7 +753,13 @@ impl Session {
             }
         }
         if let Some((id, result)) = self.media.take_original() {
-            if let Some(viewer) = &mut self.viewer && viewer.id == id { viewer.set_original(ctx, result); }
+            if self.sticker_from.as_ref() == Some(&id) {
+                self.sticker_from = None;
+                match result {
+                    Ok(p) => self.stickers.add_rgba(p.width, p.height, p.rgba, ""),
+                    Err(_) => self.stickers.error = Some(i18n::t("Image cannot be used")),
+                }
+            } else if let Some(viewer) = &mut self.viewer && viewer.id == id { viewer.set_original(ctx, result); }
             changed = true;
         }
         if let Some((id, result)) = self.media.take_video() {
@@ -1198,6 +1225,11 @@ impl Session {
             match &result {
                 OperationResult::StickerPacks { scope, result } => {
                     if self.draft_scope.as_ref() == Some(scope) { self.stickers.packs = Some(result.clone().map_err(|_| ())); }
+                    changed = true;
+                    continue;
+                }
+                OperationResult::StickerEdited { result } => {
+                    self.stickers.edited(result.is_ok());
                     changed = true;
                     continue;
                 }

@@ -852,6 +852,9 @@ impl RoomListWorker {
                                     let result = crate::stickers::send(&operation_client, account, &scope, &sticker).await;
                                     OperationResult::StickerSent { scope, result }
                                 }
+                                OperationCommand::StickerEdit { edit } => {
+                                    OperationResult::StickerEdited { result: crate::stickers::edit(&operation_client, edit).await }
+                                }
                                 OperationCommand::ThreadSend { scope, root, reply_to, body, attachment } => {
                                     let result = crate::threads::send_scoped(&operation_client, &operation_timelines, account, &scope, &root, reply_to.as_ref(), &body, attachment.as_ref()).await;
                                     OperationResult::ThreadSent { scope, root, result }

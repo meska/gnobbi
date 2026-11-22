@@ -65,6 +65,11 @@ icons! {
     ArrowUUpLeft = 0xe08a "arrow-u-up-left",
     Eye = 0xe220 "eye",
     EyeSlash = 0xe224 "eye-slash",
+    Star = 0xe46a "star",
+    Sticker = 0xe5ac "sticker",
+    Trash = 0xe4a6 "trash",
+    ArrowUp = 0xe08e "arrow-up",
+    FolderSimple = 0xe25a "folder-simple",
 }
 
 static REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Phosphor-subset.ttf");

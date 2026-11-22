@@ -779,6 +779,13 @@ impl eframe::App for App {
         }
         if self.open_failed() { self.sign_out_step(&ctx); }
         if let Some(s) = &mut self.session { s.show_viewer(&ctx); }
+        if let Some(s) = &mut self.session {
+            #[cfg(debug_assertions)]
+            stickers::fixture(&ctx, &mut s.stickers, &mut s.avatars);
+            stickers::windows(&ctx, &mut s.stickers, &s.avatars, &t);
+        }
+        #[cfg(debug_assertions)]
+        stickers::demo(&ctx, &t);
         #[cfg(debug_assertions)]
         if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("avatar-editor") { self.account_form.demo(&ctx, &t); }
         #[cfg(debug_assertions)]
@@ -2087,6 +2094,11 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     let fresh = std::mem::take(&mut s.menu_fresh);
     let perms = s.ops.details().map(|d| d.permissions);
     let mut action: Option<&'static str> = None;
+    // A picture or a sticker with a server id can be added to the own stickers.
+    let picture = s.ops.selection().and_then(|id| match (&s.messages.as_ref()?.events().iter().find(|e| e.id == *id)?.media, &id.id) {
+        (Some(m), matrix_domain::TimelineId::Server(event)) if m.kind == matrix_engine::history::MediaKind::Image => Some(event.clone()),
+        _ => None,
+    });
     let area = egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         egui::Frame::popup(ui.style()).fill(rgb(t.surface)).show(ui, |ui| dir::popup(ui, |ui| {
             ui.set_min_width(160.);
@@ -2114,6 +2126,9 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
             }
             if p.edit && ui.button(i18n::t("Edit")).clicked() {
                 action = Some("edit");
+            }
+            if picture.is_some() && ui.button(i18n::t("Add to my stickers")).clicked() {
+                action = Some("sticker");
             }
             let poll = s.ops.selection().and_then(|id| s.messages.as_ref()?.events().iter().find(|e| e.id == *id)?.poll.clone());
             if s.ops.can_end_poll(poll.as_ref()) {
@@ -2145,6 +2160,10 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
             if let Some(root) = root { s.open_thread(root); }
         }
         Some("edit") => s.begin(composer::Mode::Edit),
+        Some("sticker") => {
+            s.close_menu();
+            if let Some(id) = picture { s.sticker_from_message(id); }
+        }
         Some("delete") => s.delete(),
         Some("end") => s.end_poll(),
         Some(key) => s.react(key),

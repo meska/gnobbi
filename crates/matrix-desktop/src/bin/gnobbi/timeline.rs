@@ -292,7 +292,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         // 1-3 emoji alone: Telegram-style big glyph with no bubble (a reply quote keeps the bubble around it).
         let big = (e.media.is_none() && e.poll.is_none() && e.thread.is_none() && e.attachment_name.is_none() && !e.utd && e.styles.is_empty() && e.mentions.is_empty())
             .then(|| matrix_desktop::big_emoji::scale(&e.text)).flatten();
-        let bare = big.is_some() && e.reply_to.is_none() && !e.highlighted && !flashed;
+        // A sticker alone is drawn like on Telegram: no bubble, smaller than a photo. "Sticker" is the engine's label of `m.sticker`.
+        let sticker = e.text.is_empty() && e.media.as_ref().is_some_and(|m| m.label == "Sticker");
+        let bare = (big.is_some() || sticker) && e.reply_to.is_none() && !e.highlighted && !flashed;
         let fill = if bare { Color32::TRANSPARENT } else if e.highlighted || flashed { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
         let margin = if bare { egui::Margin::symmetric(0, 2) } else { egui::Margin::symmetric(PAD_X as i8, PAD_Y as i8) };
         let frame = egui::Frame::NONE.fill(fill).corner_radius(radius).inner_margin(margin).show(ui, |ui| {
@@ -364,7 +366,8 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     match pictures.get(id) {
                         Some(tex) => {
                             let size = tex.size_vec2();
-                            let scale = (max.min(320.) / size.x).min(1.).min(320. / size.y);
+                            let side = if sticker { 192. } else { 320. };
+                            let scale = (max.min(side) / size.x).min(1.).min(side / size.y);
                             if crate::metrics::clickable(ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)).sense(egui::Sense::click()))).clicked() && matches!(media.kind, matrix_engine::history::MediaKind::Image | matrix_engine::history::MediaKind::Video) {
                                 acts.picture = Some((id.clone(), media.kind == matrix_engine::history::MediaKind::Video, e.attachment_name.clone().unwrap_or_else(|| i18n::t("image").into())));
                             }
