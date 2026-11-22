@@ -5,6 +5,8 @@ mod event_loop;
 mod ime;
 mod ime_document;
 mod ime_traits;
+mod image_insertion;
+mod image_source;
 mod monitor;
 mod notification_center;
 mod view;

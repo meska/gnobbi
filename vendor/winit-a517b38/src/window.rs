@@ -1880,6 +1880,8 @@ pub enum ImePurpose {
     /// No special hints for the IME (default).
     #[default]
     Normal,
+    /// A message composer that explicitly accepts image insertions (iOS only).
+    Message,
     /// The IME is used for password input.
     Password,
     /// The IME is used to input into a terminal.

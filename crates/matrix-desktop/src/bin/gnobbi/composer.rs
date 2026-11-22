@@ -28,7 +28,7 @@ pub enum Mode {
 pub const THREAD: &str = "-thread";
 
 /// `salt` is `""` for the room composer and `THREAD` for the drawer: the same bar minus the poll (attach and voice go into the thread).
-pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>, t: &matrix_desktop::DesignTokens) -> Option<String> {
+pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<(&str, &[u8], u64)>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>, t: &matrix_desktop::DesignTokens) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     // consume_key matches Shift loosely, so Shift+Enter is checked on the event and left to the TextEdit (it inserts the newline).
     let shift_enter = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if modifiers.shift)));
@@ -57,14 +57,37 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
             }
         });
     }
-    if let Some(name) = attachment {
+    let error_id = nid("composer-image-error");
+    let image_input = take_image_input(ui, nid("composer-text"), if recording.is_some() { Mode::Edit } else { mode }, attachment.is_some(), draft);
+    let inserting_image = image_input.is_some();
+    if let Some(result) = image_input {
+        match result {
+            Ok(image) => {
+                *pasted = Some(image);
+                ui.data_mut(|d| d.remove::<String>(error_id));
+            }
+            Err(error) => { ui.data_mut(|d| d.insert_temp(error_id, error)); }
+        }
+    }
+    if let Some(error) = ui.data(|d| d.get_temp::<String>(error_id)) {
+        ui.horizontal(|ui| {
+            ui.colored_label(ui.visuals().error_fg_color, i18n::t(&error));
+            if crate::info::close_icon(ui, i18n::t("Close")).clicked() {
+                ui.data_mut(|d| d.remove::<String>(error_id));
+            }
+        });
+    }
+    if let Some((name, data, revision)) = attachment {
         ui.horizontal(|ui| {
             ui.add_space(12.);
+            attachment_thumbnail(ui, nid("composer-thumbnail"), data, revision);
             ui.label(crate::icons::with_label(crate::icons::Icon::Paperclip, name));
             if crate::info::close_icon(ui, i18n::t("Remove attachment")).clicked() {
                 *drop_attachment = true;
             }
         });
+    } else {
+        ui.data_mut(|d| d.remove::<Thumbnail>(nid("composer-thumbnail")));
     }
     if let Some(secs) = recording {
         ui.horizontal(|ui| {
@@ -90,12 +113,6 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let slots = if thread { 3. } else { 4. };
         let w = (ui.available_width() - slots * slot - (slots + 1.) * ui.spacing().item_spacing.x - 12.).max(80.); // Keep the right gap close to the 12 px left pad.
         let id = nid("composer-text");
-        if ui.memory(|m| m.has_focus(id)) {
-            *pasted = ui.input(|i| i.events.iter().find_map(|e| match e {
-                egui::Event::PasteImage(image) => Some(image.as_ref().clone()),
-                _ => None,
-            }));
-        }
         format_shortcuts(ui, id, draft);
         // Borderless like Telegram; grows with the text up to 8 rows, then scrolls. The 6 px vertical padding makes one row as tall as the icon buttons.
         let row = ui.text_style_height(&egui::TextStyle::Body);
@@ -108,7 +125,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let scroll = egui::ScrollArea::vertical().max_height(max_h).min_scrolled_height(0.).id_salt(nid("composer-scroll")).show(&mut child, |ui| {
             egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, pad as i8)).show(ui, |ui| {
                 ui.spacing_mut().interact_size.y = row; // else the editor is 20 px tall and the text sits at its top
-                egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text(if thread { i18n::t("Reply in thread") } else { i18n::t("Write a message") }).desired_width(w).horizontal_align(crate::dir::start()).lock_focus(true).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).show(ui)
+                egui::TextEdit::multiline(draft).id(id).ime_purpose(if mode == Mode::Edit { egui::IMEPurpose::Normal } else { egui::IMEPurpose::Message }).desired_rows(1).hint_text(if thread { i18n::t("Reply in thread") } else { i18n::t("Write a message") }).desired_width(w).horizontal_align(crate::dir::start()).lock_focus(true).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).show(ui)
             }).inner
         });
         let text_h = scroll.content_size.y.min(max_h);
@@ -178,7 +195,9 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         });
         });
     });
-    if (enter || send_click) && (attachment.is_some() || !draft.trim().is_empty()) {
+    // A native insertion is first validated and attached by the session after this call.
+    // Never send a caption before that validation succeeds in the same frame.
+    if !inserting_image && (enter || send_click) && (attachment.is_some() || !draft.trim().is_empty()) {
         return Some(std::mem::take(draft));
     }
     None
@@ -199,14 +218,143 @@ fn insert_emoji(ctx: &egui::Context, id: egui::Id, draft: &mut String, emoji: &s
     ctx.memory_mut(|m| m.request_focus(id));
 }
 
-pub fn pasted_png(image: &egui::ColorImage) -> Option<Vec<u8>> {
-    use image::ImageEncoder;
-    let width = u32::try_from(image.size[0]).ok()?;
-    let height = u32::try_from(image.size[1]).ok()?;
-    let rgba: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_srgba_unmultiplied()).collect();
-    let mut png = Vec::new();
-    image::codecs::png::PngEncoder::new(&mut png).write_image(&rgba, width, height, image::ExtendedColorType::Rgba8).ok()?;
-    Some(png)
+/// Image events belong only to the focused composer. Text paste remains in egui's event stream.
+fn take_image_input(ui: &egui::Ui, id: egui::Id, mode: Mode, occupied: bool, draft: &mut String) -> Option<Result<egui::ColorImage, String>> {
+    if !ui.memory(|m| m.has_focus(id)) { return None; }
+    let mut images = Vec::new();
+    ui.input_mut(|i| i.events.retain(|event| {
+        if let egui::Event::PasteImage(image) = event {
+            images.push(image.clone());
+            false
+        } else { true }
+    }));
+    let native = ui.data_mut(|d| d.remove_temp::<(Option<egui::Id>, Vec<Result<(Vec<u8>, Option<String>), String>>)>(egui::Id::new("winit_image_insertions")));
+    let mut native = native.filter(|(owner, _)| *owner == Some(id)).map(|(_, items)| items).unwrap_or_default();
+    let count = images.len() + native.len();
+    if count == 0 { return None; }
+    if mode == Mode::Edit { return Some(Err("Image cannot be attached".to_owned())); }
+    if occupied || count != 1 { return Some(Err("Only one attachment is supported".to_owned())); }
+    if let Some(result) = native.pop() {
+        return Some(result.and_then(|(bytes, description)| {
+            let image = matrix_desktop::composer_image::decode(&bytes).map_err(|_| "Image cannot be attached".to_owned())?;
+            // A flattened adaptive glyph becomes one ordinary attachment. Preserve its
+            // accessibility description as editable caption text, never as a filesystem path.
+            if let Some(description) = description {
+                let caption: String = description.chars().filter(|c| {
+                    !c.is_control() && !matches!(*c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+                }).collect();
+                let caption = caption.trim();
+                if !caption.is_empty() {
+                    if !draft.is_empty() { draft.push('\n'); }
+                    draft.push_str(caption);
+                }
+            }
+            Ok(image)
+        }));
+    }
+    let image = images.pop().unwrap();
+    let pixels = image.size[0].checked_mul(image.size[1]);
+    if pixels.is_none_or(|p| p == 0 || p > matrix_desktop::composer_image::MAX_IMAGE_PIXELS || p != image.pixels.len()) {
+        return Some(Err("Image cannot be attached".to_owned()));
+    }
+    Some(Ok(image.as_ref().clone()))
+}
+
+#[derive(Clone)]
+struct Thumbnail {
+    revision: u64,
+    texture: Option<egui::TextureHandle>,
+}
+
+fn attachment_thumbnail(ui: &mut egui::Ui, id: egui::Id, data: &[u8], revision: u64) {
+    let mut cached = ui.data(|d| d.get_temp::<Thumbnail>(id));
+    if cached.as_ref().is_none_or(|c| c.revision != revision) {
+        let texture = matrix_desktop::composer_image::thumbnail(data).map(|image| ui.ctx().load_texture("composer-attachment", image, Default::default()));
+        cached = Some(Thumbnail { revision, texture });
+        ui.data_mut(|d| d.insert_temp(id, cached.clone().unwrap()));
+    }
+    if let Some(texture) = cached.and_then(|c| c.texture) {
+        ui.add(egui::Image::new(&texture).max_size(egui::vec2(64., 64.)));
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+
+    type Batch = (Option<egui::Id>, Vec<Result<(Vec<u8>, Option<String>), String>>);
+
+    fn image_input(salt: &str, focus: &str, mode: Mode, occupied: bool, events: Vec<egui::Event>, native: Option<Batch>) -> (Option<Result<egui::ColorImage, String>>, bool) {
+        let ctx = crate::icons::test_context();
+        let mut result = None;
+        let mut text_paste = false;
+        let mut output = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+            ui.memory_mut(|m| m.request_focus(egui::Id::new(focus)));
+            if let Some(batch) = native.clone() {
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("winit_image_insertions"), batch));
+            }
+            result = take_image_input(ui, egui::Id::new(format!("composer-text{salt}")), mode, occupied, &mut String::new());
+            text_paste = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Paste(_))));
+        });
+        output.textures_delta.clear();
+        (result, text_paste)
+    }
+
+    fn image() -> egui::ColorImage { egui::ColorImage::filled([2, 1], egui::Color32::RED) }
+    fn event() -> egui::Event { egui::Event::PasteImage(std::sync::Arc::new(image())) }
+
+    #[test]
+    fn image_paste_requires_the_focused_room_or_thread_composer_and_preserves_text_paste() {
+        for (salt, focus) in [("", "composer-text"), (THREAD, "composer-text-thread")] {
+            let (result, text) = image_input(salt, focus, Mode::Send, false, vec![event(), egui::Event::Paste("caption".into())], None);
+            assert_eq!(result.unwrap().unwrap().size, [2, 1]);
+            assert!(text);
+        }
+        for focus in ["password", "search", "composer-text-thread"] {
+            assert!(image_input("", focus, Mode::Send, false, vec![event()], None).0.is_none());
+        }
+    }
+
+    #[test]
+    fn native_png_is_routed_to_its_owner_and_errors_are_explicit() {
+        let png = matrix_desktop::composer_image::prepare(&image(), 1024).unwrap();
+        let owner = egui::Id::new("composer-text");
+        let input = |items| image_input("", "composer-text", Mode::Send, false, vec![], Some((Some(owner), items))).0.unwrap();
+        assert_eq!(input(vec![Ok((png.clone(), None))]).unwrap().size, [2, 1]);
+        assert_eq!(input(vec![Err("Image is too large".into())]).err().as_deref(), Some("Image is too large"));
+        assert_eq!(input(vec![Ok((b"invalid PNG".to_vec(), None))]).err().as_deref(), Some("Image cannot be attached"));
+        assert!(image_input(THREAD, "composer-text-thread", Mode::Send, false, vec![], Some((Some(owner), vec![Ok((png, None))]))).0.is_none());
+    }
+
+    #[test]
+    fn multiple_images_existing_attachment_and_edit_are_refused() {
+        let error = |mode, occupied, events| image_input("", "composer-text", mode, occupied, events, None).0.unwrap().err().unwrap();
+        assert_eq!(error(Mode::Send, false, vec![event(), event()]), "Only one attachment is supported");
+        assert_eq!(error(Mode::Reply, true, vec![event()]), "Only one attachment is supported");
+        assert_eq!(error(Mode::Edit, false, vec![event()]), "Image cannot be attached");
+    }
+
+    #[test]
+    fn image_and_send_in_same_frame_keep_caption_until_attachment_is_validated() {
+        let ctx = crate::icons::test_context();
+        let mut draft = "caption".to_owned();
+        for frame in 0..4 {
+            let mut events = vec![];
+            if frame == 3 {
+                events.push(event());
+                events.push(egui::Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE });
+            }
+            let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900., 600.))), events, ..Default::default() }, |ui| {
+                ui.memory_mut(|m| m.request_focus(egui::Id::new("composer-text")));
+                let (mut cancel, mut drop, mut poll, mut picked, mut pasted, mut voice) = (false, false, false, None, None, None);
+                let sent = show(ui, "", &mut draft, Mode::Send, None, &mut cancel, &mut drop, &mut poll, &mut picked, &mut pasted, None, &mut voice, &[], &mut vec![], None, &matrix_desktop::LIGHT);
+                assert!(sent.is_none());
+                if frame == 3 { assert!(pasted.is_some()); }
+            });
+            output.textures_delta.clear();
+        }
+        assert_eq!(draft, "caption");
+    }
 }
 
 /// «@name»: members matching what is typed after the `@` before the cursor; a click (or Tab) puts «@Name » in the text
@@ -418,7 +566,7 @@ mod tests {
     #[test]
     fn pasted_image_is_a_png_with_unpremultiplied_alpha() {
         let image = eframe::egui::ColorImage::from_rgba_unmultiplied([1, 1], &[200, 100, 50, 128]);
-        let png = super::pasted_png(&image).unwrap();
+        let png = matrix_desktop::composer_image::prepare(&image, 25 << 20).unwrap();
         let decoded = image::load_from_memory(&png).unwrap().to_rgba8();
         assert_eq!(decoded.dimensions(), (1, 1));
         assert_eq!(decoded.as_raw()[3], 128);

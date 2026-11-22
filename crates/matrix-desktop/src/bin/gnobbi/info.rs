@@ -463,8 +463,8 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, pictures:
             });
         }
         let (mut cancel, mut drop, mut poll) = (false, false, false);
-        let name = th.attachment.as_ref().map(|(n, _)| n.clone());
-        out.send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, name.as_deref(), &mut cancel, &mut drop, &mut poll, &mut out.picked, &mut out.pasted, recording, &mut out.voice, &[], &mut Vec::new(), None, t);
+        let attachment = th.attachment.as_ref().map(|(n, data)| (n.as_str(), data.as_slice(), th.attachment_revision));
+        out.send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, attachment, &mut cancel, &mut drop, &mut poll, &mut out.picked, &mut out.pasted, recording, &mut out.voice, &[], &mut Vec::new(), None, t);
         if drop { th.attachment = None; }
     }));
     th.tail_visible = false;

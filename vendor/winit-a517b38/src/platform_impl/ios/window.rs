@@ -416,6 +416,10 @@ impl Inner {
             .map(|before_bytes| crate::platform::ios::ImeDeleteSurrounding { before_bytes, after_bytes: 0 })
     }
 
+    pub(crate) fn take_image_insertions(&self) -> Vec<Result<(Vec<u8>, Option<String>), String>> {
+        self.view.take_image_insertions()
+    }
+
     pub fn focus_window(&self) {
         warn!("`Window::set_focus` is ignored on iOS")
     }

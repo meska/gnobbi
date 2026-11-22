@@ -1624,13 +1624,13 @@ impl App {
                 let mut picked_file = None;
                 let mut pasted_image = None;
                 let mut voice_act = None;
-                let name = s.attachment.as_ref().map(|(n, _)| n.clone());
+                let attachment = s.attachment.as_ref().map(|(n, data)| (n.as_str(), data.as_slice(), s.attachment_revision));
                 if let Some(notice) = &s.notice {
                     ui.label(notice);
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
                 let recording = s.recording(false);
-                to_send = composer::show(ui, "", &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)), t);
+                to_send = composer::show(ui, "", &mut s.draft, mode, attachment, &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)), t);
                 if let Some(image) = pasted_image {
                     s.attach_image(&image, false);
                 }

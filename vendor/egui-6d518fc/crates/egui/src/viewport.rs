@@ -1033,6 +1033,8 @@ pub enum X11WindowType {
 pub enum IMEPurpose {
     #[default]
     Normal,
+    /// A message composer that explicitly accepts native image insertions on iOS.
+    Message,
     /// A secret: never published, no suggestions.
     Password,
     Terminal,

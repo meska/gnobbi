@@ -201,6 +201,7 @@ features = [
 [target.'cfg(target_os = "ios")'.dependencies.objc2-ui-kit]
 version = "0.2.2"
 features = [
+    "block2",
     "UIApplication",
     "UIDevice",
     "UIEditMenuInteraction",
@@ -209,6 +210,9 @@ features = [
     "UIInteraction",
     "UILongPressGestureRecognizer",
     "UIPasteboard",
+    "UIImage",
+    "UIGraphicsImageRenderer",
+    "UIGraphicsRenderer",
     "UIGestureRecognizer",
     "UIControl",
     "UITextField",

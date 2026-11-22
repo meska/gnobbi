@@ -7,12 +7,14 @@ use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{class, declare_class, msg_send, msg_send_id, mutability, sel, ClassType, DeclaredClass};
 use objc2_foundation::{
     CGFloat, CGPoint, CGRect, CGSize, MainThreadMarker, NSArray, NSAttributedStringKey,
-    NSComparisonResult, NSDictionary, NSInteger, NSObject, NSRange, NSSet, NSString,
+    NSComparisonResult, NSData, NSDictionary, NSInteger, NSObject, NSRange, NSSet, NSString,
 };
 use objc2_ui_kit::{
     UIControl, UITextField, UICoordinateSpace, UIEditMenuConfiguration, UIEditMenuInteraction, UIEvent, UIForceTouchCapability,
     UIGestureRecognizer, UIGestureRecognizerDelegate, UIGestureRecognizerState, UIKeyInput,
-    UILongPressGestureRecognizer, UIPanGestureRecognizer, UIPasteboard,
+    UILongPressGestureRecognizer, UIPanGestureRecognizer, UIPasteboard, UIImage,
+    UIGraphicsImageRenderer, UIGraphicsImageRendererContext, UIGraphicsImageRendererFormat,
+    UIGraphicsImageRendererFormatRange,
     UIPinchGestureRecognizer, UIResponder, UIRotationGestureRecognizer, UITapGestureRecognizer,
     UITextAutocapitalizationType, UITextAutocorrectionType, UITextInput, UITextInputDelegate, UITextInputStringTokenizer,
     UITextInputTokenizer, UITextInputTraits, UITextLayoutDirection, UITextPosition, UITextRange,
@@ -32,6 +34,7 @@ fn nslog(message: &str) {
 use super::ime::{downcast_position, downcast_range, WinitTextPosition, WinitTextRange};
 use super::ime_document::ImeDocument;
 use super::ime_traits::{split_autofill, traits, Credential, Traits};
+use super::image_insertion::{ImageInsertions, MAX_BYTES, valid_dimensions};
 use super::window::WinitUIWindow;
 use crate::dpi::PhysicalPosition;
 use crate::event::{ElementState, Event, Force, Ime, KeyEvent, Modifiers, Touch, TouchPhase, WindowEvent};
@@ -55,6 +58,9 @@ pub struct WinitViewState {
     // `UITextInput`: the text the keyboard sees, driven by its callbacks.
     ime: RefCell<ImeDocument>,
     ime_allowed: Cell<bool>,
+    image_insertions: RefCell<ImageInsertions>,
+    #[cfg(debug_assertions)]
+    debug_paste_image_attempted: Cell<bool>,
     // What the focused field asks of UIKit (content type, no autocorrection, native field for sign-in): see `ime_traits.rs`.
     ime_traits: Cell<Traits>,
     // Real, nearly invisible `UITextField`s (username, password) present while a sign-in field has the focus: UIKit's Passwords
@@ -555,7 +561,12 @@ declare_class!(
         #[method(canPerformAction:withSender:)]
         fn can_perform_action(&self, action: Sel, sender: Option<&AnyObject>) -> bool {
             if action == sel!(paste:) {
-                self.ivars().ime_allowed.get() && unsafe { UIPasteboard::generalPasteboard().hasStrings() }
+                let offered = self.ivars().ime_allowed.get() && unsafe {
+                    let board = UIPasteboard::generalPasteboard();
+                    board.hasStrings() || (self.ivars().ime_traits.get().images && board.hasImages())
+                };
+                nslog(if offered { "gnobbi paste offered: yes" } else { "gnobbi paste offered: no" });
+                offered
             } else if action == sel!(selectAll:) {
                 self.ivars().ime_allowed.get()
             } else if action == sel!(copy:) || action == sel!(cut:) {
@@ -568,10 +579,60 @@ declare_class!(
 
         #[method(paste:)]
         fn paste(&self, _sender: Option<&AnyObject>) {
+            if !self.ivars().ime_allowed.get() {
+                return;
+            }
+            if self.accepts_images() && unsafe { UIPasteboard::generalPasteboard().hasImages() } {
+                self.paste_image();
+            }
             // Same path as typing, so it reaches whichever field has the focus (password included).
             if let Some(text) = unsafe { UIPasteboard::generalPasteboard().string() } {
+                nslog("gnobbi paste accepted: text");
                 self.handle_insert_text(&text);
             }
+        }
+
+        // Optional UITextInput selectors: no NSAdaptiveImageGlyph class reference, so older
+        // iOS versions can still load the binary. UIKit consults the capability before inserting.
+        #[method(supportsAdaptiveImageGlyph)]
+        fn supports_adaptive_image_glyph(&self) -> bool {
+            let offered = self.accepts_images();
+            nslog(if offered { "gnobbi adaptive image offered: yes" } else { "gnobbi adaptive image offered: no" });
+            offered
+        }
+
+        #[method(insertAdaptiveImageGlyph:replacementRange:)]
+        fn insert_adaptive_image_glyph(&self, glyph: &AnyObject, range: &UITextRange) {
+            if !self.accepts_images() {
+                return;
+            }
+            // UIKit uses UITextRange here (AppKit's corresponding selector uses NSRange).
+            // Attachments have no inline text position: accept only our current empty caret.
+            let caret = self.ivars().ime.borrow().caret() as i64;
+            let at_caret = downcast_range(range).is_some_and(|range| {
+                range.start_offset() == caret && range.end_offset() == caret
+            });
+            if !at_caret {
+                self.queue_image_insertion(Err("Image replacement is not supported".into()));
+                return;
+            }
+            let result = unsafe {
+                let supported: bool = msg_send![glyph, respondsToSelector: sel!(imageContent)];
+                if supported {
+                    let data: Option<Retained<NSData>> = msg_send_id![glyph, imageContent];
+                    let has_description: bool = msg_send![glyph, respondsToSelector: sel!(contentDescription)];
+                    let description = if has_description {
+                        let description: Option<Retained<NSString>> = msg_send_id![glyph, contentDescription];
+                        description.map(|value| value.to_string())
+                    } else { None };
+                    data.as_deref().ok_or_else(|| "Image cannot be attached".to_owned())
+                        .and_then(|data| self.image_data_to_png(data))
+                        .map(|bytes| (bytes, description))
+                } else {
+                    Err("Image cannot be attached".into())
+                }
+            };
+            self.queue_image_insertion(result);
         }
 
         #[method(copy:)]
@@ -1120,6 +1181,9 @@ impl WinitView {
 
             ime: RefCell::new(ImeDocument::default()),
             ime_allowed: Cell::new(false),
+            image_insertions: RefCell::new(ImageInsertions::default()),
+            #[cfg(debug_assertions)]
+            debug_paste_image_attempted: Cell::new(false),
             ime_traits: Cell::new(traits(ImePurpose::Normal)),
             autofill: RefCell::new(None),
             ime_area: Cell::new(CGRect { origin: CGPoint { x: 0.0, y: 0.0 }, size: CGSize { width: 0.0, height: 0.0 } }),
@@ -1131,6 +1195,7 @@ impl WinitView {
         let this: Retained<Self> = unsafe { msg_send_id![super(this), initWithFrame: frame] };
 
         this.setMultipleTouchEnabled(true);
+        this.update_paste_configuration(false);
         this.install_edit_menu(mtm);
 
         if let Some(scale_factor) = window_attributes.platform_specific.scale_factor {
@@ -1506,6 +1571,7 @@ impl WinitView {
     /// Forget the text and drop the composition without committing it: the caret moved or the
     /// field changed. UIKit is told, so the keyboard stops composing and reads the document again.
     pub(crate) fn reset_ime(&self) {
+        self.ivars().image_insertions.borrow_mut().clear();
         if self.ivars().ime.borrow().is_empty() {
             return;
         }
@@ -1527,6 +1593,7 @@ impl WinitView {
 
     pub(crate) fn set_ime_allowed(&self, allowed: bool) {
         if self.ivars().ime_allowed.replace(allowed) != allowed {
+            self.ivars().image_insertions.borrow_mut().clear();
             self.reset_ime();
         }
     }
@@ -1537,6 +1604,8 @@ impl WinitView {
         let new = traits(purpose);
         let old = self.ivars().ime_traits.replace(new);
         if old != new {
+            self.ivars().image_insertions.borrow_mut().clear();
+            self.update_paste_configuration(new.images);
             nslog(&format!("gnobbi ime traits: {purpose:?} -> {new:?}"));
             self.sync_autofill_fields(new.credential.is_some());
             self.reset_ime();
@@ -1551,6 +1620,152 @@ impl WinitView {
 
     pub(crate) fn set_ime_area(&self, area: CGRect) {
         self.ivars().ime_area.set(area);
+    }
+
+    fn accepts_images(&self) -> bool {
+        self.ivars().ime_allowed.get() && self.ivars().ime_traits.get().images
+    }
+
+    fn update_paste_configuration(&self, images: bool) {
+        // UIView implements UIPasteConfigurationSupporting. Advertise only the current
+        // field's accepted types; credential fields never acquire image capabilities.
+        let text = NSString::from_str("public.text");
+        let image = NSString::from_str("public.image");
+        let types = if images {
+            NSArray::from_id_slice(&[text, image])
+        } else {
+            NSArray::from_id_slice(&[text])
+        };
+        unsafe {
+            let config: objc2::rc::Allocated<AnyObject> = msg_send_id![class!(UIPasteConfiguration), alloc];
+            let config: Retained<AnyObject> = msg_send_id![config, initWithAcceptableTypeIdentifiers: &*types];
+            let _: () = msg_send![self, setPasteConfiguration: &*config];
+        }
+    }
+
+    fn image_data_to_png(&self, data: &NSData) -> Result<Vec<u8>, String> {
+        // UIKit owns the pasteboard/glyph NSData. ImageIO reads metadata before UIImage
+        // may decode a raster. Native pasteboard materialization remains UIKit-owned.
+        if data.len() > MAX_BYTES {
+            return Err("Image is too large".into());
+        }
+        let (width, height) = super::image_source::dimensions(data)
+            .ok_or_else(|| "Image cannot be attached".to_owned())?;
+        if !valid_dimensions(width, height) {
+            return Err("Image is too large".into());
+        }
+        let image = unsafe { UIImage::imageWithData(data) }
+            .ok_or_else(|| "Image cannot be attached".to_owned())?;
+        let (size, scale) = unsafe { (image.size(), image.scale()) };
+        if !valid_dimensions(size.width * scale, size.height * scale) {
+            return Err("Image is too large".into());
+        }
+        // Draw into a fresh standard-range raster. UIImage applies source orientation here;
+        // encoding its original CGImage directly could discard EXIF orientation and rotate photos.
+        // This also flattens glyphs/animation into an ordinary static Matrix image attachment.
+        let pixel_size = CGSize { width: size.width * scale, height: size.height * scale };
+        let rect = CGRect { origin: CGPoint { x: 0.0, y: 0.0 }, size: pixel_size };
+        let png = unsafe {
+            let format = UIGraphicsImageRendererFormat::new();
+            format.setScale(1.0);
+            format.setOpaque(false);
+            format.setPreferredRange(UIGraphicsImageRendererFormatRange::Standard);
+            let renderer = UIGraphicsImageRenderer::initWithSize_format(
+                UIGraphicsImageRenderer::alloc(), pixel_size, &format,
+            );
+            let actions = block2::RcBlock::new(move |_context: std::ptr::NonNull<UIGraphicsImageRendererContext>| {
+                image.drawInRect(rect);
+            });
+            renderer.PNGDataWithActions(std::ptr::from_ref(&*actions).cast_mut())
+        };
+        if png.len() > MAX_BYTES {
+            return Err("Image is too large".into());
+        }
+        Ok(png.bytes().to_vec())
+    }
+
+    fn paste_image(&self) {
+        let result = unsafe {
+            let board = UIPasteboard::generalPasteboard();
+            let kinds: Vec<_> = ["public.image", "public.png", "public.jpeg", "public.heic", "public.heif", "com.compuserve.gif", "public.tiff", "com.microsoft.bmp", "org.webmproject.webp"]
+                .into_iter().map(NSString::from_str).collect();
+            let types = NSArray::from_id_slice(&kinds);
+            let items = board.itemSetWithPasteboardTypes(&types);
+            if items.as_ref().is_none_or(|items| items.count() != 1) {
+                Err("Only one attachment is supported".into())
+            } else {
+                // Request encoded data instead of pasteboard.image(), which can materialize
+                // an arbitrarily large raster before we can enforce an encoded-byte limit.
+                let mut data = None;
+                for kind in &kinds[1..] {
+                    data = board.dataForPasteboardType_inItemSet(kind, items.as_deref())
+                        .filter(|values| values.len() == 1).map(|values| values.objectAtIndex(0));
+                    if data.is_some() { break; }
+                }
+                data.as_deref().ok_or_else(|| "Image cannot be attached".to_owned())
+                    .and_then(|data| self.image_data_to_png(data))
+                    .map(|bytes| (bytes, None))
+            }
+        };
+        self.queue_image_insertion(result);
+    }
+
+    fn queue_image_insertion(&self, result: Result<(Vec<u8>, Option<String>), String>) {
+        let accepted = self.ivars().image_insertions.borrow_mut().push(result);
+        nslog(if accepted { "gnobbi image insertion accepted: native queue" } else { "gnobbi image insertion rejected" });
+        if let Some(window) = self.window() {
+            app_state::queue_gl_or_metal_redraw(MainThreadMarker::new().unwrap(), window);
+        }
+    }
+
+    pub(crate) fn take_image_insertions(&self) -> Vec<Result<(Vec<u8>, Option<String>), String>> {
+        #[cfg(debug_assertions)]
+        self.debug_paste_image();
+        self.ivars().image_insertions.borrow_mut().take()
+    }
+
+    /// One injection per view, only after a message composer accepts images. The path
+    /// belongs to the app's sandbox; never log it or the file/pasteboard contents.
+    #[cfg(debug_assertions)]
+    fn debug_paste_image(&self) {
+        use std::io::Read as _;
+        if !self.accepts_images() || self.ivars().debug_paste_image_attempted.get() {
+            return;
+        }
+        let Some(path) = std::env::var_os("GNOBBI_DEBUG_PASTE_IMAGE") else { return; };
+        self.ivars().debug_paste_image_attempted.set(true);
+        let load = || -> Option<(Vec<u8>, &'static str)> {
+            let path = std::path::Path::new(&path);
+            if !path.is_absolute() || !path.metadata().ok()?.is_file() { return None; }
+            let file = std::fs::File::open(path).ok()?;
+            let mut bytes = Vec::new();
+            file.take((MAX_BYTES + 1) as u64).read_to_end(&mut bytes).ok()?;
+            if bytes.len() > MAX_BYTES { return None; }
+            let kind = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") { "public.png" }
+                else if bytes.starts_with(&[0xff, 0xd8, 0xff]) { "public.jpeg" }
+                else { return None; };
+            // Apply the same metadata limits before changing the clipboard.
+            let data = NSData::with_bytes(&bytes);
+            let (width, height) = super::image_source::dimensions(&data)?;
+            valid_dimensions(width, height).then_some((bytes, kind))
+        };
+        let Some((bytes, kind)) = load() else {
+            nslog("gnobbi debug paste image: invalid input");
+            return;
+        };
+        unsafe {
+            let board = UIPasteboard::generalPasteboard();
+            let data = NSData::with_bytes(&bytes);
+            let item = NSDictionary::<NSString, NSData>::from_id_slice(
+                &[&*NSString::from_str(kind)], &[data],
+            );
+            let items = NSArray::from_id_slice(&[item]);
+            let _: () = msg_send![&*board, setItems: &*items];
+            // Return to UIKit before emitting input events; draining egui input may be
+            // inside a winit callback and must not recursively dispatch another event.
+            let _: () = msg_send![self, performSelector: sel!(paste:), withObject: None::<&AnyObject>, afterDelay: 0.0f64];
+        }
+        nslog("gnobbi debug paste image: scheduled paste");
     }
 
     /// Where the keyboard puts its candidates: the cursor area, or the whole view before one is set.

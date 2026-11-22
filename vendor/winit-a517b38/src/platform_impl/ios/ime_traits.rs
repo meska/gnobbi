@@ -11,6 +11,8 @@ pub(super) enum Credential {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Traits {
+    /// Only an explicit message composer accepts images or adaptive glyphs.
+    pub images: bool,
     /// The typed text is never kept or shown to UIKit (document stays empty).
     pub secret: bool,
     /// No autocapitalisation, autocorrection or spell checking.
@@ -22,7 +24,7 @@ pub(super) struct Traits {
 }
 
 pub(super) fn traits(purpose: ImePurpose) -> Traits {
-    let t = |secret, raw, url, credential| Traits { secret, raw, url, credential };
+    let t = |secret, raw, url, credential| Traits { images: purpose == ImePurpose::Message, secret, raw, url, credential };
     match purpose {
         ImePurpose::Terminal => t(false, true, false, None),
         ImePurpose::Url => t(false, true, true, None),

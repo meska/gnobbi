@@ -2071,6 +2071,18 @@ impl State {
         self.install_pending_image_copy(window);
         self.drain_clipboard_pastes(window);
 
+        #[cfg(target_os = "ios")]
+        {
+            use winit::platform::ios::WindowExtIOS as _;
+            let insertions = window.take_image_insertions();
+            let focused = self.egui_ctx.memory(|memory| memory.focused());
+            // Replace on every frame, including an empty batch: no deferred image may reach
+            // another field after a focus change. Only the focused composer consumes this key.
+            self.egui_ctx.data_mut(|data| data.insert_temp(
+                egui::Id::new("winit_image_insertions"), (focused, insertions),
+            ));
+        }
+
         // iOS Passwords AutoFill: what it put into the hidden sign-in fields (username, password) is handed to the app
         // through egui's data store under `Id::new("winit_autofill_credentials")`, as `(Option<String>, Option<String>)`.
         #[cfg(target_os = "ios")]
@@ -4668,6 +4680,7 @@ fn process_viewport_command(
 
 fn to_winit_ime_purpose(purpose: egui::IMEPurpose) -> winit::window::ImePurpose {
     match purpose {
+        egui::IMEPurpose::Message => winit::window::ImePurpose::Message,
         egui::IMEPurpose::Password => winit::window::ImePurpose::Password,
         egui::IMEPurpose::Terminal => winit::window::ImePurpose::Terminal,
         // Only the iOS view tells these apart; every other platform sees the plain secret / terminal field.

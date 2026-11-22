@@ -6,6 +6,7 @@ mod window {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum ImePurpose {
         Normal,
+        Message,
         Password,
         Terminal,
         Username,
@@ -42,6 +43,15 @@ fn secrets_stay_internal_and_raw() {
     assert!(traits(Password).secret && traits(LoginPassword).secret);
     assert!(!traits(Username).secret && !traits(Normal).secret);
     assert!(traits(Username).raw && traits(Url).raw && traits(Password).raw && !traits(Normal).raw);
+}
+
+#[test]
+fn images_require_explicit_message_purpose() {
+    for purpose in [Normal, Message, Password, Terminal, Username, Url, LoginPassword] {
+        assert_eq!(traits(purpose).images, purpose == Message);
+    }
+    assert!(!traits(Message).secret);
+    assert_eq!(traits(Message).credential, None);
 }
 
 fn some(s: &str) -> Option<String> {

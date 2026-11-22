@@ -204,6 +204,11 @@ pub trait WindowExtIOS {
     ///
     /// [`Ime::Commit`]: crate::event::Ime::Commit
     fn take_ime_delete_surrounding(&self) -> Option<ImeDeleteSurrounding>;
+
+    /// Drain native message image insertions as `(PNG bytes, adaptive glyph description)`
+    /// or an actionable error. The description is user content, suitable for an editable caption.
+    /// Only [`crate::window::ImePurpose::Message`] accepts these; focus changes discard pending work.
+    fn take_image_insertions(&self) -> Vec<Result<(Vec<u8>, Option<String>), String>>;
 }
 
 /// What Passwords AutoFill put into the sign-in fields since the last call: `(username, password)`, `None` for a field it left
@@ -223,6 +228,9 @@ pub struct ImeDeleteSurrounding {
 }
 
 impl WindowExtIOS for Window {
+    fn take_image_insertions(&self) -> Vec<Result<(Vec<u8>, Option<String>), String>> {
+        self.window.maybe_wait_on_main(|w| w.take_image_insertions())
+    }
     #[inline]
     fn set_scale_factor(&self, scale_factor: f64) {
         self.window.maybe_queue_on_main(move |w| w.set_scale_factor(scale_factor))

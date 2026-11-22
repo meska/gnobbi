@@ -409,6 +409,9 @@ mod macos {
     }
 
     fn authorize() {
+        // Simulator-only test hook; release builds always request the normal permission.
+        #[cfg(all(target_os = "ios", debug_assertions))]
+        if std::env::var_os("GNOBBI_DEBUG_SKIP_NOTIFICATION_PROMPT").is_some() { return; }
         static AUTH: Once = Once::new();
         AUTH.call_once(|| UNUserNotificationCenter::currentNotificationCenter().requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &RcBlock::new(|granted: objc2::runtime::Bool, _: *mut NSError| {
             // Remote push needs the permission first; every launch asks APNs again, the token may have changed.

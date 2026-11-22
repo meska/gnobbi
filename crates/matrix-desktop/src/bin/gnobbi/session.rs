@@ -26,6 +26,7 @@ pub struct ThreadState {
     pub draft: String,
     /// File, picture or voice note going out with the next send.
     pub attachment: Option<(String, Vec<u8>)>,
+    pub attachment_revision: u64,
     voice: Option<matrix_engine::sending::Voice>,
     pub reply_to: Option<(EventId, String)>,
     /// Right-clicked reply and where.
@@ -262,6 +263,7 @@ pub struct Session {
     pub menu: Option<eframe::egui::Pos2>,
     /// File dropped on the window, sent with the next Enter (the text is its caption).
     pub attachment: Option<(String, Vec<u8>)>,
+    pub attachment_revision: u64,
     /// Short result line for the last save or refused attachment.
     pub notice: Option<String>,
     pub confirm_delete: bool,
@@ -416,6 +418,7 @@ impl Session {
             parked: String::new(),
             menu: None,
             attachment: None,
+            attachment_revision: 0,
             notice: None,
             confirm_delete: false,
             confirm_end_poll: false,
@@ -1377,7 +1380,7 @@ impl Session {
     }
 
     pub fn open_thread(&mut self, root: EventId) {
-        self.thread = Some(ThreadState { root, views: Default::default(), history: None, at_start: false, heights: Default::default(), failed: false, draft: String::new(), attachment: None, voice: None, reply_to: None, menu: None, want: 50, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
+        self.thread = Some(ThreadState { root, views: Default::default(), history: None, at_start: false, heights: Default::default(), failed: false, draft: String::new(), attachment: None, attachment_revision: 0, voice: None, reply_to: None, menu: None, want: 50, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
         self.info_open = false;
         self.search_open = false;
     }
@@ -1615,18 +1618,27 @@ impl Session {
     }
 
     pub fn attach_image(&mut self, image: &egui::ColorImage, thread: bool) {
-        match crate::composer::pasted_png(image).filter(|data| !data.is_empty() && data.len() as u64 <= self.upload_limit.unwrap_or(50 << 20)) {
-            Some(data) => self.set_attachment(thread, i18n::t("Image.png").to_owned(), data, None),
-            None => self.notice = Some(i18n::t("Image cannot be attached").to_owned()),
+        let occupied = if thread { self.thread.as_ref().is_some_and(|th| th.attachment.is_some()) } else { self.attachment.is_some() };
+        if occupied {
+            self.notice = Some(i18n::t("Only one attachment is supported").to_owned());
+            return;
+        }
+        match matrix_desktop::composer_image::prepare(image, self.upload_limit.unwrap_or(50 << 20)) {
+            Ok(data) => self.set_attachment(thread, i18n::t("Image.png").to_owned(), data, None),
+            Err(_) => self.notice = Some(i18n::t("Image cannot be attached").to_owned()),
         }
     }
 
     /// The pending attachment of the room's composer or of the thread's.
     fn set_attachment(&mut self, thread: bool, name: String, data: Vec<u8>, voice: Option<matrix_engine::sending::Voice>) {
+        static REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let revision = REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if !thread {
             (self.attachment, self.voice) = (Some((name, data)), voice);
+            self.attachment_revision = revision;
         } else if let Some(th) = &mut self.thread {
             (th.attachment, th.voice) = (Some((name, data)), voice);
+            th.attachment_revision = revision;
         }
         self.notice = None;
     }

@@ -223,6 +223,9 @@ banner	Reply	Risposta
 	Delete the selected message? This cannot be undone.	Eliminare il messaggio selezionato? Questa azione non si annulla.
 	File cannot be attached	File non allegabile
 	Image cannot be attached	Immagine non allegabile
+	Only one attachment is supported	È supportato un solo allegato
+	Image is too large	Immagine troppo grande
+	Image replacement is not supported	Sostituzione con immagine non supportata
 	Invalid name	Nome non valido
 	Joining…	Ingresso…
 	Message not available	Messaggio non disponibile
