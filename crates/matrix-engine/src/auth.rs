@@ -56,15 +56,22 @@ pub(crate) const DEVICE_NAME: &str = if cfg!(target_os = "macos") {
 };
 
 pub(crate) fn secure_http_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+    let http = reqwest::Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(10));
+    // Android: rustls-platform-verifier is not initialised there, so verify against the embedded roots.
+    #[cfg(target_os = "android")]
+    let http = http.tls_certs_only(
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .filter_map(|der| reqwest::Certificate::from_der(der).ok()),
+    );
+    http
 }
 
-/// Extra trust for a private homeserver. Android refuses reqwest's "merge with platform roots"
-/// (rustls-platform-verifier is not initialised there), so the given roots are the only ones.
-// shortcut: Android trusts only the explicit roots; wire the platform verifier before pointing it at public servers.
+/// Extra trust for a private homeserver, added to the platform roots (Android: to the embedded
+/// roots of `secure_http_builder`; `tls_certs_only` accumulates).
 pub(crate) fn with_trust_roots(
     http: reqwest::ClientBuilder,
     certs: Vec<reqwest::Certificate>,

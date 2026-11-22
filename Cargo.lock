@@ -3652,6 +3652,7 @@ dependencies = [
  "tracing-subscriber",
  "unicode-normalization",
  "url",
+ "webpki-root-certs",
  "windows 0.62.2",
  "zeroize",
 ]
