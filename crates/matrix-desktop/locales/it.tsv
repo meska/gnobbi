@@ -556,7 +556,9 @@ menu	Bring All to Front	Porta tutto in primo piano
 	This server offers no password login. SSO/OIDC are not supported.	Questo server non offre login password. SSO/OIDC non supportati.
 	This server does not support sliding sync	Questo server non supporta lo sliding sync
 	The server answered with an error: check the address (e.g. https://matrix.example.org).	Il server ha risposto con un errore: controlla l’indirizzo (es. https://matrix.esempio.it).
-	Server unreachable or invalid TLS certificate.	Server non raggiungibile o certificato TLS non valido.
+	Invalid server certificate (TLS).	Certificato del server non valido (TLS).
+	Server unreachable or not answering.	Server non raggiungibile o non risponde.
+	Unexpected error. Details are in the log.	Errore imprevisto. I dettagli sono nel log.
 	Credentials not accepted. Try again.	Credenziali non accettate. Riprova.
 	Too many attempts: try again in a moment.	Troppi tentativi: riprova tra qualche istante.
 	Sign-in/unlock failed. Check the credentials and try again.	Accesso/sblocco non riuscito. Controlla le credenziali e riprova.
