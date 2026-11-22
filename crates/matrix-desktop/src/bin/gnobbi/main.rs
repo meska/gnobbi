@@ -585,6 +585,10 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.refresh(&ctx);
+        if self.prefs.debug && mobile::diagnostic_overlay(&ctx) {
+            self.prefs.debug = false;
+            settings::persist(self.dirs.as_ref(), &self.prefs);
+        }
         ctx.request_repaint_after(Duration::from_secs(60));
         if let Some((path, frame)) = &mut self.shot {
             let secs: u64 = std::env::var("GNOBBI_EGUI_SHOT_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
@@ -1606,7 +1610,7 @@ impl App {
             if acts.open_link.is_some() { self.pending_web = acts.open_link; }
         }
         let mut to_send = None;
-        composer::panel(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
+        let composer_rect = composer::panel(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
             if let Some(s) = &mut self.session
                 && s.messages.is_some()
                 && !covered
@@ -1652,7 +1656,8 @@ impl App {
                     s.cancel_target();
                 }
             }
-        }));
+        })).response.rect;
+        mobile::note_composer(composer_rect.bottom());
         if let (Some(body), Some(s)) = (to_send, &mut self.session) {
             s.submit_draft(body);
         }

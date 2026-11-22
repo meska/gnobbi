@@ -16,6 +16,46 @@ pub fn set_keyboard(points: f32) {
     KEYBOARD.store(points.max(0.).to_bits(), Ordering::Relaxed);
 }
 
+/// Bottom inset the pure function last produced and bottom of the composer panel, both for the diagnostic overlay.
+static APPLIED: AtomicU32 = AtomicU32::new(0);
+static COMPOSER_BOTTOM: AtomicU32 = AtomicU32::new(0);
+
+/// The composer panel's bottom edge of this frame (egui points).
+pub fn note_composer(bottom: f32) {
+    COMPOSER_BOTTOM.store(bottom.to_bits(), Ordering::Relaxed);
+}
+
+/// What the last keyboard notification said, for the diagnostic overlay. Frames are [x, y, w, h].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Seen {
+    pub source: &'static str,
+    pub at: std::time::Instant,
+    pub screen: [f64; 4],
+    pub local: [f64; 4],
+    pub bounds: (f64, f64),
+    pub covered: f32,
+    /// Smallest docked height since the keyboard came up; 0 while it is down.
+    pub min_height: f64,
+}
+
+static SEEN: std::sync::Mutex<Option<Seen>> = std::sync::Mutex::new(None);
+
+/// QuickType (the suggestion bar) shows up as the same keyboard growing: how much taller than the smallest docked frame of this session.
+fn quicktype_extra(min_height: f64, height: f64) -> f64 {
+    if min_height > 0. { (height - min_height).max(0.) } else { 0. }
+}
+
+/// The record for a notification; every source feeds the same one, the newest wins (they arrive in order on the main thread).
+#[cfg(any(target_os = "ios", test))]
+fn seen_after(prev: Option<Seen>, source: &'static str, at: std::time::Instant, screen: [f64; 4], local: [f64; 4], bounds: (f64, f64), covered: f32) -> Seen {
+    let min_height = match (covered > 0., prev) {
+        (false, _) => 0.,
+        (true, Some(p)) if p.min_height > 0. => p.min_height.min(local[3]),
+        _ => local[3],
+    };
+    Seen { source, at, screen, local, bounds, covered, min_height }
+}
+
 /// Points of the window bottom covered by a keyboard whose end frame (already in window coordinates) starts at `frame.0` and is
 /// `frame.1` wide, in a window of `screen` = (width, height). None for the transient frame iOS posts in the rotated space (width =
 /// window height, y = 67): a frame that is not as wide as the window is not the keyboard, keep the previous value.
@@ -38,59 +78,99 @@ fn nslog(message: &str) {
     let _ = message;
 }
 
-/// iOS: follows the on-screen keyboard (frame changes and hide) into `set_keyboard`. Call once at startup, on the main thread.
+/// The app's own normal-level window (`keyWindow` is a system window of another size during keyboard transitions).
+#[cfg(target_os = "ios")]
+fn app_window(mtm: objc2::MainThreadMarker) -> Option<objc2::rc::Retained<objc2_ui_kit::UIWindow>> {
+    objc2_ui_kit::UIApplication::sharedApplication(mtm).windows().iter().find(|w| w.windowLevel() == 0. && !w.isHidden())
+}
+
+/// The view egui draws in (winit's, the root view controller's), else the window: the keyboard is converted into ITS coordinates.
+#[cfg(target_os = "ios")]
+fn egui_view(w: objc2::rc::Retained<objc2_ui_kit::UIWindow>) -> objc2::rc::Retained<objc2_ui_kit::UIView> {
+    w.rootViewController().and_then(|c| c.view()).unwrap_or_else(|| objc2::rc::Retained::into_super(w))
+}
+
+/// UIEdgeInsets, without the UIGeometry feature.
+#[cfg(target_os = "ios")]
+#[repr(C)]
+struct Edge { top: f64, left: f64, bottom: f64, right: f64 }
+#[cfg(target_os = "ios")]
+unsafe impl objc2::Encode for Edge {
+    const ENCODING: objc2::Encoding = objc2::Encoding::Struct("UIEdgeInsets", &[f64::ENCODING, f64::ENCODING, f64::ENCODING, f64::ENCODING]);
+}
+
+/// What UIKit says now about the window and the egui view, for the overlay: window size, view size, view origin y, window safe top/bottom.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct UiKitFacts { pub window: (f64, f64), pub view: (f64, f64), pub view_y: f64, pub safe: (f64, f64) }
+
+#[cfg(target_os = "ios")]
+fn uikit_facts() -> Option<UiKitFacts> {
+    use objc2::msg_send;
+    let mtm = objc2::MainThreadMarker::new()?;
+    let w = app_window(mtm)?;
+    let (window, safe): (_, Edge) = (w.bounds().size, unsafe { msg_send![&*w, safeAreaInsets] });
+    let view = egui_view(w);
+    Some(UiKitFacts { window: (window.width, window.height), view: (view.bounds().size.width, view.bounds().size.height), view_y: view.frame().origin.y, safe: (safe.top, safe.bottom) })
+}
+#[cfg(not(target_os = "ios"))]
+fn uikit_facts() -> Option<UiKitFacts> { None }
+
+/// iOS: follows the on-screen keyboard (every will/did show, frame change and hide) into `set_keyboard`. Call once at startup, on the main thread.
 #[cfg(target_os = "ios")]
 pub fn observe_keyboard(ctx: &egui::Context) {
     use objc2::{MainThreadMarker, msg_send, runtime::AnyObject};
     use objc2_core_foundation::CGRect;
     use objc2_foundation::{NSNotification, NSNotificationCenter};
-    use objc2_ui_kit::{UIApplication, UIKeyboardFrameEndUserInfoKey, UIScreen, UIKeyboardWillChangeFrameNotification, UIKeyboardWillHideNotification};
+    use objc2_ui_kit::{UIApplication, UIKeyboardFrameEndUserInfoKey, UIScreen, UIKeyboardDidChangeFrameNotification, UIKeyboardDidHideNotification, UIKeyboardDidShowNotification, UIKeyboardWillChangeFrameNotification, UIKeyboardWillHideNotification, UIKeyboardWillShowNotification};
     let Some(mtm) = MainThreadMarker::new() else { return };
     let center = NSNotificationCenter::defaultCenter();
-    let on = |name: &objc2_foundation::NSNotificationName, hide: bool| {
+    let on = |name: &objc2_foundation::NSNotificationName, source: &'static str| {
         let ctx = ctx.clone();
         let block = block2::RcBlock::new(move |n: std::ptr::NonNull<NSNotification>| {
             let n = unsafe { n.as_ref() };
-            let covered = if hide {
-                0.
-            } else {
-                // The end frame is in SCREEN coordinates, the layout is in the app window's: convert it (rotation, a window that is not
-                // the screen, Display Zoom). `keyWindow` is not that window: during keyboard transitions it is a system window of
-                // another size (seen: 402 for 874), so take the app's own normal-level window.
-                let frame = n.userInfo().and_then(|u| u.objectForKey(unsafe { UIKeyboardFrameEndUserInfoKey }));
-                let Some(v) = frame else { return };
-                let v: &AnyObject = &v;
-                let f: CGRect = unsafe { msg_send![v, CGRectValue] };
-                let screen = UIScreen::mainScreen(mtm);
-                let (window, bounds, local) = match UIApplication::sharedApplication(mtm).windows().iter().find(|w| w.windowLevel() == 0. && !w.isHidden()) {
-                    Some(w) => {
-                        let space: *mut AnyObject = unsafe { msg_send![&*screen, coordinateSpace] };
-                        let local: CGRect = unsafe { msg_send![&*w, convertRect: f, fromCoordinateSpace: space] };
-                        (true, w.bounds(), local)
-                    }
-                    None => (false, screen.bounds(), f),
-                };
-                nslog(&format!(
-                    "gnobbi keyboard frame: screen space x {} y {} w {} h {}; {} space x {} y {} w {} h {}; bounds {}x{}",
-                    f.origin.x, f.origin.y, f.size.width, f.size.height, if window { "window" } else { "screen" },
-                    local.origin.x, local.origin.y, local.size.width, local.size.height, bounds.size.width, bounds.size.height
-                ));
-                // Which windows the keyboard lives in, to compare with the notified frame on a device.
-                let windows = UIApplication::sharedApplication(mtm).windows();
-                let listed: Vec<String> = windows.iter().map(|w| { let b = w.frame(); format!("{:?}@{} h{}", w.class(), b.origin.y, b.size.height) }).collect();
-                nslog(&format!("gnobbi keyboard windows: {}", listed.join(", ")));
-                let Some(covered) = covered_by_keyboard((bounds.size.width, bounds.size.height), (local.min().y, local.size.width)) else { return };
-                covered
+            // The end frame is in SCREEN coordinates, the layout is in egui's view: convert it (rotation, a window that is not
+            // the screen, Display Zoom).
+            let frame = n.userInfo().and_then(|u| u.objectForKey(unsafe { UIKeyboardFrameEndUserInfoKey }));
+            let Some(v) = frame else { return };
+            let v: &AnyObject = &v;
+            let f: CGRect = unsafe { msg_send![v, CGRectValue] };
+            let screen = UIScreen::mainScreen(mtm);
+            let (space, bounds, local) = match app_window(mtm) {
+                Some(w) => {
+                    let view = egui_view(w);
+                    let space: *mut AnyObject = unsafe { msg_send![&*screen, coordinateSpace] };
+                    let local: CGRect = unsafe { msg_send![&*view, convertRect: f, fromCoordinateSpace: space] };
+                    ("view", view.bounds(), local)
+                }
+                None => ("screen", screen.bounds(), f),
             };
+            nslog(&format!(
+                "gnobbi keyboard frame ({source}): screen space x {} y {} w {} h {}; {space} space x {} y {} w {} h {}; bounds {}x{}",
+                f.origin.x, f.origin.y, f.size.width, f.size.height,
+                local.origin.x, local.origin.y, local.size.width, local.size.height, bounds.size.width, bounds.size.height
+            ));
+            // Which windows the keyboard lives in, to compare with the notified frame on a device.
+            let listed: Vec<String> = UIApplication::sharedApplication(mtm).windows().iter().map(|w| { let b = w.frame(); format!("{:?}@{} h{}", w.class(), b.origin.y, b.size.height) }).collect();
+            nslog(&format!("gnobbi keyboard windows: {}", listed.join(", ")));
+            let covered = if source.ends_with("Hide") { Some(0.) } else { covered_by_keyboard((bounds.size.width, bounds.size.height), (local.min().y, local.size.width)) };
+            let Some(covered) = covered else { return };
+            let rect = |r: CGRect| [r.origin.x, r.origin.y, r.size.width, r.size.height];
+            let mut seen = SEEN.lock().unwrap();
+            *seen = Some(seen_after(*seen, source, std::time::Instant::now(), rect(f), rect(local), (bounds.size.width, bounds.size.height), covered));
             set_keyboard(covered);
             ctx.request_repaint();
         });
         // The centre keeps the observer; it lives as long as the app.
         let _ = unsafe { center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block) };
     };
+    // Will* come first with the end frame; Did* repeat the settled one (QuickType can arrive after WillShow).
     unsafe {
-        on(UIKeyboardWillChangeFrameNotification, false);
-        on(UIKeyboardWillHideNotification, true);
+        on(UIKeyboardWillShowNotification, "WillShow");
+        on(UIKeyboardWillChangeFrameNotification, "WillChange");
+        on(UIKeyboardDidShowNotification, "DidShow");
+        on(UIKeyboardDidChangeFrameNotification, "DidChange");
+        on(UIKeyboardWillHideNotification, "WillHide");
+        on(UIKeyboardDidHideNotification, "DidHide");
     }
 }
 
@@ -238,6 +318,7 @@ impl Insets {
         let keyboard = f32::from_bits(KEYBOARD.load(Ordering::Relaxed));
         let safe = all.0.bottom;
         all.0.bottom = bottom_reserved(safe, keyboard);
+        APPLIED.store(all.0.bottom.to_bits(), Ordering::Relaxed);
         if self.2 != (safe, keyboard) {
             self.2 = (safe, keyboard);
             let screen = raw.screen_rect.map_or(egui::Vec2::ZERO, |r| r.size());
@@ -433,6 +514,59 @@ pub fn rail_background(ui: &egui::Ui, fill: egui::Color32, dx: f32) {
     }
 }
 
+/// Everything the keyboard overlay prints.
+pub struct Diag { pub screen: (f32, f32), pub content_bottom_inset: f32, pub kit: Option<UiKitFacts>, pub seen: Option<Seen>, pub keyboard: f32, pub applied: f32, pub composer_bottom: f32, pub now: std::time::Instant }
+
+/// Gap between the composer's bottom and the keyboard's top, in points (positive = empty band).
+fn keyboard_gap(keyboard_top: f64, composer_bottom: f32) -> f64 {
+    keyboard_top - composer_bottom as f64
+}
+
+fn diagnostic_text(d: &Diag) -> String {
+    let rect = |r: [f64; 4]| format!("{:.0},{:.0} {:.0}x{:.0}", r[0], r[1], r[2], r[3]);
+    let mut out = vec![format!("egui {:.0}x{:.0} inset {:.0}", d.screen.0, d.screen.1, d.content_bottom_inset)];
+    out.push(match d.kit {
+        Some(k) => format!("win {:.0}x{:.0} view {:.0}x{:.0} y{:.0} safe t{:.0} b{:.0}", k.window.0, k.window.1, k.view.0, k.view.1, k.view_y, k.safe.0, k.safe.1),
+        None => "win/view: n/a".into(),
+    });
+    out.push(format!("kb {} applied {:.0} (pure fn)", if d.keyboard > 0. { "UP" } else { "down" }, d.applied));
+    match d.seen {
+        Some(s) => {
+            out.push(format!("{} {}ms ago", s.source, d.now.saturating_duration_since(s.at).as_millis()));
+            out.push(format!("scr {}", rect(s.screen)));
+            out.push(format!("win {}", rect(s.local)));
+            let extra = quicktype_extra(s.min_height, s.local[3]);
+            out.push(format!("quicktype {} (h {:.0} min {:.0})", if extra > 0. { format!("+{extra:.0}") } else { "not seen growing".into() }, s.local[3], s.min_height));
+            if d.keyboard > 0. {
+                out.push(format!("composer bottom {:.1} gap {:.1}", d.composer_bottom, keyboard_gap(s.local[1], d.composer_bottom)));
+            }
+        }
+        None => out.push("no keyboard notification yet".into()),
+    }
+    out.join("\n")
+}
+
+/// The keyboard diagnostic: a small pill top-left under the status bar. True when it was tapped (hide it).
+pub fn diagnostic_overlay(ctx: &egui::Context) -> bool {
+    let (screen, content) = (ctx.viewport_rect(), ctx.content_rect());
+    let d = Diag {
+        screen: (screen.width(), screen.height()),
+        content_bottom_inset: screen.bottom() - content.bottom(),
+        kit: uikit_facts(),
+        seen: *SEEN.lock().unwrap(),
+        keyboard: f32::from_bits(KEYBOARD.load(Ordering::Relaxed)),
+        applied: f32::from_bits(APPLIED.load(Ordering::Relaxed)),
+        composer_bottom: f32::from_bits(COMPOSER_BOTTOM.load(Ordering::Relaxed)),
+        now: std::time::Instant::now(),
+    };
+    let text = egui::RichText::new(diagnostic_text(&d)).monospace().size(9.).color(egui::Color32::from_gray(235));
+    egui::Area::new(egui::Id::new("keyboard-diagnostic")).order(egui::Order::Tooltip).fixed_pos(content.min + egui::vec2(4., 4.)).show(ctx, |ui| {
+        egui::Frame::NONE.fill(egui::Color32::from_black_alpha(200)).corner_radius(8.).inner_margin(6.)
+            .show(ui, |ui| ui.add(egui::Label::new(text).selectable(false).sense(egui::Sense::click())))
+            .inner.clicked()
+    }).inner
+}
+
 /// A child ui for a phone list that runs on into the home-indicator band (clip included, so no invisible line cuts a row) and the
 /// band's height, to add as scrollable padding so the last row can be brought above the indicator. With the keyboard up (it covers
 /// the band) or not on a phone: the plain remaining space and 0.
@@ -452,6 +586,9 @@ pub fn extend_list(ui: &mut egui::Ui, single: bool) -> (egui::Ui, f32) {
 mod tests {
     use super::*;
 
+    /// The keyboard height is a process-wide static: tests that set or read it run one at a time.
+    static KEYBOARD_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn keyboard_replaces_the_home_indicator_band_instead_of_adding_to_it() {
         assert_eq!(bottom_reserved(34., 336.), 336.);
@@ -462,6 +599,7 @@ mod tests {
 
     #[test]
     fn phone_list_extends_clip_and_reserves_the_bottom_inset() {
+        let _one = KEYBOARD_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(393., 852.));
         let ctx = egui::Context::default();
         let raw = egui::RawInput { screen_rect: Some(screen), safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 59., bottom: 34., ..Default::default() })), ..Default::default() };
@@ -685,6 +823,7 @@ mod tests {
 
     #[test]
     fn content_stays_in_the_safe_area_and_the_composer_rides_the_keyboard() {
+        let _one = KEYBOARD_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let phone = |top, bottom| egui::SafeAreaInsets(egui::epaint::MarginF32 { top, bottom, ..Default::default() });
         let ctx = egui::Context::default();
         let mut insets = Insets::default();
@@ -693,8 +832,48 @@ mod tests {
         assert_eq!(frame(&ctx, &mut insets, None), (59., 818.), "a frame without a window event keeps the insets");
         set_keyboard(336.);
         assert_eq!(frame(&ctx, &mut insets, None), (59., 516.), "keyboard open: the composer sits on it");
+        // No consumer adds the home-bar band above the keys: the list helper reserves nothing while the keyboard is up.
+        let mut raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(393., 852.))), ..Default::default() };
+        insets.apply(&mut raw);
+        let mut out = ctx.run_ui(raw, |ui| {
+            let mut ui = safe_ui(ui, egui::Color32::BLACK);
+            assert_eq!(extend_list(&mut ui, true).1, 0.);
+        });
+        out.textures_delta.clear();
         set_keyboard(0.);
         assert_eq!(frame(&ctx, &mut insets, None), (59., 818.), "keyboard closed: back above the home bar");
         assert_eq!(frame(&ctx, &mut insets, Some(phone(0., 21.))), (0., 831.), "rotation: the new insets replace the old");
+    }
+
+    #[test]
+    fn quicktype_is_the_keyboard_growing_within_one_session() {
+        assert_eq!(quicktype_extra(0., 366.), 0.);
+        assert_eq!(quicktype_extra(318., 318.), 0.);
+        assert_eq!(quicktype_extra(318., 366.), 48.);
+    }
+
+    #[test]
+    fn notifications_merge_newest_wins_and_hide_resets_the_session() {
+        let at = std::time::Instant::now();
+        let frame = |h: f64| [0., 874. - h, 402., h];
+        let show = seen_after(None, "WillShow", at, frame(318.), frame(318.), (402., 874.), 318.);
+        assert_eq!((show.min_height, show.covered), (318., 318.));
+        let later = seen_after(Some(show), "DidShow", at, frame(366.), frame(366.), (402., 874.), 366.);
+        assert_eq!((later.source, later.covered, later.min_height), ("DidShow", 366., 318.), "the later, taller frame replaces the inset; the session minimum stays");
+        let hidden = seen_after(Some(later), "WillHide", at, frame(366.), [0., 874., 402., 366.], (402., 874.), 0.);
+        assert_eq!((hidden.covered, hidden.min_height), (0., 0.));
+        assert_eq!(seen_after(Some(hidden), "WillShow", at, frame(300.), frame(300.), (402., 874.), 300.).min_height, 300., "a new session starts again");
+    }
+
+    #[test]
+    fn overlay_reports_the_gap_between_composer_and_keyboard() {
+        assert_eq!(keyboard_gap(556., 507.5), 48.5);
+        assert_eq!(keyboard_gap(556., 556.), 0.);
+        let at = std::time::Instant::now();
+        let seen = seen_after(None, "DidShow", at, [0., 556., 402., 318.], [0., 556., 402., 318.], (402., 874.), 318.);
+        let text = diagnostic_text(&Diag { screen: (402., 874.), content_bottom_inset: 318., kit: Some(UiKitFacts { window: (402., 874.), view: (402., 874.), view_y: 0., safe: (62., 34.) }), seen: Some(seen), keyboard: 318., applied: 318., composer_bottom: 507., now: at });
+        for want in ["egui 402x874 inset 318", "safe t62 b34", "DidShow 0ms ago", "scr 0,556 402x318", "gap 49.0", "quicktype not seen growing"] {
+            assert!(text.contains(want), "{want} in {text}");
+        }
     }
 }
