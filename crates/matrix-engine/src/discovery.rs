@@ -112,12 +112,7 @@ pub struct DiscoveryResult {
 pub struct Discovery {
     http: reqwest::Client,
 }
-fn secure_http_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
-        .https_only(true)
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(10))
-}
+use crate::auth::secure_http_builder;
 impl Discovery {
     pub fn new() -> Result<Self, DiscoveryError> {
         Ok(Self {
