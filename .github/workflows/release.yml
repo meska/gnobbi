@@ -104,6 +104,8 @@ jobs:
           path: dist/*.dmg
           if-no-files-found: error
 
+  # The download site (latest.json, AppImage, Windows zip) is LAN-only: a job on the project's own
+  # runner publishes the Release assets there; nothing to do in this workflow.
   release:
     needs: [version, linux, windows, macos]
     runs-on: ubuntu-latest
