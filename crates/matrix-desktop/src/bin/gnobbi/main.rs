@@ -25,6 +25,7 @@ mod icons;
 mod info;
 mod join;
 mod list;
+mod loading;
 mod members;
 mod metrics;
 mod mobile;
@@ -780,6 +781,8 @@ impl eframe::App for App {
         if let Some(s) = &mut self.session { s.show_viewer(&ctx); }
         #[cfg(debug_assertions)]
         if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("avatar-editor") { self.account_form.demo(&ctx, &t); }
+        #[cfg(debug_assertions)]
+        if let Ok(view) = std::env::var("GNOBBI_EGUI_VIEW") && view.starts_with("loading-") { loading::demo(&ctx, &view, chat_background(&t), list_fill(&t), &t); }
         if let Some(s) = &mut self.session && s.quick_open { quick_search(&ctx, s, &t); }
         if let Some(url) = self.pending_web.clone() {
             let mut choice = None;
@@ -1704,6 +1707,7 @@ impl App {
                 let room = s.sidebar.selected();
                 let members = room.map_or(3, |r| r.info.joined_members);
                 let readers = room.map(|r| messages.readers_by_row(&r.info.public_read_receipts)).unwrap_or_default();
+                s.heights.fetch = s.fetch();
                 // Scroll state per room: one shared id carried the old room's offset into the new one (jump on switch).
                 let (first, menu, save, thread) = ui.push_id(room.map(|r| r.scope.room_id.as_str()), |ui| timeline::show(ui, room.map_or(0, |r| r.unread), messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, members, &readers, t, jump, None)).inner;
                 if jump.is_some() && let Some((root, open_thread)) = s.search_jump.take() {
@@ -1712,6 +1716,7 @@ impl App {
                 // Not in memory: the same loop as a search hit loads older pages until it shows up.
                 if let Some(id) = acts.reply_jump.take() { s.search_jump = Some((id, false)); }
                 s.first_visible = first;
+                if std::mem::take(&mut s.heights.retry) { s.retry_history(); }
                 if let Some((id, pos)) = menu {
                     s.open_menu(id, pos);
                 }
@@ -1733,17 +1738,16 @@ impl App {
                 }
             }
             if !stale && let Some(s) = &mut self.session {
-                if s.unread_pending() {
-                    status_pill::show(ui, timeline_view, i18n::t("Loading messages…"), true, Duration::ZERO, t);
-                } else if let Some(at) = s.unread_notice {
+                // While the first unread is looked for the rows are hidden: the timeline draws its loading view (`loading`).
+                if let Some(at) = s.unread_notice {
                     if status_pill::notice_alive(at.elapsed(), false) {
-                        status_pill::show(ui, timeline_view, i18n::t("Unread messages not found"), false, at.elapsed(), t);
+                        status_pill::show(ui, timeline_view, i18n::t("Unread messages not found"), at.elapsed(), t);
                     } else { s.unread_notice = None; }
                 }
             }
             #[cfg(debug_assertions)]
             if std::env::var_os("GNOBBI_EGUI_FAKE_UNREAD_NOTICE").is_some() {
-                status_pill::show(ui, timeline_view, i18n::t("Unread messages not found"), false, Duration::from_secs(1), t);
+                status_pill::show(ui, timeline_view, i18n::t("Unread messages not found"), Duration::from_secs(1), t);
             }
         }));
         // On the way the pages take no taps or scrolls: a shield on top of both swallows them (the finger that drags is already down).

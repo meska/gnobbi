@@ -383,7 +383,11 @@ pub fn reduce_motion() -> bool {
         unsafe { UIAccessibilityIsReduceMotionEnabled() }
     }
     #[cfg(not(target_os = "ios"))]
-    false
+    {
+        // Test hook, debug builds only: GNOBBI_EGUI_REDUCE_MOTION=1.
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| cfg!(debug_assertions) && std::env::var_os("GNOBBI_EGUI_REDUCE_MOTION").is_some())
+    }
 }
 
 /// Test hook: GNOBBI_EGUI_NAV_PROGRESS=<0..1> holds the one-column navigation (chat over list, or the drawer on top) at that point, the page under it drawn too.

@@ -1,4 +1,4 @@
-//! Overlay status shared by room loading and first-unread feedback.
+//! Short-lived notice over the timeline (first unread not found). Loading feedback lives in `loading`.
 use eframe::egui::{self, Rect, Vec2};
 use matrix_desktop::DesignTokens;
 use std::time::Duration;
@@ -16,8 +16,8 @@ fn position(view: Rect, size: Vec2) -> egui::Pos2 {
 
 pub fn notice_alive(age: Duration, dismissed: bool) -> bool { !dismissed && age < LIFE }
 
-pub fn show(ui: &mut egui::Ui, view: Rect, text: &str, loading: bool, age: Duration, t: &DesignTokens) {
-    let alpha = if loading { 1. } else { opacity(age, false) };
+pub fn show(ui: &mut egui::Ui, view: Rect, text: &str, age: Duration, t: &DesignTokens) {
+    let alpha = opacity(age, false);
     if alpha <= 0. { ui.ctx().request_repaint_after(Duration::from_millis(16)); return; }
     let font = egui::FontId::proportional(14.);
     let galley = ui.painter().layout_no_wrap(text.to_owned(), font, crate::rgb(t.text));
@@ -28,16 +28,13 @@ pub fn show(ui: &mut egui::Ui, view: Rect, text: &str, loading: bool, age: Durat
         egui::Frame::NONE.fill(crate::rgb(t.surface).gamma_multiply(0.93 * alpha)).corner_radius(egui::CornerRadius::same(12)).inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.;
-                if loading { ui.add(egui::Spinner::new().size(16.)); }
-                else {
-                    let (icon, _) = ui.allocate_exact_size(Vec2::splat(16.), egui::Sense::hover());
-                    crate::icons::paint(ui.painter(), icon.center(), crate::icons::Icon::MagnifyingGlass, false, 16., crate::rgb(t.text).gamma_multiply(alpha));
-                }
+                let (icon, _) = ui.allocate_exact_size(Vec2::splat(16.), egui::Sense::hover());
+                crate::icons::paint(ui.painter(), icon.center(), crate::icons::Icon::MagnifyingGlass, false, 16., crate::rgb(t.text).gamma_multiply(alpha));
                 ui.label(egui::RichText::new(text).size(14.).color(crate::rgb(t.text).gamma_multiply(alpha)));
             });
         });
     });
-    ui.ctx().request_repaint_after(Duration::from_millis(if loading { 100 } else { 30 }));
+    ui.ctx().request_repaint_after(Duration::from_millis(30));
 }
 
 #[cfg(test)]

@@ -84,6 +84,8 @@ fn paint_avatar(ui: &egui::Ui, rect: egui::Rect, pic: &crate::avatar::Avatar, in
 
 /// Gap between groups / inside one, bubble padding, width.
 const GAP: f32 = 8.;
+/// Band above the oldest row, always there (no jump when it fills): the «loading older messages» line is drawn in it.
+const TOP: f32 = crate::loading::LINE_H + 2.;
 const TIGHT: f32 = 2.;
 const PAD_X: f32 = 12.;
 const PAD_Y: f32 = 7.;
@@ -143,6 +145,12 @@ pub struct Heights {
     pub visible: Vec<(usize, matrix_domain::EventId)>,
     /// Unread rows are in view and their receipt is pending: keep drawing until it goes out.
     pub watching: bool,
+    /// Where the history request stands (set by the caller before drawing), and since when the pane / the older page has been loading.
+    pub fetch: crate::loading::Fetch,
+    opening: crate::loading::Clock,
+    paging: crate::loading::Clock,
+    /// «Retry» was pressed on a failed load.
+    pub retry: bool,
 }
 
 impl Heights {
@@ -546,7 +554,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     let mut restoring = false;
     let mut anchor_missing = false;
     let glued = |i: usize| i > 0 && i < events.len() && joined(group_key(&events[i - 1]), group_key(&events[i]), || matrix_desktop::time_fmt::starts_day(Some(events[i - 1].timestamp_ms), events[i].timestamp_ms));
-    let top_of = |rows: &[f32], at: usize| GAP + (0..at).map(|i| rows[i] + if glued(i + 1) { TIGHT } else { GAP }).sum::<f32>();
+    let top_of = |rows: &[f32], at: usize| TOP + (0..at).map(|i| rows[i] + if glued(i + 1) { TIGHT } else { GAP }).sum::<f32>();
     let position = |id: &matrix_domain::EventId| events.iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone()));
     if !hide && prepended > 0 {
         // An older page arrived: the rows on top push everything down and egui would paint this frame at the old offset (the wrong rows for a frame, 100 ms when idle). Keep the same row at the same offset, or stay at the bottom.
@@ -573,6 +581,10 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         }
     }
     let go_bottom = heights.go_bottom;
+    let now = std::time::Instant::now();
+    let motion = crate::loading::motion(ui);
+    let pane = crate::loading::pane(heights.fetch, events.len(), !hide);
+    let paging = heights.paging.elapsed(pane == crate::loading::Pane::Rows && heights.fetch != crate::loading::Fetch::Done, now);
     let mut anchor = None;
     let mut visible = Vec::new();
     let out = area.stick_to_bottom(!restoring).show_viewport(ui, |ui, view| {
@@ -582,13 +594,22 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         }
         // The content ui came out wider than the viewport on a narrow column (the rows then aligned past the visible edge): lay out in the visible width.
         ui.set_max_width(ui.clip_rect().width().min(ui.available_width()));
-        let mut y = GAP; // rows start below the top gap: the anchor offset must be measured from the same origin as `top_of`
+        let mut y = TOP; // rows start below the top band: the anchor offset must be measured from the same origin as `top_of`
         let mut seen_first = false;
         if head.is_some() {
             // Few replies: no desert under them, they sit at the bottom like a chat (nothing to scroll then, so the offsets below are untouched).
             ui.add_space((view.height() - top_of(&heights.rows, events.len()) - GAP).max(0.));
         }
-        ui.add_space(GAP);
+        // Older page on its way (or failed): ring and line in the top band, drawn again only while the band is in view.
+        let band = ui.allocate_exact_size(Vec2::new(ui.available_width(), TOP), egui::Sense::hover()).0;
+        if let Some(waited) = paging && !events.is_empty() && ui.is_rect_visible(band) {
+            use crate::loading::{Fetch, Line};
+            let (line, alpha) = if heights.fetch == Fetch::Failed { (Line::Failed, 1.) } else { let s = crate::loading::stage(waited); (Line::Busy { slow: s.slow }, s.line) };
+            heights.retry |= crate::loading::status_line(ui, band, line, false, alpha, motion, t);
+            if let (Line::Busy { .. }, Some(d)) = (line, crate::loading::redraw_in(waited, motion.is_none())) {
+                ui.ctx().request_repaint_after(d);
+            }
+        }
         for (i, e) in events.iter().enumerate() {
             let h = heights.rows[i];
             // Space below row i: tight when the next bubble belongs to the same group.
@@ -637,6 +658,12 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         }
     });
     heights.visible = visible;
+    // Nothing to read yet: ghosts while it loads, else «empty» or the failure with its retry.
+    let waited = heights.opening.elapsed(pane == crate::loading::Pane::Loading, now).unwrap_or_default();
+    heights.retry |= crate::loading::pane_overlay(ui, out.inner_rect, crate::chat_background(t), pane, waited, 20., motion, t);
+    if crate::loading::debug_hold(false) {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+    }
     if heights.watching {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(150));
     }

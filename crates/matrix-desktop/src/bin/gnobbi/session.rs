@@ -279,6 +279,8 @@ pub struct Session {
     pub first_visible: usize,
     pub query: String,
     pub sync: Option<RoomSyncStatus>,
+    /// Since when the room list has been waiting for the first sync.
+    pub list_wait: crate::loading::Clock,
     pub homeserver: String,
     pub user: String,
     pub password: String,
@@ -446,6 +448,7 @@ impl Session {
             space_report: None,
             admin: None,
             sync: None,
+            list_wait: Default::default(),
             homeserver: SignInForm::default().homeserver,
             user: String::new(),
             password: String::new(),
@@ -801,7 +804,7 @@ impl Session {
             while rx.try_recv().is_ok() {}
         }
         let mut pages = Vec::new();
-        if let Some((_, rx)) = &mut self.route {
+        if !crate::loading::debug_hold(false) && let Some((_, rx)) = &mut self.route {
             while let Ok(result) = rx.try_recv() {
                 pages.push(result);
             }
@@ -842,9 +845,32 @@ impl Session {
                     matrix_engine::TrySendError::Full(r) | matrix_engine::TrySendError::Busy(r) => self.pending = Some(r),
                     matrix_engine::TrySendError::Closed(_) => {}
                 }
+            } else {
+                crate::loading::debug_hold(true);
             }
         }
         changed
+    }
+
+    /// Where the open room's history request stands, for the loading feedback.
+    pub fn fetch(&self) -> crate::loading::Fetch {
+        use matrix_desktop::HistoryStatus::*;
+        match self.history.status() {
+            Loading => crate::loading::Fetch::Busy,
+            // The first-unread search tries again by itself: still loading, not a failure to retry by hand.
+            Failed if self.unread_pending() => crate::loading::Fetch::Busy,
+            Failed => crate::loading::Fetch::Failed,
+            // A first page without rows but with more behind it: the older one is asked for at once.
+            More if self.messages.as_ref().is_some_and(|m| m.events().is_empty()) => crate::loading::Fetch::Busy,
+            _ => crate::loading::Fetch::Done,
+        }
+    }
+
+    /// «Retry» on a failed history load: the same request again (a failed live read is taken up by the next refresh).
+    pub fn retry_history(&mut self) {
+        if self.pending.is_none() {
+            self.pending = self.history.load_older();
+        }
     }
 
     fn drive_operations(&mut self) -> bool {

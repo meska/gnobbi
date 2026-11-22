@@ -175,6 +175,17 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     let mut pick = None;
     let mut action = None;
     if let Some(error) = &session.room_error { ui.colored_label(rgb(t.error), error); }
+    // Before the first sync answered an empty list is a list on its way: ghost rows instead of nothing.
+    let waiting = crate::loading::list_waiting(sidebar.rooms().len(), !matches!(session.sync, None | Some(matrix_engine::RoomSyncStatus::Connecting)));
+    if let Some(waited) = session.list_wait.elapsed(waiting, std::time::Instant::now()) {
+        let motion = crate::loading::motion(ui);
+        crate::loading::skeleton_list(ui, crate::list_fill(t), ROW, crate::loading::stage(waited).ghosts, motion, i18n::t("Loading conversations…"), t);
+        // Still (Reduce Motion): nothing changes after the fade-in.
+        if motion.is_some() || waited < crate::loading::LINE_DELAY + crate::loading::FADE {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(8));
+        }
+        return chosen;
+    }
     let (mut scroll_ui, bottom) = crate::mobile::extend_list(ui, crate::mobile::touch() && ui.ctx().content_rect().width() < crate::SINGLE_WIDTH);
     let mut margin = ui.spacing().scroll.content_margin;
     margin.bottom = margin.bottom.saturating_add(bottom.round() as i8);
