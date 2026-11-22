@@ -5,7 +5,7 @@ Regenerate after editing (Python >= 3.11, run from anywhere):
 
     python3 crates/matrix-domain/design/generate.py
 
-Outputs (committed): `../src/design.rs` (Rust), `generated/DesignTokens.swift`, `generated/DesignTokens.kt`.
+Outputs (committed): `../src/design.rs` (Rust), `generated/DesignTokens.kt`.
 Mobile apps must use the generated files and never define colours or measures by hand.
 
 Tests: `matrix-desktop/tests/design_tokens.rs` (generated values == desktop `Theme::tokens()` for all 4 themes),

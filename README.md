@@ -19,7 +19,6 @@ L'interfaccia è traducibile con semplici file di testo: vedi [TRANSLATING.md](T
 - `crates/matrix-domain`: modelli e design token, senza SDK né toolkit grafico;
 - `crates/matrix-engine`: adattatore del Matrix Rust SDK (con la feature `sdk`);
 - `crates/matrix-desktop`: il client desktop. La libreria è lo strato applicativo senza toolkit (stato, preferenze, proiezioni), il binario `gnobbi` (`src/bin/gnobbi`) è l'app, con interfaccia egui;
-- `crates/matrix-mobile`: ponte UniFFI per le app di esempio in `apps/` (non fa parte della build desktop);
 - `vendor/`: copie locali di dipendenze patchate (Matrix Rust SDK, egui/eframe, winit), collegate da `[patch.crates-io]` nel `Cargo.toml` di radice;
 - `packaging/`: AppImage, pacchetto macOS, zip Windows, icone.
 

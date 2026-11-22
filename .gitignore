@@ -26,8 +26,6 @@ matrix-test-*.yaml
 /scripts/userdir-live/probe/target/
 
 # Output mobile generati (scripts/mobile.sh + apps/*/stage.sh), mai committati
-/apps/ios/Generated/
-/apps/ios/DerivedData/
 /apps/android/app/src/main/jniLibs/
 
 /scripts/userdir-live/out/
