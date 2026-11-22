@@ -5,6 +5,7 @@
 //! every pack shown is one enabled in `m.image_pack.rooms`, so other clients using the stable names see the same.
 // shortcut: packs enabled by the account (`m.image_pack.rooms`) plus those of the current room already in the store (sliding sync does
 // not sync custom state, so a room's own pack shows only once enabled); packs of parent spaces are a later card.
+#[cfg(feature = "sdk")]
 use crate::operations::OperationError;
 
 /// Side of the square picture uploaded, the size the encoder aims at and the one never exceeded.

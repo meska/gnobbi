@@ -151,7 +151,6 @@ impl RoomListWorker {
                     }
                     // A panic while signing in (e.g. a TLS verifier that is not set up) must end as a
                     // failed sign-in, not leave the UI waiting forever on a dead worker.
-                    use std::future::Future as _;
                     let mut login = std::pin::pin!(login());
                     let guarded = std::future::poll_fn(|cx| {
                         let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

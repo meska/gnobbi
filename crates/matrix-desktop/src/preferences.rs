@@ -474,10 +474,10 @@ impl Preferences {
         // Steady state: current schema, no lock needed. Otherwise migrate once (best effort: a busy
         // lock or invalid update fields must not hide the user's notification choices).
         let current = |m: &serde_json::Map<String, Value>| m.get("settings_version").and_then(Value::as_u64) == Some(1);
-        if let Ok(Some(map)) = read() {
-            if current(&map) {
-                return Self::from_map(&map);
-            }
+        if let Ok(Some(map)) = read()
+            && current(&map)
+        {
+            return Self::from_map(&map);
         }
         if let Err(error) = prepare_settings(dirs, None) {
             eprintln!("{}", diag("settings_migrate", &error));
@@ -685,9 +685,11 @@ pub(crate) fn update_settings(
     prepare_settings(dirs, Some(Box::new(change)))
 }
 
+type SettingsChange<'a> = Box<dyn FnOnce(&mut serde_json::Map<String, Value>) + 'a>;
+
 fn prepare_settings(
     dirs: &AppDirs,
-    change: Option<Box<dyn FnOnce(&mut serde_json::Map<String, Value>) + '_>>,
+    change: Option<SettingsChange<'_>>,
 ) -> std::io::Result<()> {
     #[cfg(test)]
     let _no_spawn = no_spawn();

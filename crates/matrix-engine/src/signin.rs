@@ -901,6 +901,7 @@ impl SignInProfile {
         self.login(Some(source), homeserver, user, password, None, trust_root, true).await
     }
 
+    #[allow(clippy::too_many_arguments)] // private; the three public entry points differ only in these fixed inputs
     async fn login(
         &mut self,
         source: Option<&dyn ProtectionSource>,

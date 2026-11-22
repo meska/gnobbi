@@ -160,6 +160,7 @@ pub(crate) async fn mark_read_target(
 
 /// A text into the thread's own `Timeline`: the SDK adds `m.thread` (and the fallback) itself, and
 /// `send_reply` points at the event answered. Returns once the server has the event.
+#[allow(clippy::too_many_arguments)] // two call sites pass the already-validated scope pieces; a params struct would only move them
 pub(crate) async fn send_scoped(
     client: &matrix_sdk::Client,
     timelines: &Timelines,

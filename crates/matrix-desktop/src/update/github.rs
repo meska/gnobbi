@@ -37,7 +37,8 @@ fn suffix(platform: &str) -> Option<&'static str> {
 fn triple(v: &str) -> Option<(u64, u64, u64)> {
     let core = v.trim_start_matches('v').split(['-', '+']).next()?;
     let mut p = core.split('.').map(|n| n.parse::<u64>().ok());
-    Some((p.next()??, p.next()??, p.next()??)).filter(|_| p.next().is_none())
+    let triple = (p.next()??, p.next()??, p.next()??);
+    p.next().is_none().then_some(triple)
 }
 
 fn safe_name(s: &str) -> bool {

@@ -87,7 +87,7 @@ pub fn locate<R: ReadRow>(rows: &[R], markers: &[impl AsRef<str>], unread: u64, 
         None if complete && unread == 0 && !markers.is_empty() => return Anchor::NotFound,
         // No marker at all (never read) or gone from the room (deleted): the count says where the unread begin.
         None if markers.is_empty() || complete => match nth_from_end(rows, unread) {
-            Some(i) => read_upto(rows, Some(i.saturating_sub(1)).filter(|_| i > 0)),
+            Some(i) => read_upto(rows, (i > 0).then_some(i.saturating_sub(1))),
             None if complete => read_upto(rows, None),
             None => return give_up,
         },

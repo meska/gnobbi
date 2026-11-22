@@ -510,8 +510,10 @@ pub(crate) async fn run_service(
                                 // always close the dialog first, then send the list without it.
                                 if events.send(VerificationEvent::DeviceDeleted { account_id, device_ids: device_ids.clone() }).await.is_err() { break; }
                                 // A failed re-read is not a verification error: the device is gone.
-                                if let Ok(devices) = device_list(&client).await {
-                                    if events.send(VerificationEvent::Devices { account_id, devices: without_devices(devices, &device_ids) }).await.is_err() { break; }
+                                if let Ok(devices) = device_list(&client).await
+                                    && events.send(VerificationEvent::Devices { account_id, devices: without_devices(devices, &device_ids) }).await.is_err()
+                                {
+                                    break;
                                 }
                                 Ok(())
                             }

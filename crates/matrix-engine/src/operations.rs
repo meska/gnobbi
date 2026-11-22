@@ -1775,7 +1775,6 @@ fn member_rights(
     target: &matrix_sdk::ruma::UserId,
     joined: bool,
 ) -> (MemberRights, bool) {
-    use matrix_domain::role::MemberRole;
     use matrix_sdk::ruma::{Int, events::room::power_levels::UserPowerLevel};
     let (mine, theirs) = (pl.for_user(me), pl.for_user(target));
     let (role, creator) = role_of(theirs);
@@ -1870,6 +1869,7 @@ pub(crate) async fn load_member_rights(
     .map_err(|_| OperationError::Transport)?
 }
 
+#[cfg(feature = "sdk")]
 fn reason(r: Option<&String>) -> Option<&str> {
     r.map(|r| r.trim()).filter(|r| !r.is_empty())
 }

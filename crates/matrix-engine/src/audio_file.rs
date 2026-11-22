@@ -52,7 +52,7 @@ fn decode_wav(bytes: &[u8]) -> Result<DecodedAudio, MediaError> {
     };
     let samples: Vec<f32> = data
         .chunks_exact(2 * channels)
-        .map(|frame| frame.chunks_exact(2).map(|b| f32::from(i16::from_le_bytes([b[0], b[1]])) / 32768.0).sum::<f32>() / channels as f32)
+        .map(|frame| frame.as_chunks::<2>().0.iter().map(|&b| f32::from(i16::from_le_bytes(b)) / 32768.0).sum::<f32>() / channels as f32)
         .collect();
     if samples.is_empty() {
         return Err(MediaError::Failed);

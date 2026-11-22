@@ -59,7 +59,7 @@ fn flags(args: &[String], spec: &[(&str, bool)]) -> Result<Vec<(String, Option<S
             return Err(SECRET_IN_ARGV.into());
         }
         let Some(&(_, takes)) = spec.iter().find(|(n, _)| *n == name) else {
-            return Err(format!("unexpected argument"));
+            return Err("unexpected argument".to_string());
         };
         if out.iter().any(|(n, _)| n == name) {
             return Err(format!("{name} given twice"));

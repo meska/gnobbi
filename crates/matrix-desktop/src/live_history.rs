@@ -248,10 +248,10 @@ impl HistorySession {
         let published: Vec<_> = std::mem::take(&mut self.live_rows)
                 .into_iter()
                 .filter(|event| {
-                    if self.seen.get(&event.event_id) == Some(&seen_of(&event)) {
+                    if self.seen.get(&event.event_id) == Some(&seen_of(event)) {
                         return false;
                     }
-                    self.seen.insert(event.event_id.clone(), seen_of(&event));
+                    self.seen.insert(event.event_id.clone(), seen_of(event));
                     true
                 })
                 .collect();
