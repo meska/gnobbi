@@ -572,7 +572,7 @@ impl eframe::App for App {
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         // A keyboard left open across a rotation stays in the old orientation: close it (and forget its height).
-        if self.insets.apply(raw) && mobile::touch() {
+        if self.insets.apply(raw, ctx.pixels_per_point()) && mobile::touch() {
             ctx.memory_mut(|m| if let Some(id) = m.focused() { m.surrender_focus(id) });
             mobile::set_keyboard(0.);
         }
