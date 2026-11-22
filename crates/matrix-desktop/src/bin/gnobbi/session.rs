@@ -907,6 +907,23 @@ impl Session {
     }
 
     fn drive_operations(&mut self) -> bool {
+        let mut changed = self.follow_pending_open();
+        changed |= self.restore_or_remember_room();
+        // Opening or receiving in the room on screen: the read marker goes out once the newest message is in view (main only, so threads stay unread).
+        changed |= self.drive_unread();
+        self.queue_read_marker();
+        self.queue_lookups();
+        self.queue_thread_requests();
+        self.queue_aliases_load();
+        self.send_next_command();
+        for result in self.take_results() {
+            changed |= self.handle_result(result);
+        }
+        changed
+    }
+
+    /// Selects the room just started or joined as soon as the list has it; opens a space just created.
+    fn follow_pending_open(&mut self) -> bool {
         let mut changed = false;
         // The new room shows up in the list with the next sync: select it as soon as it does.
         // A click's room that never shows up, or a room the user opened meanwhile, ends the wait.
@@ -932,6 +949,12 @@ impl Session {
             self.pending_space = None;
             changed = true;
         }
+        changed
+    }
+
+    /// Restores the room open at the last run once the list is there; afterwards remembers the room on screen.
+    fn restore_or_remember_room(&mut self) -> bool {
+        let mut changed = false;
         let current = self.sidebar.selected().map(|r| r.scope.clone());
         if self.restoring && let Some(want) = &self.last_room {
             let now = current.as_ref().map(|c| c.room_id.as_str());
@@ -959,8 +982,11 @@ impl Session {
             self.last_room = Some(scope.room_id.as_str().to_owned());
             let _ = std::fs::write(&self.last_file, scope.room_id.as_str());
         }
-        // Opening or receiving in the room on screen: the read marker goes out once the newest message is in view (main only, so threads stay unread).
-        changed |= self.drive_unread();
+        changed
+    }
+
+    /// Queues the read marker for the room on screen once it is read.
+    fn queue_read_marker(&mut self) {
         let (focused, at_bottom, public) = self.reading;
         if self.read_dirty
             && !self.unread_pending()
@@ -974,6 +1000,10 @@ impl Session {
             self.read_dirty = false;
             self.op_pending = Some(OperationCommand::MarkRoom { scope, read: true, public, main_only: true });
         }
+    }
+
+    /// Queues the members read and the message, user and room searches that follow the UI state.
+    fn queue_lookups(&mut self) {
         if self.op_pending.is_none()
             && let Some(scope) = &self.draft_scope
             && self.members_requested.as_ref() != Some(scope)
@@ -1011,6 +1041,11 @@ impl Session {
             if self.explore.is_some() { self.public_rooms = matrix_engine::search::SearchState::Idle; }
             self.rooms_sent = wanted;
         }
+    }
+
+    /// Queues the page and the read receipt of the open thread panel.
+    fn queue_thread_requests(&mut self) {
+        let (focused, _, public) = self.reading;
         if let (Some(th), Some(scope)) = (&mut self.thread, &self.draft_scope)
             && th.next_read <= std::time::Instant::now()
             && let Ok(tag) = th.views.start(scope.clone())
@@ -1036,6 +1071,10 @@ impl Session {
                 self.op_queue.push(OperationCommand::ThreadRead { tag, root: th.root.clone(), target, public });
             }
         }
+    }
+
+    /// Queues the read of the addresses shown in the Info panel.
+    fn queue_aliases_load(&mut self) {
         // The addresses of the room shown in the Info panel are read once per room.
         if self.info_open
             && let Some(scope) = self.draft_scope.clone()
@@ -1046,6 +1085,10 @@ impl Session {
             self.alias_error = None;
             self.op_queue.push(OperationCommand::Aliases { scope, action: matrix_engine::alias::AliasAction::Load });
         }
+    }
+
+    /// Hands the next command to the engine; a full route keeps it for the next turn.
+    fn send_next_command(&mut self) {
         if self.op_pending.is_none() && !self.op_queue.is_empty() {
             self.op_pending = Some(self.op_queue.remove(0));
         }
@@ -1059,311 +1102,357 @@ impl Session {
                 _ => {}
             }
         }
+    }
+
+    /// Collects the results the engine has sent back.
+    fn take_results(&mut self) -> Vec<OperationResult> {
         let mut results = Vec::new();
         if let Some((_, rx)) = &mut self.op_route {
             while let Ok(r) = rx.try_recv() {
                 results.push(r);
             }
         }
-        for result in results {
-            match &result {
-                OperationResult::TagsEdited { result } => { self.sidebar.tag_done(result.clone()); self.room_error = self.sidebar.tag_error().map(str::to_owned); changed = true; continue; }
-                OperationResult::NotificationModeSet { result, .. } => { self.sidebar.mode_done(result.clone()); self.room_error = self.sidebar.mode_error().map(str::to_owned); changed = true; continue; }
-                OperationResult::RoomLeft { scope, result } => { self.sidebar.room_left(scope, result.clone()); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); changed = true; continue; }
-                OperationResult::SpaceLeft { scope, result, .. } => { self.sidebar.space_left(scope, result.clone().map(drop)); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); changed = true; continue; }
-                OperationResult::SpaceDeleted { scope, result } => {
-                    let name = self.sidebar.spaces().find(|r| &r.scope == scope).map_or_else(String::new, |r| r.name.clone());
-                    self.space_deleting = false;
-                    // Left for good: the space drops out of the rail; otherwise it stays and the report says why.
-                    if result.as_ref().is_ok_and(|d| matches!(d.left, Some(Ok(_)))) { self.sidebar.space_left(scope, Ok(())); }
-                    self.space_report = Some((name, result.clone()));
-                    self.space_facts_for(scope.clone());
-                    changed = true;
-                    continue;
-                }
-                OperationResult::SpaceChoices { scope, result } => {
-                    if let (Some((asked, slot)), Ok(choices)) = (&mut self.space_choices, result) && asked == scope { *slot = Some(choices.clone()); }
-                    changed = true;
-                    continue;
-                }
-                OperationResult::SpaceChildren { scope, result } => {
-                    if let Some(v) = &mut self.space_view && &v.scope == scope { v.children = Some(result.clone().map_err(|_| ())); }
-                    if let (Some((asked, slot)), Ok(c)) = (&mut self.space_facts, result) && asked == scope { *slot = Some(c.clone()); }
-                    changed = true;
-                    continue;
-                }
-                OperationResult::SpacePlaced { result, .. } => {
-                    self.space_placed = Some(*result);
-                    changed = true;
-                    continue;
-                }
-                OperationResult::SpaceChanged { result, .. } => {
-                    self.space_choices = None;
-                    // The open space window reads its rooms again.
-                    if let Some(v) = &self.space_view { self.op_queue.push(OperationCommand::SpaceChildren { scope: v.scope.clone() }); }
-                    if let Err(e) = result { self.room_error = Some(i18n::t(matrix_engine::operations::space_error_line(*e)).into()); }
-                    changed = true;
-                    continue;
-                }
-                OperationResult::RoomMarked { result: Err(_), .. } => { self.room_error = Some(i18n::t("Operation failed").into()); changed = true; continue; }
-                _ => {}
+        results
+    }
+
+    /// Tag, mode, leave and space results; `Some` (changed) when settled here.
+    fn result_room_and_space(&mut self, result: &OperationResult) -> Option<bool> {
+        match result {
+            OperationResult::TagsEdited { result } => { self.sidebar.tag_done(result.clone()); self.room_error = self.sidebar.tag_error().map(str::to_owned); return Some(true); }
+            OperationResult::NotificationModeSet { result, .. } => { self.sidebar.mode_done(result.clone()); self.room_error = self.sidebar.mode_error().map(str::to_owned); return Some(true); }
+            OperationResult::RoomLeft { scope, result } => { self.sidebar.room_left(scope, result.clone()); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); return Some(true); }
+            OperationResult::SpaceLeft { scope, result, .. } => { self.sidebar.space_left(scope, result.clone().map(drop)); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); return Some(true); }
+            OperationResult::SpaceDeleted { scope, result } => {
+                let name = self.sidebar.spaces().find(|r| &r.scope == scope).map_or_else(String::new, |r| r.name.clone());
+                self.space_deleting = false;
+                // Left for good: the space drops out of the rail; otherwise it stays and the report says why.
+                if result.as_ref().is_ok_and(|d| matches!(d.left, Some(Ok(_)))) { self.sidebar.space_left(scope, Ok(())); }
+                self.space_report = Some((name, result.clone()));
+                self.space_facts_for(scope.clone());
+                return Some(true);
             }
-            if let OperationResult::Aliases { scope, result, aliases, .. } = &result {
-                if self.draft_scope.as_ref() == Some(scope) {
-                    if aliases.is_some() {
-                        self.aliases = aliases.clone();
-                    }
-                    use matrix_engine::alias::AliasOpError as E;
-                    self.alias_error = result.as_ref().err().map(|e| match e {
-                        E::AliasInUse => i18n::t("Address already in use"),
-                        E::Forbidden => i18n::t("Not allowed"),
-                        E::InvalidName => i18n::t("Invalid name"),
-                        _ => i18n::t("Failed"),
-                    });
-                    changed = true;
-                }
-                continue;
+            OperationResult::SpaceChoices { scope, result } => {
+                if let (Some((asked, slot)), Ok(choices)) = (&mut self.space_choices, result) && asked == scope { *slot = Some(choices.clone()); }
+                return Some(true);
             }
-            match &result {
-                OperationResult::MemberRights { user_id, result, .. } => {
-                    if self.profile.as_ref().is_some_and(|(open, _)| open == user_id) {
-                        self.rights = result.clone().ok();
-                        changed = true;
-                    }
-                    continue;
-                }
-                OperationResult::BannedMembers { scope, result } => {
-                    if let Some(a) = &mut self.admin && &a.scope == scope {
-                        a.banned = result.as_ref().map(|list| list.clone()).map_err(|_| ());
-                        changed = true;
-                    }
-                    continue;
-                }
-                OperationResult::MemberPermissions { scope, result } => {
-                    if let Some(a) = &mut self.admin && &a.scope == scope {
-                        a.perms = result.as_ref().ok().copied().unwrap_or_default();
-                        changed = true;
-                    }
-                    continue;
-                }
-                OperationResult::Moderated { scope, user_id, action, result } => {
-                    if let Some(a) = &mut self.admin && &a.scope == scope && a.done(user_id, action, result.is_ok()) {
-                        if let Some((_, list)) = self.members.as_mut().filter(|(s, _)| s == scope) { list.retain(|m| &m.user_id != user_id); }
-                        if let Some(list) = self.space_view.as_mut().filter(|v| &v.scope == scope).and_then(|v| v.members.as_mut()) { list.retain(|m| &m.user_id != user_id); }
-                    }
-                    self.moderation_failed = result.is_err();
-                    // A new admin: the space is no longer «last admin», «Esci dallo spazio» follows the new facts.
-                    if result.is_ok() && matches!(action, matrix_engine::operations::Moderation::SetPower(_)) && self.space_facts.as_ref().is_some_and(|(s, _)| s == scope) {
-                        self.space_facts_for(scope.clone());
-                    }
-                    let open = self.profile.as_ref().is_some_and(|(open, _)| open == user_id);
-                    self.moderating &= !open;
-                    if result.is_ok() && open {
-                        if let matrix_engine::operations::Moderation::SetPower(level) = action {
-                            // The engine reads the local store, which follows with the next sync: the new role is shown at once and read again then.
-                            let role = matrix_domain::role::MemberRole::from_power_level(*level);
-                            if let Some(r) = &mut self.rights {
-                                r.role = role;
-                            }
-                            if let Some((_, list)) = self.members.as_mut().filter(|(s, _)| s == scope) {
-                                list.iter_mut().filter(|m| &m.user_id == user_id).for_each(|m| m.role = role);
-                                list.sort_by(|a, b| matrix_domain::role::cmp_by_role_then_name((a.role, &a.name), (b.role, &b.name)));
-                            }
-                            self.roles_stale = Some(scope.clone());
-                        } else {
-                            // A kicked member is gone: the list is read again.
-                            self.profile = None;
-                            self.members_requested = None;
-                        }
-                    }
-                    changed = true;
-                    continue;
-                }
-                _ => {}
+            OperationResult::SpaceChildren { scope, result } => {
+                if let Some(v) = &mut self.space_view && &v.scope == scope { v.children = Some(result.clone().map_err(|_| ())); }
+                if let (Some((asked, slot)), Ok(c)) = (&mut self.space_facts, result) && asked == scope { *slot = Some(c.clone()); }
+                return Some(true);
             }
-            if let OperationResult::RoomEdited { result } = &result {
-                match (result, &mut self.edit) {
-                    (Ok(()), _) => self.edit = None,
-                    (Err(_), Some(e)) => {
-                        e.failed = true;
-                        e.busy = false;
-                    }
-                    _ => {}
-                }
-                changed = true;
-                continue;
+            OperationResult::SpacePlaced { result, .. } => {
+                self.space_placed = Some(*result);
+                return Some(true);
             }
-            if let OperationResult::Thread { tag, root, result } = result {
-                if let Some(th) = &mut self.thread
-                    && th.root == root
-                    && th.views.accepts(&tag)
-                {
-                    match (result, &self.draft_scope) {
-                        (Ok(page), Some(scope)) => {
-                            let page = *page;
-                            if let Some(before) = th.growing.take() {
-                                th.stalled = page.replies.len() <= before;
-                            }
-                            // Rebuilt from the page: older replies land between the root and the ones held, which an append could not do.
-                            let mut rows = matrix_desktop::DemoHistory::new(scope.clone(), 0);
-                            rows.append_server(page.root.into_iter().chain(page.replies).collect());
-                            th.history = Some(rows);
-                            th.at_start = page.at_start;
-                            th.failed = false;
-                        }
-                        _ => { th.failed = true; th.growing = None; },
-                    }
-                    changed = true;
-                }
-                continue;
+            OperationResult::SpaceChanged { result, .. } => {
+                self.space_choices = None;
+                // The open space window reads its rooms again.
+                if let Some(v) = &self.space_view { self.op_queue.push(OperationCommand::SpaceChildren { scope: v.scope.clone() }); }
+                if let Err(e) = result { self.room_error = Some(i18n::t(matrix_engine::operations::space_error_line(*e)).into()); }
+                return Some(true);
             }
-            if let OperationResult::ReadMarkers { scope, markers } = result {
-                self.unread_markers(&scope, markers);
-                changed = true;
-                continue;
-            }
-            if let OperationResult::ThreadRead { tag, root, target, result } = &result {
-                if let Some(th) = &mut self.thread && th.root == *root && th.read_views.accepts(tag) {
-                    th.read_pending = false;
-                    if matches!(result, Ok(true)) { th.read_target = Some(target.clone()); }
-                }
-                continue;
-            }
-            match &result {
-                OperationResult::StickerPacks { scope, result } => {
-                    if self.draft_scope.as_ref() == Some(scope) { self.stickers.packs = Some(result.clone().map_err(|_| ())); }
-                    changed = true;
-                    continue;
-                }
-                OperationResult::StickerEdited { result } => {
-                    self.stickers.edited(result.is_ok());
-                    changed = true;
-                    continue;
-                }
-                OperationResult::StickerSent { result, .. } => {
-                    if result.is_err() { self.room_error = Some(i18n::t("Sticker not sent").into()); }
-                    changed = true;
-                    continue;
-                }
-                _ => {}
-            }
-            if matches!(result, OperationResult::ThreadSent { .. }) {
-                if let Some(th) = &mut self.thread { th.next_read = std::time::Instant::now(); }
-                continue;
-            }
-            match &result {
-                OperationResult::UserSearch { state, .. } => {
-                    if accept_user_answer(&mut self.users_gate, state) {
-                        self.users = state.clone();
-                        changed = true;
-                    }
-                    continue;
-                }
-                OperationResult::RoomSearch { state } => {
-                    if accept_room_answer(state.term(), &self.explore.as_ref().map_or_else(|| self.new_term.clone(), |e| e.request().map(|r| r.0).unwrap_or_default())) {
-                        self.public_rooms = state.clone();
-                        changed = true;
-                    }
-                    continue;
-                }
-                OperationResult::SpaceCreated { result } => {
-                    self.new_busy = false;
-                    match result {
-                        // shortcut: the notices (not listed, picture refused) are not shown, add a line when someone misses them.
-                        Ok(created) => {
-                            self.pending_space = Some(created.scope.clone());
-                            self.new_open = false;
-                        }
-                        Err(_) => self.new_failed = true,
-                    }
-                    changed = true;
-                    continue;
-                }
-                OperationResult::RoomStarted { result } => {
-                    match result {
-                        Ok(scope) => {
-                            self.pending_select = Some(scope.clone());
-                            self.new_open = false;
-                            self.new_failed = false;
-                        }
-                        Err(_) => self.new_failed = true,
-                    }
-                    changed = true;
-                    continue;
-                }
-                OperationResult::Profile { user_id, result } => {
-                    if let Some((open, slot)) = &mut self.profile
-                        && open == user_id
-                    {
-                        *slot = result.clone().ok();
-                        changed = true;
-                    }
-                    continue;
-                }
-                OperationResult::Ignored { user_id, ignore, result: Ok(_) } => {
-                    if let Some((open, Some(p))) = &mut self.profile
-                        && open == user_id
-                    {
-                        p.ignored = *ignore;
-                        changed = true;
-                    }
-                    continue;
-                }
-                OperationResult::Ignored { .. } => continue,
-                OperationResult::Join { target, phase } => {
-                    // shortcut: «offline» is read from our own sync being down, use a system network probe if the two get confused.
-                    let online = self.sync != Some(RoomSyncStatus::SyncFailed);
-                    if let Some(join) = self.joins.get_mut(target) {
-                        join.apply(phase.clone(), online);
-                        if let crate::join::JoinState::Joined(scope) = join {
-                            // Opened only for a user still waiting in the window that asked for it.
-                            if self.quick_open || self.new_open || self.explore.is_some() {
-                                self.pending_select = Some(scope.clone());
-                                (self.quick_open, self.new_open) = (false, false);
-                                self.close_explore();
-                            }
-                            self.joins.remove(target);
-                        }
-                    }
-                    changed = true;
-                    continue;
-                }
-                _ => {}
-            }
-            if let OperationResult::MessageSearch { scope, state } = result {
-                let matches_term = match &state {
-                    matrix_engine::operations::MessageSearchState::Idle => self.search_term.trim().len() < matrix_engine::message_match::MIN_CHARS,
-                    matrix_engine::operations::MessageSearchState::Searching { term } | matrix_engine::operations::MessageSearchState::Results { term, .. } | matrix_engine::operations::MessageSearchState::NoResults { term, .. } | matrix_engine::operations::MessageSearchState::Error { term } => term == self.search_term.trim(),
-                };
-                if self.search_open && matches_term && self.draft_scope.as_ref() == Some(&scope) {
-                    self.search = state;
-                    changed = true;
-                }
-                continue;
-            }
-            if let OperationResult::Members { scope, members, upload_limit } = result {
-                // An answer for a room already left is dropped.
-                if self.draft_scope.as_ref() == Some(&scope) {
-                    self.upload_limit = upload_limit;
-                    if let Ok(list) = members {
-                        self.members = Some((scope, list));
-                    }
-                    changed = true;
-                } else if let Some(v) = &mut self.space_view && v.scope == scope {
-                    v.members = Some(members.unwrap_or_default());
-                    changed = true;
-                }
-                continue;
-            }
-            let done = matches!(&result, OperationResult::Applied { result: Ok(_), .. });
-            if let OperationResult::Applied { request, .. } = &result
-                && done
-            {
-                self.history.activity(&request.scope);
-            }
-            changed |= self.ops.apply(result) | done;
+            OperationResult::RoomMarked { result: Err(_), .. } => { self.room_error = Some(i18n::t("Operation failed").into()); return Some(true); }
+            _ => {}
         }
-        changed
+        None
+    }
+
+    /// Address results; `Some` (changed) when settled here.
+    fn result_aliases(&mut self, result: &OperationResult) -> Option<bool> {
+        let mut changed = false;
+        if let OperationResult::Aliases { scope, result, aliases, .. } = result {
+            if self.draft_scope.as_ref() == Some(scope) {
+                if aliases.is_some() {
+                    self.aliases = aliases.clone();
+                }
+                use matrix_engine::alias::AliasOpError as E;
+                self.alias_error = result.as_ref().err().map(|e| match e {
+                    E::AliasInUse => i18n::t("Address already in use"),
+                    E::Forbidden => i18n::t("Not allowed"),
+                    E::InvalidName => i18n::t("Invalid name"),
+                    _ => i18n::t("Failed"),
+                });
+                changed = true;
+            }
+            return Some(changed);
+        }
+        None
+    }
+
+    /// Member rights, ban list, permissions and moderation results; `Some` (changed) when settled here.
+    fn result_members_and_moderation(&mut self, result: &OperationResult) -> Option<bool> {
+        let mut changed = false;
+        match result {
+            OperationResult::MemberRights { user_id, result, .. } => {
+                if self.profile.as_ref().is_some_and(|(open, _)| open == user_id) {
+                    self.rights = result.clone().ok();
+                    changed = true;
+                }
+                return Some(changed);
+            }
+            OperationResult::BannedMembers { scope, result } => {
+                if let Some(a) = &mut self.admin && &a.scope == scope {
+                    a.banned = result.as_ref().map(|list| list.clone()).map_err(|_| ());
+                    changed = true;
+                }
+                return Some(changed);
+            }
+            OperationResult::MemberPermissions { scope, result } => {
+                if let Some(a) = &mut self.admin && &a.scope == scope {
+                    a.perms = result.as_ref().ok().copied().unwrap_or_default();
+                    changed = true;
+                }
+                return Some(changed);
+            }
+            OperationResult::Moderated { scope, user_id, action, result } => {
+                if let Some(a) = &mut self.admin && &a.scope == scope && a.done(user_id, action, result.is_ok()) {
+                    if let Some((_, list)) = self.members.as_mut().filter(|(s, _)| s == scope) { list.retain(|m| &m.user_id != user_id); }
+                    if let Some(list) = self.space_view.as_mut().filter(|v| &v.scope == scope).and_then(|v| v.members.as_mut()) { list.retain(|m| &m.user_id != user_id); }
+                }
+                self.moderation_failed = result.is_err();
+                // A new admin: the space is no longer «last admin», «Esci dallo spazio» follows the new facts.
+                if result.is_ok() && matches!(action, matrix_engine::operations::Moderation::SetPower(_)) && self.space_facts.as_ref().is_some_and(|(s, _)| s == scope) {
+                    self.space_facts_for(scope.clone());
+                }
+                let open = self.profile.as_ref().is_some_and(|(open, _)| open == user_id);
+                self.moderating &= !open;
+                if result.is_ok() && open {
+                    if let matrix_engine::operations::Moderation::SetPower(level) = action {
+                        // The engine reads the local store, which follows with the next sync: the new role is shown at once and read again then.
+                        let role = matrix_domain::role::MemberRole::from_power_level(*level);
+                        if let Some(r) = &mut self.rights {
+                            r.role = role;
+                        }
+                        if let Some((_, list)) = self.members.as_mut().filter(|(s, _)| s == scope) {
+                            list.iter_mut().filter(|m| &m.user_id == user_id).for_each(|m| m.role = role);
+                            list.sort_by(|a, b| matrix_domain::role::cmp_by_role_then_name((a.role, &a.name), (b.role, &b.name)));
+                        }
+                        self.roles_stale = Some(scope.clone());
+                    } else {
+                        // A kicked member is gone: the list is read again.
+                        self.profile = None;
+                        self.members_requested = None;
+                    }
+                }
+                changed = true;
+                return Some(changed);
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Room edit result; `Some` (changed) when settled here.
+    fn result_room_edited(&mut self, result: &OperationResult) -> Option<bool> {
+        if let OperationResult::RoomEdited { result } = result {
+            match (result, &mut self.edit) {
+                (Ok(()), _) => self.edit = None,
+                (Err(_), Some(e)) => {
+                    e.failed = true;
+                    e.busy = false;
+                }
+                _ => {}
+            }
+            return Some(true);
+        }
+        None
+    }
+
+    /// Sticker results; `Some` (changed) when settled here.
+    fn result_stickers(&mut self, result: &OperationResult) -> Option<bool> {
+        match result {
+            OperationResult::StickerPacks { scope, result } => {
+                if self.draft_scope.as_ref() == Some(scope) { self.stickers.packs = Some(result.clone().map_err(|_| ())); }
+                return Some(true);
+            }
+            OperationResult::StickerEdited { result } => {
+                self.stickers.edited(result.is_ok());
+                return Some(true);
+            }
+            OperationResult::StickerSent { result, .. } => {
+                if result.is_err() { self.room_error = Some(i18n::t("Sticker not sent").into()); }
+                return Some(true);
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// User and room search, creation, profile, ignore and join results; `Some` (changed) when settled here.
+    fn result_searches_and_joins(&mut self, result: &OperationResult) -> Option<bool> {
+        let mut changed = false;
+        match result {
+            OperationResult::UserSearch { state, .. } => {
+                if accept_user_answer(&mut self.users_gate, state) {
+                    self.users = state.clone();
+                    changed = true;
+                }
+                return Some(changed);
+            }
+            OperationResult::RoomSearch { state } => {
+                if accept_room_answer(state.term(), &self.explore.as_ref().map_or_else(|| self.new_term.clone(), |e| e.request().map(|r| r.0).unwrap_or_default())) {
+                    self.public_rooms = state.clone();
+                    changed = true;
+                }
+                return Some(changed);
+            }
+            OperationResult::SpaceCreated { result } => {
+                self.new_busy = false;
+                match result {
+                    // shortcut: the notices (not listed, picture refused) are not shown, add a line when someone misses them.
+                    Ok(created) => {
+                        self.pending_space = Some(created.scope.clone());
+                        self.new_open = false;
+                    }
+                    Err(_) => self.new_failed = true,
+                }
+                return Some(true);
+            }
+            OperationResult::RoomStarted { result } => {
+                match result {
+                    Ok(scope) => {
+                        self.pending_select = Some(scope.clone());
+                        self.new_open = false;
+                        self.new_failed = false;
+                    }
+                    Err(_) => self.new_failed = true,
+                }
+                return Some(true);
+            }
+            OperationResult::Profile { user_id, result } => {
+                if let Some((open, slot)) = &mut self.profile
+                    && open == user_id
+                {
+                    *slot = result.clone().ok();
+                    changed = true;
+                }
+                return Some(changed);
+            }
+            OperationResult::Ignored { user_id, ignore, result: Ok(_) } => {
+                if let Some((open, Some(p))) = &mut self.profile
+                    && open == user_id
+                {
+                    p.ignored = *ignore;
+                    changed = true;
+                }
+                return Some(changed);
+            }
+            OperationResult::Ignored { .. } => return Some(changed),
+            OperationResult::Join { target, phase } => {
+                // shortcut: «offline» is read from our own sync being down, use a system network probe if the two get confused.
+                let online = self.sync != Some(RoomSyncStatus::SyncFailed);
+                if let Some(join) = self.joins.get_mut(target) {
+                    join.apply(phase.clone(), online);
+                    if let crate::join::JoinState::Joined(scope) = join {
+                        // Opened only for a user still waiting in the window that asked for it.
+                        if self.quick_open || self.new_open || self.explore.is_some() {
+                            self.pending_select = Some(scope.clone());
+                            (self.quick_open, self.new_open) = (false, false);
+                            self.close_explore();
+                        }
+                        self.joins.remove(target);
+                    }
+                }
+                return Some(true);
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Applies one engine result to the UI state; `true` when something on screen changed.
+    fn handle_result(&mut self, result: OperationResult) -> bool {
+        if let Some(changed) = self.result_room_and_space(&result) {
+            return changed;
+        }
+        if let Some(changed) = self.result_aliases(&result) {
+            return changed;
+        }
+        if let Some(changed) = self.result_members_and_moderation(&result) {
+            return changed;
+        }
+        if let Some(changed) = self.result_room_edited(&result) {
+            return changed;
+        }
+        let mut changed = false;
+        if let OperationResult::Thread { tag, root, result } = result {
+            if let Some(th) = &mut self.thread
+                && th.root == root
+                && th.views.accepts(&tag)
+            {
+                match (result, &self.draft_scope) {
+                    (Ok(page), Some(scope)) => {
+                        let page = *page;
+                        if let Some(before) = th.growing.take() {
+                            th.stalled = page.replies.len() <= before;
+                        }
+                        // Rebuilt from the page: older replies land between the root and the ones held, which an append could not do.
+                        let mut rows = matrix_desktop::DemoHistory::new(scope.clone(), 0);
+                        rows.append_server(page.root.into_iter().chain(page.replies).collect());
+                        th.history = Some(rows);
+                        th.at_start = page.at_start;
+                        th.failed = false;
+                    }
+                    _ => { th.failed = true; th.growing = None; },
+                }
+                changed = true;
+            }
+            return changed;
+        }
+        if let OperationResult::ReadMarkers { scope, markers } = result {
+            self.unread_markers(&scope, markers);
+            changed = true;
+            return changed;
+        }
+        if let OperationResult::ThreadRead { tag, root, target, result } = &result {
+            if let Some(th) = &mut self.thread && th.root == *root && th.read_views.accepts(tag) {
+                th.read_pending = false;
+                if matches!(result, Ok(true)) { th.read_target = Some(target.clone()); }
+            }
+            return changed;
+        }
+        if let Some(changed) = self.result_stickers(&result) {
+            return changed;
+        }
+        if matches!(result, OperationResult::ThreadSent { .. }) {
+            if let Some(th) = &mut self.thread { th.next_read = std::time::Instant::now(); }
+            return changed;
+        }
+        if let Some(changed) = self.result_searches_and_joins(&result) {
+            return changed;
+        }
+        if let OperationResult::MessageSearch { scope, state } = result {
+            let matches_term = match &state {
+                matrix_engine::operations::MessageSearchState::Idle => self.search_term.trim().len() < matrix_engine::message_match::MIN_CHARS,
+                matrix_engine::operations::MessageSearchState::Searching { term } | matrix_engine::operations::MessageSearchState::Results { term, .. } | matrix_engine::operations::MessageSearchState::NoResults { term, .. } | matrix_engine::operations::MessageSearchState::Error { term } => term == self.search_term.trim(),
+            };
+            if self.search_open && matches_term && self.draft_scope.as_ref() == Some(&scope) {
+                self.search = state;
+                changed = true;
+            }
+            return changed;
+        }
+        if let OperationResult::Members { scope, members, upload_limit } = result {
+            // An answer for a room already left is dropped.
+            if self.draft_scope.as_ref() == Some(&scope) {
+                self.upload_limit = upload_limit;
+                if let Ok(list) = members {
+                    self.members = Some((scope, list));
+                }
+                changed = true;
+            } else if let Some(v) = &mut self.space_view && v.scope == scope {
+                v.members = Some(members.unwrap_or_default());
+                changed = true;
+            }
+            return changed;
+        }
+        let done = matches!(&result, OperationResult::Applied { result: Ok(_), .. });
+        if let OperationResult::Applied { request, .. } = &result
+            && done
+        {
+            self.history.activity(&request.scope);
+        }
+        self.ops.apply(result) | done
     }
 
     /// Moves the space `scope` from the space `from` under `to`, before `before`; the answer lands in `space_placed`.
