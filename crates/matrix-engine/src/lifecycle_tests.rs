@@ -557,3 +557,25 @@ fn disposable_lifecycle_shutdown_cancels_inflight_history_and_inspection() {
     worker.shutdown().unwrap();
     assert!(start.elapsed() < Duration::from_millis(750));
 }
+
+#[test]
+fn a_panic_while_signing_in_ends_as_a_failed_sign_in() {
+    let (worker, mut events) = RoomListWorker::spawn(|| async { panic!("verifier not initialized") }).unwrap();
+    let failed = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), async {
+            while let Some(event) = events.recv().await {
+                if matches!(event, RoomListEvent::Status(RoomSyncStatus::AuthenticationFailed)) {
+                    return true;
+                }
+            }
+            false
+        })
+        .await
+        });
+    worker.shutdown().unwrap();
+    assert_eq!(failed, Ok(true));
+}
