@@ -1,0 +1,144 @@
+name: release
+on:
+  push:
+    tags: ['v*.*.0']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Create the GitHub Release (v<Cargo version>) from this ref'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: never
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          ver="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml)"
+          [ -n "$ver" ] || { echo "::error::version not found in Cargo.toml"; exit 1; }
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$ver" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $ver"
+            exit 1
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # build number = rev-list count (build.rs)
+      - uses: Swatinem/rust-cache@v2
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev libdbus-1-dev libsecret-1-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libgtk-3-dev libasound2-dev squashfs-tools
+      - name: Build
+        run: cargo build --locked --profile dist -p matrix-desktop --features linux-vault
+      - name: Package
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          packaging/linux/build-appimage.sh out
+          mkdir -p dist
+          mv out/Gnobbi-x86_64.AppImage "dist/Gnobbi-$v-linux-x86_64.AppImage"
+          tar -C target/dist -czf "dist/gnobbi-$v-linux-x86_64.tar.gz" gnobbi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    env:
+      # rustc overflows its stack on big crates (windows 0.61): 32 MiB thread stacks.
+      RUST_MIN_STACK: 33554432
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --locked --release -p matrix-desktop --features windows-vault
+      - name: Package zip
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\make-tester-package.ps1
+      - name: Rename zip
+        shell: bash
+        run: |
+          mkdir -p out
+          mv dist/gnobbi-windows-x64-*.zip "out/gnobbi-${{ needs.version.outputs.version }}-windows-x64.zip"
+      # TODO: sign gnobbi.exe (Authenticode) once a certificate exists.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*.zip
+          if-no-files-found: error
+
+  macos:
+    needs: version
+    runs-on: macos-latest # arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --locked --release -p matrix-desktop --features mac-vault
+      # TODO: Developer ID signing + notarization once the certificates exist (today: ad-hoc signature only).
+      - name: App and dmg
+        run: packaging/macos/make-dmg.sh "${{ needs.version.outputs.version }}" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    needs: [version, linux, windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksums and notes
+        run: |
+          cd assets && sha256sum * > SHA256SUMS && cat SHA256SUMS && cd ..
+          tag="v${{ needs.version.outputs.version }}"
+          prev="$(git tag --list 'v*.*.0' --sort=-v:refname | grep -vxF "$tag" | head -1 || true)"
+          range="${prev:+$prev..}$GITHUB_SHA"
+          git log --no-merges --format='- %s (%h)' "$range" > all.txt
+          {
+            echo "## New"; grep -viE '^- fix' all.txt || true
+            echo; echo "## Fixes"; grep -iE '^- fix' all.txt || true
+          } > notes.md
+      - name: Release
+        # Only a tag push or an explicit publish=true creates a Release.
+        if: github.ref_type == 'tag' || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          pre=""; case "$v" in 0.*) pre=--prerelease;; esac
+          gh release create "v$v" assets/* --title "Gnobbi $v" --notes-file notes.md --target "$GITHUB_SHA" $pre
+      - name: Notes preview (no release)
+        if: github.ref_type != 'tag' && !inputs.publish
+        run: |
+          cat notes.md | head -40
+          ls -l assets

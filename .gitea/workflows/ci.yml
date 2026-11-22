@@ -63,57 +63,11 @@ jobs:
       - name: Layering (no UI toolkit below the frontend)
         run: |
           ! { cargo tree --locked -e normal -p matrix-domain; cargo tree --locked -e normal -p matrix-engine; } | grep -E 'egui|eframe|winit|wgpu'
-      - name: AppImage
-        if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v')
-        run: |
-          cargo build --locked -j4 -p matrix-desktop --features linux-vault --profile dist
-          out="$HOME/ci/out/${{ gitea.sha }}"
-          packaging/linux/build-appimage.sh "$out"
-          ln -sfn "$out" "$HOME/ci/out/latest"
-          mkdir -p "$HOME/ci/share"
-          cp "$out/Gnobbi-x86_64.AppImage" "$HOME/ci/share/Gnobbi-x86_64.AppImage.new"
-          mv "$HOME/ci/share/Gnobbi-x86_64.AppImage.new" "$HOME/ci/share/Gnobbi-x86_64.AppImage"
-          printf 'commit=%s\nbuilt=%s\n' "${{ gitea.sha }}" "$(date -u +%FT%TZ)" > "$HOME/ci/share/BUILDINFO"
       - name: Status
         if: always()
         run: |
           mkdir -p "$HOME/ci/out"
           printf '%s %s linux\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci/out/${{ gitea.sha }}.linux.status"
-  windows:
-    needs: [debounce, linux]
-    if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v') && needs.debounce.outputs.stale != 'true'
-    runs-on: windows-x64
-    env:
-      # rustc va in STATUS_STACK_BUFFER_OVERRUN (0xc0000409) su crate grossi come windows 0.61 (run 2290): stack dei thread del compiler a 32 MiB.
-      RUST_MIN_STACK: 33554432
-    steps:
-      - name: Checkout
-        run: |
-          git init -q .
-          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
-          git checkout -q "${{ gitea.sha }}"
-      # Toolchain Rust MSVC arriva dal runner (runner.envs): niente setup nel workflow.
-      - name: Build
-        run: cargo build --locked -j4 --release -p matrix-desktop --features windows-vault
-      - name: Test
-        run: cargo test --locked -j4 -p matrix-domain
-      - name: Test engine
-        run: cargo test --locked -j4 -p matrix-engine --features sdk --lib
-      - name: Test desktop update
-        run: cargo test --locked -j4 -p matrix-desktop --features windows-vault --lib "update::"
-      - name: Package zip
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\make-tester-package.ps1
-      - name: Upload zip artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gnobbi-windows-x64
-          path: dist/*.zip
-          if-no-files-found: error
-      - name: Publish zip (latest + share)
-        env:
-          CI_SHARE_TARGET: ${{ vars.CI_SHARE_TARGET }}
-          CI_SHARE_KEY: ${{ vars.CI_SHARE_KEY }}
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\publish-tester-zip.ps1
   ios-mobile:
     needs: [debounce, linux]
     if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v') && needs.debounce.outputs.stale != 'true'
@@ -145,67 +99,3 @@ jobs:
         run: |
           mkdir -p "$HOME/ci-runners/gitea/out"
           printf '%s %s ios-mobile\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.ios-mobile.status"
-  macos-desktop:
-    needs: [debounce, linux]
-    if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v') && needs.debounce.outputs.stale != 'true'
-    runs-on: macos-arm64
-    steps:
-      - name: Checkout
-        run: |
-          git init -q .
-          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
-          git checkout -q "${{ gitea.sha }}"
-          # Non-interactive runner PATH is /usr/bin:/bin:...; prepend the dedicated rustc 1.98.0
-          # toolchain (runner stable is older than rust-version 1.96) and brew.
-          echo "PATH=$HOME/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin:/opt/homebrew/bin:$PATH" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_DIR=$HOME/ci-runners/gitea/cargo-target" >> "$GITHUB_ENV"
-      - name: Build desktop (macos-arm64, mac-vault)
-        run: cargo build --locked -j4 -p matrix-desktop --features mac-vault
-      - name: Test desktop (logic, no display)
-        run: cargo test --locked -j4 -p matrix-desktop
-      - name: Status
-        if: always()
-        run: |
-          mkdir -p "$HOME/ci-runners/gitea/out"
-          printf '%s %s macos-desktop\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.macos-desktop.status"
-  publish:
-    needs: [debounce, linux]
-    if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v') && needs.debounce.outputs.stale != 'true'
-    runs-on: linux-x86_64
-    concurrency:
-      group: publish-main
-      cancel-in-progress: false
-    steps:
-      - name: Checkout
-        run: |
-          git init -q .
-          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
-          git checkout -q "${{ gitea.sha }}"
-      - name: Test firma manifesto (casi negativi e di bordo, chiave efimera)
-        run: packaging/linux/test-publish-signing.sh
-      - name: Publish AppImage
-        run: |
-          app="$HOME/ci/share/Gnobbi-x86_64.AppImage"
-          built="$(sed -n 's/^commit=//p' "$HOME/ci/share/BUILDINFO" 2>/dev/null || true)"
-          if [ ! -f "$app" ]; then
-            echo "::error::AppImage del job linux assente in \$HOME/ci/share (job AppImage non eseguito?)"
-            exit 1
-          fi
-          if [ "$built" != "${{ gitea.sha }}" ]; then
-            echo "::error::AppImage costruita da commit diverso (BUILDINFO=$built, CI=${{ gitea.sha }})"
-            exit 1
-          fi
-          # build = rev-list count: deve coincidere con BUILD_INFO.build del binario (build.rs)
-          build="$(git rev-list --count HEAD)"
-          rc=0
-          packaging/linux/publish-site.sh "$app" "$build" "${{ gitea.sha }}" || rc=$?
-          if [ "$rc" = 75 ]; then
-            echo "::warning::PUBLISH SKIPPED: sito irraggiungibile (publish-site.sh rc=75)"
-            printf 'PUBLISH SKIPPED: sito irraggiungibile (rc=75), build %s non pubblicata.\n' "$build" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-            exit 0
-          fi
-          if [ "$rc" != 0 ]; then
-            echo "::error::publish fallito: publish-site.sh rc=$rc (2=config, 3=verifica, 4=upload)"
-            exit "$rc"
-          fi
-          printf 'Publish OK: build %s (%s) - latest.json e AppImage aggiornati.\n' "$build" "${{ gitea.sha }}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
