@@ -429,7 +429,7 @@ impl SignOut {
         }
         let mut step = None;
         let modal = egui::Modal::new(egui::Id::new("sign-out-account")).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-            ui.set_max_width(320.);
+            ui.set_max_width(crate::dir::fit(ui, 320.));
             ui.heading(i18n::t("Log out"));
             ui.label(&self.name);
             ui.label(RichText::new(&self.user_id).size(12.).color(ui.visuals().weak_text_color()));

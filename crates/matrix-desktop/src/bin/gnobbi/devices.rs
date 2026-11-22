@@ -187,7 +187,7 @@ pub fn popup(ctx: &egui::Context, v: &mut DeviceVerification) {
     let Some(view) = v.popup_view() else { return };
     let mut pressed = None;
     egui::Window::new(view.title).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-        ui.set_min_width(320.);
+        ui.set_min_width(crate::dir::fit(ui, 320.));
         match &view.body {
             PopupBody::Waiting => {
                 ui.spinner();
@@ -314,7 +314,7 @@ pub fn offer(ctx: &egui::Context, v: &DeviceVerification, suppressed: bool, f: &
     let enter = kind == OfferKind::Enter;
     let mut answer = None;
     egui::Window::new(i18n::t("Recovery key")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-        ui.set_max_width(380.);
+        ui.set_max_width(crate::dir::fit(ui, 380.));
         ui.label(if enter { i18n::t("This device does not have the account's recovery keys: enter the key to read old encrypted messages") } else { i18n::t("This account has no recovery key: without one, encrypted messages are lost with the devices") });
         ui.add_space(8.);
         let busy = v.key_recovery() == Some(RecoveryState::Pending);
@@ -399,7 +399,7 @@ pub fn new_key(ctx: &egui::Context, v: &mut DeviceVerification) {
     }
     let mut close = false;
     egui::Window::new(i18n::t("New recovery key")).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-        ui.set_max_width(380.);
+        ui.set_max_width(crate::dir::fit(ui, 380.));
         let Some(key) = &key else {
             if page.busy {
                 ui.horizontal(|ui| {

@@ -122,6 +122,12 @@ fn mirror_align(a: Align2, rtl: bool) -> Align2 {
     Align2([x, a.0[1]])
 }
 
+/// A dialog width wanted in points, cut to the screen (window frame and margins left out): at a large system text size a phone is
+/// ~290 pt wide and a fixed 320–380 pt dialog would run off both sides and cut its buttons. Desktop screens are wider: unchanged.
+pub fn fit(ui: &Ui, wanted: f32) -> f32 {
+    wanted.min((ui.ctx().content_rect().width() - 32.).max(120.))
+}
+
 /// An anchor named for LTR (`LEFT_CENTER`…), on the side it belongs in the current direction.
 pub fn align(a: Align2) -> Align2 {
     mirror_align(a, rtl())
@@ -130,6 +136,28 @@ pub fn align(a: Align2) -> Align2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dialogs_stay_inside_a_narrow_screen() {
+        for (screen, min, max) in [(290., 320., 380.), (262., 340., 380.), (800., 320., 380.)] {
+            let ctx = crate::icons::test_context();
+            let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(screen, 600.))), ..Default::default() };
+            for _ in 0..3 {
+                let mut out = ctx.run_ui(input.clone(), |ui| {
+                    egui::Window::new("d").id(egui::Id::new("dlg")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ui.ctx(), |ui| {
+                        ui.set_min_width(fit(ui, min));
+                        ui.set_max_width(fit(ui, max));
+                        ui.label("a long line of help text that wraps instead of widening the dialog beyond the screen edge");
+                    });
+                });
+                out.textures_delta.clear();
+            }
+            let r = ctx.read_response(egui::Id::new("dlg")).map(|r| r.rect).unwrap_or(Rect::NOTHING);
+            let safe = ctx.content_rect();
+            assert!(r.left() >= safe.left() && r.right() <= safe.right(), "screen={screen} dialog={r:?}");
+            if screen > 400. { assert!(r.width() >= min, "desktop keeps its width: {r:?}"); }
+        }
+    }
 
     #[test]
     fn mirroring_swaps_sides_inside_the_outer_rect_and_is_identity_in_ltr() {

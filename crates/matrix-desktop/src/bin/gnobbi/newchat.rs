@@ -70,7 +70,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
     }
     let mut open = true;
     egui::Window::new(i18n::t("New chat")).open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-        ui.set_min_width(340.);
+        ui.set_min_width(crate::dir::fit(ui, 340.));
         ui.horizontal(|ui| {
             for (i, label) in [i18n::t("Direct chat"), i18n::t("Room"), i18n::t("Space"), i18n::t("Join a room")].into_iter().enumerate() {
                 ui.selectable_value(&mut form.tab, i as u8, label);

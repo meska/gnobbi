@@ -290,7 +290,7 @@ pub fn space_picker(ctx: &egui::Context, session: &mut crate::session::Session) 
     };
     let (mut open, mut add, mut cancel) = (true, false, false);
     egui::Window::new(i18n::t("Add to a space")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-        ui.set_min_width(300.);
+        ui.set_min_width(crate::dir::fit(ui, 300.));
         egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
             for space in spaces {
                 ui.radio_value(chosen, Some(space.scope.clone()), &space.name);
