@@ -10,12 +10,30 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::watch;
 
-pub const APP_ID: &str = "net.meskatech.gnobbi";
+pub const APP_ID_IOS: &str = "net.meskatech.gnobbi";
+pub const APP_ID_ANDROID: &str = "net.meskatech.gnobbi.android";
 const GATEWAY: &str = "https://sygnal.gnobbi.chat/_matrix/push/v1/notify";
 
-/// What the platform layer knows: the APNs token (lowercase hex) and the texts of the generic alert.
+/// Which push service delivers to this device; it picks the Sygnal app id and the payload shape.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PushPlatform {
+    Apns,
+    Fcm,
+}
+
+impl PushPlatform {
+    pub fn app_id(self) -> &'static str {
+        match self {
+            Self::Apns => APP_ID_IOS,
+            Self::Fcm => APP_ID_ANDROID,
+        }
+    }
+}
+
+/// What the platform layer knows: the token (APNs: lowercase hex; FCM: opaque, unchanged) and the texts of the generic alert.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PushSettings {
+    pub platform: PushPlatform,
     pub token: String,
     pub lang: String,
     /// Localized body of the generic alert (the push carries only event ids: no content, no decryption yet).
@@ -58,15 +76,17 @@ pub fn set(settings: Option<PushSettings>) {
 pub fn pusher(s: &PushSettings, device_name: &str, tag: &AccountTag, worker: AccountId) -> Pusher {
     let mut data = HttpPusherData::new(GATEWAY.to_owned());
     data.format = Some(PushFormat::EventIdOnly);
-    data.data.insert(
-        "default_payload".into(),
-        json!({
+    let account = format!("{}:{}:{}", tag.catalog.as_u64(), worker.as_u64(), tag.dir);
+    let payload = match s.platform {
+        PushPlatform::Apns => json!({
             "aps": { "alert": { "title": "Gnobbi", "body": s.body }, "sound": "default", "mutable-content": 1 },
-            "gnobbi_account": format!("{}:{}:{}", tag.catalog.as_u64(), worker.as_u64(), tag.dir),
+            "gnobbi_account": account,
         }),
-    );
+        PushPlatform::Fcm => json!({ "gnobbi_account": account }),
+    };
+    data.data.insert("default_payload".into(), payload);
     PusherInit {
-        ids: PusherIds::new(s.token.clone(), APP_ID.to_owned()),
+        ids: PusherIds::new(s.token.clone(), s.platform.app_id().to_owned()),
         app_display_name: "Gnobbi".to_owned(),
         kind: PusherKind::Http(data),
         lang: s.lang.clone(),
@@ -103,12 +123,17 @@ pub(crate) async fn keep_registered(client: Client, device_name: &'static str, r
     }
 }
 
+/// The ids the pusher was registered with (also what removal must name).
+fn ids_of(s: &PushSettings) -> PusherIds {
+    PusherIds::new(s.token.clone(), s.platform.app_id().to_owned())
+}
+
 /// Before the server logout: the token is useless to the account that leaves.
 pub(crate) async fn remove(client: &Client) {
-    let token = channel().borrow().as_ref().map(|s| s.token.clone());
-    if let Some(token) = token {
+    let ids = channel().borrow().as_ref().map(ids_of);
+    if let Some(ids) = ids {
         let pusher = client.pusher();
-        let gone = pusher.delete(PusherIds::new(token, APP_ID.to_owned()));
+        let gone = pusher.delete(ids);
         if !matches!(tokio::time::timeout(Duration::from_secs(10), gone).await, Ok(Ok(()))) {
             eprintln!("Gnobbi: push removal failed");
         }
@@ -120,7 +145,7 @@ mod tests {
     use super::*;
 
     fn settings() -> PushSettings {
-        PushSettings { token: "ab12".into(), lang: "it".into(), body: "Nuovo messaggio".into() }
+        PushSettings { platform: PushPlatform::Apns, token: "ab12".into(), lang: "it".into(), body: "Nuovo messaggio".into() }
     }
 
     fn tag() -> AccountTag {
@@ -143,6 +168,34 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn fcm_pusher_json_keeps_token_and_drops_aps() {
+        let s = PushSettings { platform: PushPlatform::Fcm, token: "Fcm:Token_1-x".into(), ..settings() };
+        let body = serde_json::to_value(pusher(&s, "Gnobbi (Android)", &tag(), AccountId::new(7))).unwrap();
+        assert_eq!(
+            body,
+            json!({
+                "pushkey": "Fcm:Token_1-x", "app_id": "net.meskatech.gnobbi.android", "app_display_name": "Gnobbi",
+                "kind": "http", "lang": "it", "device_display_name": "Gnobbi (Android)",
+                "data": {
+                    "url": "https://sygnal.gnobbi.chat/_matrix/push/v1/notify", "format": "event_id_only",
+                    "default_payload": { "gnobbi_account": "3:7:accounts/3" }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn removal_uses_the_registered_app_id() {
+        for (platform, app_id) in [(PushPlatform::Apns, APP_ID_IOS), (PushPlatform::Fcm, APP_ID_ANDROID)] {
+            let s = PushSettings { platform, ..settings() };
+            let registered = serde_json::to_value(pusher(&s, "d", &tag(), AccountId::new(1))).unwrap();
+            let ids = serde_json::to_value(ids_of(&s)).unwrap();
+            assert_eq!(ids, json!({ "pushkey": "ab12", "app_id": app_id }));
+            assert_eq!((&registered["pushkey"], &registered["app_id"]), (&ids["pushkey"], &ids["app_id"]));
+        }
     }
 
     #[tokio::test]

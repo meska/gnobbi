@@ -19,7 +19,7 @@ pub fn token_class(bytes: &[u8]) -> String {
 #[cfg(target_os = "ios")]
 mod ios {
     use super::*;
-    use matrix_engine::push::{PushSettings, set};
+    use matrix_engine::push::{PushPlatform, PushSettings, set};
     use objc2::{AnyThread, MainThreadMarker, define_class, msg_send, rc::Retained, runtime::AnyObject};
     use objc2_foundation::{NSObject, NSOperationQueue};
     use objc2_ui_kit::UIApplication;
@@ -55,7 +55,7 @@ mod ios {
     /// Token (from APNs or from settings.json) + current language -> every account worker.
     fn publish() {
         let token = TOKEN.lock().ok().and_then(|t| t.clone());
-        set(token.map(|token| PushSettings { token, lang: crate::i18n::current().to_owned(), body: crate::i18n::t("New message").to_owned() }));
+        set(token.map(|token| PushSettings { platform: PushPlatform::Apns, token, lang: crate::i18n::current().to_owned(), body: crate::i18n::t("New message").to_owned() }));
     }
 
     fn received(token: String) {
