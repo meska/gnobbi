@@ -1467,6 +1467,9 @@ impl App {
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
         let badge = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| (r.initials.clone(), r.color)));
         let head_pic = self.session.as_ref().map(|s| avatar::lookup(&s.avatars, s.sidebar.selected().and_then(|r| r.info.avatar.as_deref())));
+        // A phone turned on its side with the keyboard up: the header would take what is left of the height (the composer needs it).
+        let type_in_landscape = mobile::touch() && mobile::keyboard() > 0. && ui.ctx().content_rect().aspect_ratio() > 1.;
+        if !type_in_landscape {
         egui::Panel::top("header").exact_size(t.header).show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(if single { 4. } else { 16. });
@@ -1500,6 +1503,7 @@ impl App {
                 });
             });
         }));
+        }
         if let Some(s) = &self.session
             && s.info_open
             && (!single || side == Some(Side::Info))
@@ -2235,6 +2239,7 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens, icon: matr
         s.password = pass.unwrap_or_else(|| std::mem::take(&mut s.password));
     }
     let mut enter = false;
+    let mut focused = None;
     let mut field = |ui: &mut egui::Ui, text: &mut String, label: &str, secret: bool, purpose: egui::IMEPurpose| {
         ui.label(RichText::new(label).size(m.secondary).color(rgb(t.secondary)));
         ui.add_space(m.gap / 2.);
@@ -2266,6 +2271,11 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens, icon: matr
                 state.store(ui.ctx(), r.id);
             }
             r.scroll_to_me(None);
+        }
+        if r.has_focus() {
+            focused = Some(r.rect);
+            // A TextEdit that the keyboard pushed out of the scroll area stops asking for the IME: it closes, the area grows back, it opens again.
+            if !ui.is_rect_visible(r.rect) { r.scroll_to_me(None); }
         }
         enter |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         ui.add_space(m.gap * 1.5);
@@ -2308,6 +2318,14 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens, icon: matr
         egui::Spinner::new().color(rgb(t.on_accent)).paint_at(ui, rect);
     } else if ready && (r.clicked() || enter) {
         s.submit();
+    }
+    // When the keyboard opens or closes, bring the button into view with the focused field, if both fit above the keyboard.
+    let (kb_id, kb) = (egui::Id::new("signin_keyboard"), mobile::keyboard());
+    let moved = ui.data(|d| d.get_temp::<f32>(kb_id)) != Some(kb);
+    ui.data_mut(|d| d.insert_temp(kb_id, kb));
+    if moved && let Some(field) = focused {
+        let both = field.union(r.rect);
+        if both.height() <= ui.clip_rect().height() { ui.scroll_to_rect(both, None); }
     }
 }
 

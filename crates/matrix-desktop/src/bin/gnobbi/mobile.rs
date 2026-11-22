@@ -16,6 +16,11 @@ pub fn set_keyboard(points: f32) {
     KEYBOARD.store(points.max(0.).to_bits(), Ordering::Relaxed);
 }
 
+/// Points of the window bottom the keyboard covers now (0 = closed).
+pub fn keyboard() -> f32 {
+    f32::from_bits(KEYBOARD.load(Ordering::Relaxed))
+}
+
 /// Bottom inset the pure function last produced and bottom of the composer panel, both for the diagnostic overlay.
 static APPLIED: AtomicU32 = AtomicU32::new(0);
 static COMPOSER_BOTTOM: AtomicU32 = AtomicU32::new(0);
