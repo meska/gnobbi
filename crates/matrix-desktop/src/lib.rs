@@ -1,6 +1,7 @@
 //! App layer shared by the egui frontend (bin `gnobbi`): state, preferences, projections; no UI toolkit.
 
 pub mod build_info;
+pub mod crash_log;
 pub mod composer_image;
 
 pub mod i18n;

@@ -2455,6 +2455,10 @@ fn main() -> eframe::Result {
     let link = raw_link.clone().and_then(|raw| matrix_engine::matrix_link::parse_matrix_link(&raw).map_err(|_| eprintln!("Gnobbi: ignored matrix link")).ok());
     #[allow(unused_mut)]
     let mut dirs = matrix_desktop::app_dirs(Platform::CURRENT, |k| std::env::var(k).ok());
+    if let Some(d) = &dirs {
+        matrix_desktop::crash_log::report_previous(&d.data);
+        matrix_desktop::crash_log::install(&d.data);
+    }
     // iOS: an ambiguous migration must never fall back to a different store.
     #[cfg(all(target_os = "ios", not(target_abi = "sim")))]
     if let Some(d) = &mut dirs
