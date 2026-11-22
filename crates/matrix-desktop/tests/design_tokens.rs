@@ -1,6 +1,6 @@
 //! The generated tokens (matrix-domain, from design/tokens.toml) must equal what the desktop uses today.
 use matrix_desktop::i18n::{self, Preference};
-use matrix_desktop::{AVATAR_FALLBACK, DEMO_NOTICE, DesignTokens, SCRIM, Theme, row_text};
+use matrix_desktop::{AVATAR_FALLBACK, DesignTokens, SCRIM, Theme, row_text};
 use matrix_domain::design as gen_;
 
 fn same(id: &str, d: DesignTokens, g: gen_::Palette) {
@@ -34,7 +34,6 @@ fn generated_tokens_equal_the_desktop_for_all_four_themes() {
     }
     assert_eq!(SCRIM, gen_::SCRIM);
     assert_eq!(AVATAR_FALLBACK, gen_::AVATAR_FALLBACK);
-    assert_eq!(DEMO_NOTICE, gen_::DEMO_NOTICE);
     assert_eq!(row_text::ROW_PAD_Y, gen_::SPACING_LIST_ROW_PAD_Y);
     assert_eq!(row_text::TEXT_GAP_PX, gen_::SPACING_LIST_TEXT_GAP);
 }

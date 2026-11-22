@@ -56,23 +56,6 @@ impl Composer {
         self.marked.clone()
     }
 
-    /// Highlight spans for rendering: (range, selected, marked). Sorted and disjoint,
-    /// clamped to the text and to char boundaries: gpui slices the text by these lengths.
-    pub fn highlights(&self) -> Vec<(Range<usize>, bool, bool)> {
-        let marked = self.marked.clone().unwrap_or(0..0);
-        let mut cuts = vec![self.selected.start, self.selected.end, marked.start, marked.end];
-        cuts.retain(|&c| self.text.is_char_boundary(c));
-        cuts.sort_unstable();
-        cuts.dedup();
-        cuts.windows(2)
-            .map(|w| {
-                let (selected, marked) = (self.selected.contains(&w[0]), marked.contains(&w[0]));
-                (w[0]..w[1], selected, marked)
-            })
-            .filter(|(_, selected, marked)| *selected || *marked)
-            .collect()
-    }
-
     pub fn unmark(&mut self) {
         self.marked = None;
     }
@@ -335,35 +318,5 @@ mod cluster_tests {
         }
         assert_eq!(super::prev_boundary("", 0), 0);
         assert_eq!(super::next_boundary("a", 1), 1);
-    }
-}
-
-#[cfg(test)]
-mod highlight_tests {
-    use super::Composer;
-
-    /// gpui turns highlights into consecutive text runs: they must be sorted,
-    /// disjoint and on char boundaries, or its layout slices the text and aborts.
-    fn assert_valid(c: &Composer) {
-        let text = c.text();
-        let mut end = 0;
-        for (r, _, _) in c.highlights() {
-            assert!(r.start >= end && r.start < r.end && r.end <= text.len(), "{r:?} after {end}");
-            assert!(text.is_char_boundary(r.start) && text.is_char_boundary(r.end));
-            end = r.end;
-        }
-    }
-
-    #[test]
-    fn caret_selection_inside_preedit_gives_disjoint_runs() {
-        let mut c = Composer::default();
-        c.replace(None, "ciao ");
-        // IME preedit "èà" with the selection covering its first char only.
-        c.mark(None, "èà", Some(0..1));
-        assert_valid(&c);
-        // Selection that precedes the marked span.
-        c.mark(None, "ìò", Some(0..2));
-        c.select(0..2);
-        assert_valid(&c);
     }
 }

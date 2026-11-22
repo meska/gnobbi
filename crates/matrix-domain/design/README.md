@@ -15,9 +15,9 @@ The `placeholder` palette colour is secondary text blended at 80% over the theme
 
 ## Still inside matrix-desktop, to move into the domain for mobile
 
-- `DesignTokens`, `LIGHT/DARK/DAY/NIGHT`, `SCRIM`, `AVATAR_FALLBACK`, `DEMO_NOTICE` (lib.rs) and `Theme::label/is_dark` (preferences.rs): colours and layout now come from `matrix_domain::design` (desktop builds `LIGHT/DAY/DARK/NIGHT` from the generated palettes); `SCRIM`, `AVATAR_FALLBACK`, `DEMO_NOTICE` and the labels are still copies guarded by the identity test.
+- `DesignTokens`, `LIGHT/DARK/DAY/NIGHT`, `SCRIM`, `AVATAR_FALLBACK` (lib.rs) and `Theme::label/is_dark` (preferences.rs): colours and layout now come from `matrix_domain::design` (desktop builds `LIGHT/DAY/DARK/NIGHT` from the generated palettes); `SCRIM`, `AVATAR_FALLBACK` and the labels are still copies guarded by the identity test.
 - Spacing/radii/type scale: literals in the views (`px(12.)`, `rounded(..)`, `text_size(..)`), only `row_text::ROW_PAD_Y/TEXT_GAP_PX` are named. Not extracted: no source of truth to copy without inventing values.
 - Density: does not exist in the desktop yet.
 - Fonts: `UI_FONT/SERIF_FONT/MONO_FONT` are per-OS desktop families; mobile uses system fonts.
-- Italian strings: only `DEMO_NOTICE` and theme labels; the rest are literals in views plus the `live`-gated consts of `signin_form.rs` (COPY_LABEL, RECOVERY_*, SETUP_*), the labels of `Preferences`-adjacent enums (icon choices, etc.) and `group_label` in sidebar.rs.
+- Italian strings: only theme labels; the rest are literals in views plus the `live`-gated consts of `signin_form.rs` (COPY_LABEL, RECOVERY_*, SETUP_*), the labels of `Preferences`-adjacent enums (icon choices, etc.) and `group_label` in sidebar.rs.
 - Pure logic worth moving: `Theme` (names/parse), `Preferences`, `Sidebar`/`Navigation`/`group_label`, `Composer`/mentions, `links`, `drafts`, `history` demo types, `bubble_stamp`, `row_text`, `scrollbar` geometry (GPUI-free, but in the desktop crate with GPUI/cpal deps).

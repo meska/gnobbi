@@ -140,7 +140,6 @@ pub const AVATAR_FALLBACK: u32 = 0x53936b;
 
 
 
-pub const DEMO_NOTICE: &str = "DEMO OFFLINE · nessun account connesso";
 
 /// Scrim behind dialogs (RGBA): the same in every theme.
 pub const SCRIM: u32 = 0x0000_0066;

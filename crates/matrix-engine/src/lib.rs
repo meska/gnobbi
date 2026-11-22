@@ -212,33 +212,5 @@ pub use generation::{GenerationExhausted, RequestTag, ViewRequests};
 mod channel;
 mod worker_control;
 pub use channel::{Receiver, Sender, TryReceiveError, TrySendError, bounded};
-use matrix_domain::{EventId, RoomScope, TimelineUpdate, TransactionId};
+use matrix_domain::RoomScope;
 pub use worker_control::WorkerControl;
-
-/// Typed UI requests. Message bodies are private data, never log these DTOs.
-pub enum EngineCommand {
-    LoadHistory {
-        tag: RequestTag,
-        before: Option<EventId>,
-    },
-    SendText {
-        scope: RoomScope,
-        transaction_id: TransactionId,
-        body: String,
-    },
-}
-
-/// Backend events distinguish view data from durable account/room updates.
-/// Route Timeline updates even after navigating away; never log DTO bodies.
-pub enum EngineEvent {
-    /// Ephemeral view result; consumer must check ViewRequests::accepts.
-    HistoryItem {
-        tag: RequestTag,
-        event_id: EventId,
-        body: String,
-    },
-    Timeline {
-        scope: RoomScope,
-        update: TimelineUpdate,
-    },
-}

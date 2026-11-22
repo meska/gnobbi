@@ -20,7 +20,6 @@ scrim = "0x00000066"
 avatar_fallback = "0x53936b"
 
 [strings]
-demo_notice = "DEMO OFFLINE · nessun account connesso"
 
 [themes.classic]
 label = "Classico"

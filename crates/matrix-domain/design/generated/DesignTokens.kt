@@ -14,7 +14,6 @@ object DesignTokens {
     const val SPACING_LIST_TEXT_GAP = 2.0
     const val SCRIM = 0x00000066L
     const val AVATAR_FALLBACK = 0x53936bL
-    const val DEMO_NOTICE = "DEMO OFFLINE · nessun account connesso"
 
     object Classic {
         const val LABEL = "Classico"
