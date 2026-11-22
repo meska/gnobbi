@@ -1,5 +1,5 @@
 name: testflight
-# Manuale: Actions > testflight > Run workflow (o packaging/testflight-dispatch.sh). Mai automatico.
+# Manual only: Actions > testflight > Run workflow. Never automatic.
 on:
   workflow_dispatch:
     inputs:
