@@ -290,16 +290,16 @@ fn bottom_reserved(safe_bottom: f32, keyboard: f32) -> f32 {
     if keyboard > 0. { keyboard } else { safe_bottom }
 }
 
-/// Android: pixels covered by the system bars and the display cutout, [top, left, bottom, right]; None until the window has insets.
+/// Android: pixels covered by the system bars and the display cutout, [top, left, bottom, right], then the keyboard height; None until the window has insets.
 /// Reads the decor view's root insets over JNI (NativeActivity has no Java code of its own), the max of bars and cutout per side.
 /// shortcut: called from the render thread, not the UI thread (reads only, works in practice); every frame, cache it if profiling shows a cost.
 #[cfg(target_os = "android")]
-fn android_insets() -> Option<[f32; 4]> {
+fn android_insets() -> Option<[f32; 5]> {
     use jni::{jni_sig, jni_str, objects::JObject};
     let ctx = std::panic::catch_unwind(ndk_context::android_context).ok()?;
     // SAFETY: the VM pointer comes from android-activity; from_raw is idempotent.
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) };
-    vm.attach_current_thread(|env| -> Result<Option<[f32; 4]>, jni::errors::Error> {
+    vm.attach_current_thread(|env| -> Result<Option<[f32; 5]>, jni::errors::Error> {
         // SAFETY: the activity is a global ref owned by android-activity; JObject has no Drop and is not kept.
         let activity = unsafe { JObject::from_raw(env, ctx.context().cast()) };
         let window = env.call_method(&activity, jni_str!("getWindow"), jni_sig!("()Landroid/view/Window;"), &[])?.l()?;
@@ -308,7 +308,7 @@ fn android_insets() -> Option<[f32; 4]> {
         if insets.is_null() {
             return Ok(None);
         }
-        let mut out = [0f32; 4];
+        let mut out = [0f32; 5];
         for (i, name) in [jni_str!("getSystemWindowInsetTop"), jni_str!("getSystemWindowInsetLeft"), jni_str!("getSystemWindowInsetBottom"), jni_str!("getSystemWindowInsetRight")].into_iter().enumerate() {
             out[i] = env.call_method(&insets, name, jni_sig!("()I"), &[])?.i()? as f32;
         }
@@ -319,6 +319,11 @@ fn android_insets() -> Option<[f32; 4]> {
                 out[i] = out[i].max(env.call_method(&cutout, name, jni_sig!("()I"), &[])?.i()? as f32);
             }
         }
+        // Keyboard height: WindowInsets.getInsets(Type.ime()).bottom, API 30+; older devices keep 0 (the bottom system inset already includes it).
+        let ime = env.call_static_method(jni_str!("android/view/WindowInsets$Type"), jni_str!("ime"), jni_sig!("()I"), &[]).and_then(|t| t.i())
+            .and_then(|t| env.call_method(&insets, jni_str!("getInsets"), jni_sig!("(I)Landroid/graphics/Insets;"), &[t.into()])).and_then(|v| v.l())
+            .and_then(|i| env.get_field(&i, jni_str!("bottom"), jni_sig!("I"))).and_then(|v| v.i());
+        out[4] = ime.unwrap_or(0) as f32;
         Ok(Some(out))
     })
     .ok()
@@ -350,6 +355,7 @@ impl Insets {
         #[cfg(target_os = "android")]
         if let Some(px) = android_insets() {
             raw.safe_area_insets = Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: px[0] / pixels_per_point, left: px[1] / pixels_per_point, bottom: px[2] / pixels_per_point, right: px[3] / pixels_per_point }));
+            set_keyboard(px[4] / pixels_per_point);
         }
         #[cfg(not(target_os = "android"))]
         let _ = pixels_per_point;
