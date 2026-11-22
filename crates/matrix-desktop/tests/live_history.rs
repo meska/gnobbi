@@ -823,3 +823,21 @@ fn a_loading_quote_is_read_again_and_republished_once_resolved() {
     assert_eq!(rows.len(), 1, "the resolved quote replaces the loading row");
     assert_eq!(rows[0].reply_to.as_ref().unwrap().state, ReplyState::Resolved);
 }
+
+#[test]
+fn live_refresh_publishes_a_row_whose_reactions_changed_with_the_same_body() {
+    let like = |count| vec![matrix_engine::history::Reaction { key: "👍".into(), count, senders: Vec::new(), mine: false, pending: false }];
+    let mut view = HistorySession::new();
+    let room = scope("!react:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    view.apply(page(&initial, &["$m"], None));
+    for count in [1, 2] {
+        view.activity(&room);
+        let refresh = view.refresh().unwrap();
+        let mut update = page(&refresh, &["$m"], None);
+        update.page.as_mut().unwrap().events[0].reactions = like(count);
+        let rows = view.apply_live(update).unwrap();
+        assert_eq!(rows.len(), 1, "a new reaction must be published");
+        assert_eq!(rows[0].reactions, like(count));
+    }
+}

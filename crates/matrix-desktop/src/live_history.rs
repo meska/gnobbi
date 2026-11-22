@@ -29,10 +29,10 @@ impl HistoryStatus {
 /// How long after new rows a room with threads is read once more.
 pub const SETTLE: std::time::Duration = std::time::Duration::from_millis(1500);
 
-type SeenEvent = (String, Option<(u32, u32)>, Option<matrix_domain::Poll>, Option<matrix_engine::history::ReplyRef>);
+type SeenEvent = (String, Option<(u32, u32)>, Option<matrix_domain::Poll>, Option<matrix_engine::history::ReplyRef>, Vec<matrix_engine::history::Reaction>);
 
 fn seen_of(event: &HistoryEvent) -> SeenEvent {
-    (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread)), event.poll.clone(), event.reply_to.clone())
+    (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread)), event.poll.clone(), event.reply_to.clone(), event.reactions.clone())
 }
 
 /// A quote still waiting for its original: the room is read again shortly.
@@ -47,7 +47,7 @@ pub struct HistorySession {
     next: Option<String>,
     status: HistoryStatus,
     confirmed_start: bool,
-    /// Body and thread reply count: a new reply must hand the root over again.
+    /// Body, thread reply count, poll, quote and reactions: a change of any must hand the row over again.
     seen: HashMap<EventId, SeenEvent>,
     live_views: ViewRequests,
     live_pending: bool,
