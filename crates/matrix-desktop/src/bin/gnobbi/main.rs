@@ -722,6 +722,7 @@ impl eframe::App for App {
             }
         }
         self.tray(&ctx);
+        self.open_pending_link();
         self.test_hooks(&ctx);
         // A second launch hands its `matrix:` link (or just «raise») to this instance.
         #[cfg(target_os = "linux")]
@@ -834,6 +835,37 @@ impl eframe::App for App {
 }
 
 impl App {
+    /// Opens the `matrix:`/matrix.to link given at launch once the first account has its rooms (product code, not a test hook).
+    fn open_pending_link(&mut self) {
+        let Some(s) = &mut self.session else { return };
+        // shortcut: one account, no «Unisciti» dialog and no jump to the message of the link; a room we are not in is only logged. Give up after 60 s.
+        if let Some((link, since)) = &self.pending_link
+            && s.account.is_some()
+            && !s.sidebar.rooms().is_empty()
+        {
+            use matrix_domain::MatrixLink;
+            match link {
+                MatrixLink::Room { target, .. } => {
+                    let found = s.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == target || r.info.aliases.iter().any(|a| a == target)).map(|r| r.scope.clone());
+                    match found {
+                        Some(scope) => drop(s.sidebar.select(&scope)),
+                        None => {
+                            s.new_open = true;
+                            self.new_form.prefill_join(target);
+                        }
+                    }
+                }
+                MatrixLink::User { user_id } => {
+                    s.info_open = true;
+                    s.open_profile(user_id.clone());
+                }
+            }
+            self.pending_link = None;
+        } else if self.pending_link.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs() > 60) {
+            self.pending_link = None;
+        }
+    }
+
     /// Test hooks (env only): sign in with the given account, then open the view named in GNOBBI_EGUI_VIEW.
     fn test_hooks(&mut self, ctx: &egui::Context) {
         // GNOBBI_EGUI_PICK=file|image|share: opens that system dialog once (from frame 60) and prints the answer; for a simulator run.
@@ -868,32 +900,6 @@ impl App {
         // The test accounts have nothing to recover: skip the step so the other views can be reached.
         if self.auto_login.is_some() && s.recovering() && s.form.recovery_key().is_none() && std::env::var_os("GNOBBI_EGUI_KEEP_RECOVERY").is_none() {
             s.defer_recovery();
-        }
-        // shortcut: one account, no «Unisciti» dialog and no jump to the message of the link; a room we are not in is only logged. Give up after 60 s.
-        if let Some((link, since)) = &self.pending_link
-            && s.account.is_some()
-            && !s.sidebar.rooms().is_empty()
-        {
-            use matrix_domain::MatrixLink;
-            match link {
-                MatrixLink::Room { target, .. } => {
-                    let found = s.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == target || r.info.aliases.iter().any(|a| a == target)).map(|r| r.scope.clone());
-                    match found {
-                        Some(scope) => drop(s.sidebar.select(&scope)),
-                        None => {
-                            s.new_open = true;
-                            self.new_form.prefill_join(target);
-                        }
-                    }
-                }
-                MatrixLink::User { user_id } => {
-                    s.info_open = true;
-                    s.open_profile(user_id.clone());
-                }
-            }
-            self.pending_link = None;
-        } else if self.pending_link.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs() > 60) {
-            self.pending_link = None;
         }
         if let Some(login) = if self.hook_added { &self.auto_login2 } else { &self.auto_login }
             && s.account.is_none()
