@@ -1,5 +1,6 @@
 //! Loading feedback shared by the timeline and the room list: ghost bubbles and rows crossed by a soft light, a small ring, one status line.
 //! Nothing here repaints at rest: the callers draw it only while something loads.
+use crate::list::rgb;
 use eframe::egui::{self, Color32, Pos2, Rect, Vec2};
 use matrix_desktop::{DesignTokens, i18n};
 use std::time::{Duration, Instant};
@@ -189,10 +190,6 @@ pub fn slices(rect: Rect, radius: f32, ink: impl Fn(Pos2) -> Color32) -> egui::M
         }
     }
     mesh
-}
-
-fn rgb(c: u32) -> Color32 {
-    crate::list::rgb(c)
 }
 
 /// A stroke is never thinner than one physical pixel.

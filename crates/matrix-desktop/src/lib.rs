@@ -198,83 +198,21 @@ pub const ROOMS: [DemoRoom; 6] = [
     },
 ];
 
-pub const LIGHT: DesignTokens = DesignTokens {
-    width: 1120.,
-    height: 760.,
-    sidebar: 320.,
-    header: 64.,
-    bottom_bar: 56.,
-    surface: 0xffffff,
-    text: 0x17231b,
-    secondary: 0x46604e,
-    placeholder: matrix_domain::design::THEMES[0].palette.placeholder,
-    accent: 0x1264aa,
-    timeline: 0xe9f0eb,
-    outgoing: 0xd9fdd3,
-    selected: 0xe9f5ec,
-    border: 0xe4eae6,
-    input: 0xf1f4f2,
-    disabled: 0xe9efeb,
-    selection: 0xd0ead8,
-    mention_row: 0xe2d5d1,
-    error: 0xb43030,
-    on_accent: 0xffffff,
-    avatar_text: 0x101b14,
-};
+/// Colours and measures come from the generated design tokens (matrix-domain, design/tokens.toml): the one source.
+const fn from_design(p: matrix_domain::design::Palette) -> DesignTokens {
+    let l = matrix_domain::design::LAYOUT;
+    DesignTokens {
+        width: l.width, height: l.height, sidebar: l.sidebar, header: l.header, bottom_bar: l.bottom_bar,
+        surface: p.surface, text: p.text, secondary: p.secondary, placeholder: p.placeholder, accent: p.accent,
+        timeline: p.timeline, outgoing: p.outgoing, selected: p.selected, border: p.border, input: p.input,
+        disabled: p.disabled, selection: p.selection, mention_row: p.mention_row, error: p.error,
+        on_accent: p.on_accent, avatar_text: p.avatar_text,
+    }
+}
 
-pub const DARK: DesignTokens = DesignTokens {
-    surface: 0x17231b,
-    text: 0xe5efe8,
-    secondary: 0xb4c9ba,
-    placeholder: matrix_domain::design::THEMES[2].palette.placeholder,
-    accent: 0x80c8ff,
-    timeline: 0x101b14,
-    outgoing: 0x244436,
-    selected: 0x25402f,
-    border: 0x425c4b,
-    input: 0x203226,
-    disabled: 0x26372c,
-    selection: 0x254d34,
-    mention_row: 0x3b3631,
-    error: 0xffb3b3,
-    on_accent: 0x101922,
-    ..LIGHT
-};
-
+pub const LIGHT: DesignTokens = from_design(matrix_domain::design::THEMES[0].palette);
 /// «Giorno»: bright and neutral, stronger text than «Classico».
-pub const DAY: DesignTokens = DesignTokens {
-    text: 0x111512,
-    secondary: 0x47514a,
-    placeholder: matrix_domain::design::THEMES[1].palette.placeholder,
-    accent: 0x0b5cad,
-    timeline: 0xf4f6f5,
-    outgoing: 0xd2f6dd,
-    selected: 0xe7f3ea,
-    border: 0xd5dcd7,
-    input: 0xf1f3f2,
-    disabled: 0xe6eae7,
-    selection: 0xcde9d6,
-    mention_row: 0xead4d7,
-    error: 0xb00020,
-    ..LIGHT
-};
-
+pub const DAY: DesignTokens = from_design(matrix_domain::design::THEMES[1].palette);
+pub const DARK: DesignTokens = from_design(matrix_domain::design::THEMES[2].palette);
 /// «Notte»: near-black surfaces for dark rooms.
-pub const NIGHT: DesignTokens = DesignTokens {
-    surface: 0x0b0f0c,
-    text: 0xe8eeea,
-    secondary: 0xa9b9ae,
-    placeholder: matrix_domain::design::THEMES[3].palette.placeholder,
-    accent: 0x7cc4ff,
-    timeline: 0x000000,
-    outgoing: 0x16301f,
-    selected: 0x16251b,
-    border: 0x3a4b3f,
-    input: 0x141c17,
-    disabled: 0x1a241d,
-    selection: 0x1b412a,
-    mention_row: 0x2e2020,
-    error: 0xffb3b3,
-    on_accent: 0x000000,
-    ..LIGHT
-};
+pub const NIGHT: DesignTokens = from_design(matrix_domain::design::THEMES[3].palette);

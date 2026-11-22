@@ -1,11 +1,8 @@
 //! Right panel: the open room's facts and its members.
+use crate::list::rgb;
 use eframe::egui::{self, Color32, FontId, RichText, Vec2};
 use matrix_desktop::{DesignTokens, SidebarRoom, i18n};
 use matrix_engine::operations::Member;
-
-fn rgb(c: u32) -> Color32 {
-    Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
-}
 
 /// What the user did in the panel this frame.
 #[derive(Default)]

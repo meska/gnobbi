@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 //! Gnobbi, egui frontend. S1: shell with the saved theme and accent, window identity and the
 //! single-instance gate (same profile, never two processes on it).
+use list::rgb;
 use matrix_desktop::i18n;
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, ViewportBuilder, Visuals};
 use matrix_desktop::{
@@ -52,10 +53,6 @@ pub const AVATAR: u32 = matrix_desktop::AVATAR_FALLBACK;
 
 /// File in the data folder with the profile folder of the account on screen.
 const LAST_ACCOUNT: &str = "last_account";
-
-fn rgb(c: u32) -> Color32 {
-    Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
-}
 
 /// egui visuals from the shared design tokens.
 fn visuals(t: &DesignTokens, dark: bool) -> Visuals {

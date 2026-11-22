@@ -15,7 +15,7 @@ The `placeholder` palette colour is secondary text blended at 80% over the theme
 
 ## Still inside matrix-desktop, to move into the domain for mobile
 
-- `DesignTokens`, `LIGHT/DARK/DAY/NIGHT`, `SCRIM`, `AVATAR_FALLBACK`, `DEMO_NOTICE` (lib.rs) and `Theme::label/is_dark` (preferences.rs): values now generated here; desktop keeps its own copies until a follow-up switches it to `matrix_domain::design` (the identity test guards the drift).
+- `DesignTokens`, `LIGHT/DARK/DAY/NIGHT`, `SCRIM`, `AVATAR_FALLBACK`, `DEMO_NOTICE` (lib.rs) and `Theme::label/is_dark` (preferences.rs): colours and layout now come from `matrix_domain::design` (desktop builds `LIGHT/DAY/DARK/NIGHT` from the generated palettes); `SCRIM`, `AVATAR_FALLBACK`, `DEMO_NOTICE` and the labels are still copies guarded by the identity test.
 - Spacing/radii/type scale: literals in the views (`px(12.)`, `rounded(..)`, `text_size(..)`), only `row_text::ROW_PAD_Y/TEXT_GAP_PX` are named. Not extracted: no source of truth to copy without inventing values.
 - Density: does not exist in the desktop yet.
 - Fonts: `UI_FONT/SERIF_FONT/MONO_FONT` are per-OS desktop families; mobile uses system fonts.

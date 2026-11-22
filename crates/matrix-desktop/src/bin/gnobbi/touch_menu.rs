@@ -8,6 +8,7 @@
 //! - lifting before `HOLD` is a tap: links, pictures and buttons get it as before;
 //! - at `HOLD` the menu wins: the drag in progress is stopped and what the timeline reports while the menu is open is dropped,
 //!   so the release of the same finger cannot open the link or the picture under it.
+use crate::list::rgb;
 use crate::icons::Icon;
 use crate::session::Session;
 use eframe::egui::{self, Color32, CornerRadius, Pos2, Rect, Sense, Vec2, pos2, vec2};
@@ -267,10 +268,6 @@ impl Lift {
 /// The layer the timeline paints the lifted bubble on.
 pub fn lift_layer() -> egui::LayerId {
     egui::LayerId::new(egui::Order::Foreground, egui::Id::new("message-lift"))
-}
-
-fn rgb(c: u32) -> Color32 {
-    crate::list::rgb(c)
 }
 
 /// A rounded card of the menu on its own layer; returns what `add` returns.

@@ -1,11 +1,8 @@
 //! Settings drawer: the saved preferences the GPUI app offers for look and behaviour. Every change is written at once.
+use crate::list::rgb;
 use eframe::egui::{self, Color32, Sense, Vec2};
 use matrix_desktop::i18n::t as tr;
 use matrix_desktop::{AppDirs, DesignTokens, Preferences};
-
-fn rgb(c: u32) -> Color32 {
-    Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
-}
 
 /// The shared switch: fixed positive label, track on the right, on means active.
 pub fn switch(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -> bool {

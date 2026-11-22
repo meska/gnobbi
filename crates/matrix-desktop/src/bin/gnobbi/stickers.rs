@@ -1,5 +1,6 @@
 //! Stickers: the «Sticker» tab of the emoji popup (packs, recent, favourites, search), the editor that turns a picture
 //! into a sticker and the window that manages the packs. Packs are Matrix image packs; recent, favourites and the pack order are local.
+use crate::list::rgb;
 use crate::avatar::{Avatar, Avatars};
 use crate::icons::Icon;
 use eframe::egui::{self, Color32, RichText, Sense, Vec2};
@@ -11,10 +12,6 @@ pub const TAB_ID: &str = "emoji-tab-sticker";
 pub const MIN_CELL: f32 = 64.;
 pub const GAP: f32 = 4.;
 const RECENT: usize = 30;
-
-fn rgb(c: u32) -> Color32 {
-    Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
-}
 
 /// Columns and cell side that fill `width` exactly with cells of at least `MIN_CELL` (one column when narrower).
 pub fn grid(width: f32) -> (usize, f32) {

@@ -1,5 +1,6 @@
 //! Central column: the selected room's messages, read-only. Rows have different heights, so the
 //! heights seen so far are cached and off-screen rows are replaced by empty space.
+use crate::list::rgb;
 use eframe::egui::{self, Align, Color32, CornerRadius, RichText, Vec2};
 use matrix_desktop::{DemoEvent, DesignTokens, i18n};
 
@@ -165,10 +166,6 @@ fn joined(above: GroupKey, below: GroupKey, new_day: impl FnOnce() -> bool) -> b
 const MAX_BUBBLE: f32 = 720.;
 const BODY: f32 = 14.;
 const GUESS: f32 = 56.;
-
-fn rgb(c: u32) -> Color32 {
-    Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
-}
 
 /// Measured row heights for the open room.
 #[derive(Default)]

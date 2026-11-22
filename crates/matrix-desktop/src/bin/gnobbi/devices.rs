@@ -1,4 +1,5 @@
 //! «Dispositivi» drawer, its dialogs and the verification popup, driven by the toolkit-free `DeviceVerification`.
+use crate::list::rgb;
 use matrix_desktop::i18n;
 use eframe::egui::{self, RichText};
 use matrix_desktop::{DesignTokens, DeviceVerification, PopupBody, PopupButton, device_detail, device_title};
@@ -46,10 +47,6 @@ pub fn icon(p: &egui::Painter, r: egui::Rect, kind: Kind, ink: egui::Color32) {
         Kind::Other => Icon::Question,
     };
     crate::icons::paint(p, r.center(), icon, false, crate::metrics::get().icon + 4., ink);
-}
-
-fn rgb(c: u32) -> egui::Color32 {
-    egui::Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
 
 /// One device: icon, name (and «Non verificato» badge), «Verificato · Ultima attività · IP», the id in monospace; `actions` on the right.
