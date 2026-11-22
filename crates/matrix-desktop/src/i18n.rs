@@ -439,16 +439,16 @@ mod tests {
     #[test]
     fn auto_resolution_and_env_override() {
         let loc = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(resolve_with(Preference::Auto, None, &loc(&["de-DE", "it_IT.UTF-8", "en"])), "it");
-        assert_eq!(resolve_with(Preference::Auto, None, &loc(&["fr-FR"])), "en");
+        assert_eq!(resolve_with(Preference::Auto, None, &loc(&["de-DE", "it_IT.UTF-8", "en"])), "de");
+        assert_eq!(resolve_with(Preference::Auto, None, &loc(&["fr-FR"])), "fr");
         assert_eq!(resolve_with(Preference::Auto, None, &[]), "en");
         assert_eq!(resolve_with(Preference::Auto, Some("it-IT"), &loc(&["en-US"])), "it");
         assert_eq!(resolve_with(Preference::Auto, Some("zz"), &loc(&["it"])), "it");
         assert_eq!(resolve_with(Preference::Fixed("en"), Some("it"), &loc(&["it"])), "en");
         assert_eq!(resolve_with(Preference::Fixed("it"), None, &[]), "it");
-        // Auto only lands on a language with a catalog, but GNOBBI_LANG takes any registered one (RTL tryout).
-        assert!(!LANGUAGES.iter().find(|l| l.code == "he").unwrap().available());
-        assert_eq!(resolve_with(Preference::Auto, None, &loc(&["he-IL", "it"])), "it");
+        // Auto picks the first available catalog; GNOBBI_LANG can override the system locale.
+        assert!(LANGUAGES.iter().find(|l| l.code == "he").unwrap().available());
+        assert_eq!(resolve_with(Preference::Auto, None, &loc(&["he-IL", "it"])), "he");
         assert_eq!(resolve_with(Preference::Auto, Some("he"), &[]), "he");
     }
 
