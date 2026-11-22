@@ -1,5 +1,5 @@
-#![cfg(all(target_os = "linux", feature = "desktop"))]
-//! Repair of an old launcher (no `%u`, no `MimeType`) registers Gnobbi for `matrix:` links, checked
+#![cfg(target_os = "linux")]
+//! Install/repair of an old launcher (no `%u`, no `MimeType`) registers Gnobbi for `matrix:` links, checked
 //! with the real `xdg-mime`/`gio` under a disposable HOME (never the real one). Skips when a tool is missing.
 use std::{
     fs,
@@ -47,18 +47,28 @@ fn env<'a>(cmd: &'a mut Command, home: &Path) -> &'a mut Command {
         .env_remove("XDG_CURRENT_DESKTOP")
 }
 
+/// Installs in-process with the disposable HOME (the `xdg-mime` children inherit it); serialised because
+/// the environment is process-wide.
 fn repair(home: &Path, exec: &Path) {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_gnobbi"));
-    let out = env(&mut c, home)
-        .env("APPIMAGE", exec)
-        .arg("--install-desktop-entry")
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _g = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let mut c = Command::new("true");
+    env(&mut c, home);
+    for (k, v) in c.get_envs() {
+        // SAFETY: guarded by ENV; no other thread in this test binary touches the environment.
+        unsafe {
+            match v {
+                Some(v) => std::env::set_var(k, v),
+                None => std::env::remove_var(k),
+            }
+        }
+    }
+    matrix_desktop::desktop_entry::install_desktop_entry(
+        home,
+        exec.to_str().unwrap(),
+        matrix_desktop::IconChoice::default(),
+    )
+    .unwrap();
 }
 
 fn out(home: &Path, prog: &str, args: &[&str]) -> String {
@@ -109,19 +119,18 @@ fn repair_of_old_entry_registers_gnobbi_for_matrix_and_is_idempotent() {
     assert_eq!(state[0], state[1], "second repair changed something");
 }
 
-// Red today: install runs `xdg-mime default` unconditionally, so nheko loses the scheme. Un-ignore when the
-// installer asks before taking over a foreign default.
+// Install/repair never takes the scheme from another client (nheko here), however often it runs.
 #[test]
-#[ignore = "known defect: repair overwrites a foreign default handler"]
 fn repair_keeps_foreign_default_and_mimeapps_list() {
     if !has("xdg-mime") {
         return eprintln!("skipped: xdg-mime missing");
     }
     let (home, exec) = old_home("mime-foreign-handler");
     let apps = home.join(".local/share/applications");
+    // GLib only honours a default whose Exec is an existing executable.
     fs::write(
         apps.join("nheko.desktop"),
-        format!("[Desktop Entry]\nType=Application\nName=nheko\nExec=nheko %u\nMimeType={MIME};\n"),
+        format!("[Desktop Entry]\nType=Application\nName=nheko\nExec=/bin/sh %u\nMimeType={MIME};\n"),
     )
     .unwrap();
     let list = home.join(".config/mimeapps.list");
@@ -133,7 +142,9 @@ fn repair_keeps_foreign_default_and_mimeapps_list() {
     .unwrap();
     assert_eq!(default_handler(&home), "nheko.desktop");
 
-    repair(&home, &exec);
+    for _ in 0..2 {
+        repair(&home, &exec);
+    }
 
     let kept = fs::read_to_string(&list).expect("mimeapps.list deleted");
     assert!(kept.contains("text/html=other.desktop"), "{kept}");

@@ -164,12 +164,31 @@ pub fn install_desktop_entry(home: &Path, exec: &str, icon: IconChoice) -> io::R
 
 /// Missing binary or failure is deliberately ignored: the caches are only an optimisation.
 fn run_cache_tool(prog: &str, args: &[&Path]) {
+    // Installing never takes `matrix:` from another client: that is an explicit user choice.
+    if prog == "xdg-mime" && args.len() == 3 && has_foreign_default(args[1], args[2]) {
+        return;
+    }
     let _ = std::process::Command::new(prog)
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
+}
+
+/// True when `mime` already has a default that is not `desktop_id`; a missing or failing `xdg-mime` is "no".
+fn has_foreign_default(desktop_id: &Path, mime: &Path) -> bool {
+    let out = std::process::Command::new("xdg-mime")
+        .args(["query", "default"])
+        .arg(mime)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output();
+    out.is_ok_and(|o| {
+        let cur = String::from_utf8_lossy(&o.stdout);
+        let cur = cur.trim();
+        !cur.is_empty() && Path::new(cur) != desktop_id
+    })
 }
 
 /// The launcher the installer writes: the template with `Exec` pointing at `exec`. Detection
