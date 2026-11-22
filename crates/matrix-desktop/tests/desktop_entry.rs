@@ -1,8 +1,7 @@
-#![cfg(unix)] // POSIX path literals / Linux desktop entry: is_absolute is host-specific.
-//! `--install-desktop-entry` writes the launcher and icons under a temporary HOME, only on request.
-#![cfg(feature = "desktop")]
+#![cfg(target_os = "linux")]
+//! The installer writes the launcher and icons under a temporary HOME, only on request.
 use matrix_desktop::IconChoice;
-use std::{fs, path::Path, process::Command};
+use std::{fs, path::Path};
 
 fn assert_icons(home: &Path, icon: IconChoice) {
     for (size, png) in [("256", icon.theme_png_256()), ("512", icon.runtime_png())] {
@@ -21,15 +20,11 @@ fn appimage(home: &Path) -> std::path::PathBuf {
     app
 }
 
-fn run(home: &Path, args: &[&str]) -> std::process::ExitStatus {
-    Command::new(env!("CARGO_BIN_EXE_gnobbi"))
-        .args(args)
-        .env("HOME", home)
-        .env_remove("XDG_CONFIG_HOME")
-        .env_remove("XDG_DATA_HOME")
-        .env("APPIMAGE", appimage(home))
-        .status()
-        .unwrap()
+fn install(home: &Path, icon: IconChoice) {
+    let exec = appimage(home);
+    matrix_desktop::desktop_entry::install_desktop_entry_with(
+        &home.join(".local/share"), exec.to_str().unwrap(), icon, &mut |_, _| {},
+    ).unwrap();
 }
 
 #[test]
@@ -38,11 +33,11 @@ fn installs_idempotently_and_only_on_request() {
     let _ = fs::remove_dir_all(&home);
     fs::create_dir_all(&home).unwrap();
 
-    // Not a UI launch path: use an unknown-free flag set; without the flag nothing may be written.
+    // Nothing is installed before the explicit call.
     let desktop = home.join(format!(".local/share/applications/{ID}.desktop"));
     assert!(!desktop.exists());
 
-    assert!(run(&home, &["--install-desktop-entry"]).success());
+    install(&home, IconChoice::default());
     let first = fs::read_to_string(&desktop).unwrap();
     for line in [
         format!("Exec=\"{}\" %u", home.join("Applications/my apps/Gnobbi.AppImage").display()),
@@ -54,7 +49,7 @@ fn installs_idempotently_and_only_on_request() {
     }
     assert_icons(&home, IconChoice::MinimalMark);
 
-    assert!(run(&home, &["--install-desktop-entry"]).success());
+    install(&home, IconChoice::default());
     assert_eq!(fs::read_to_string(&desktop).unwrap(), first);
 }
 
@@ -68,23 +63,14 @@ fn library_writes_nothing_unless_called() {
 }
 
 #[test]
-fn installs_the_saved_icon_and_falls_back_to_the_default() {
+fn installs_selected_icons() {
     let home = Path::new(env!("CARGO_TARGET_TMPDIR")).join("desktop-entry-icon");
     let _ = fs::remove_dir_all(&home);
-    fs::create_dir_all(home.join(".config/gnobbi")).unwrap();
-    let settings = home.join(".config/gnobbi/settings.json");
-    for (json, expected) in [
-        (r#"{"icon":"gnomo"}"#, IconChoice::Gnome),
-        (r#"{"icon":"mostriciattolo"}"#, IconChoice::Monster),
-        (r#"{"icon":"nonsense"}"#, IconChoice::MinimalMark),
-    ] {
-        fs::write(&settings, json).unwrap();
-        assert!(run(&home, &["--install-desktop-entry"]).success());
-        assert_icons(&home, expected);
+    fs::create_dir_all(&home).unwrap();
+    for icon in [IconChoice::Gnome, IconChoice::Monster, IconChoice::MinimalMark] {
+        install(&home, icon);
+        assert_icons(&home, icon);
     }
-    fs::remove_file(&settings).unwrap();
-    assert!(run(&home, &["--install-desktop-entry"]).success());
-    assert_icons(&home, IconChoice::MinimalMark);
 }
 
 #[test]

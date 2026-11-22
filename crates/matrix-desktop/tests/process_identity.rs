@@ -1,6 +1,6 @@
 //! The process shows up as `gnobbi` (ps/top take the name from the executable file) and the
 //! desktop entry shipped in the AppDir matches the window app id.
-#![cfg(feature = "desktop")]
+#![cfg(not(any(target_os = "ios", target_os = "android")))]
 use std::path::Path;
 
 const APP_ID: &str = "net.meskatech.gnobbi";
