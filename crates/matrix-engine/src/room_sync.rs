@@ -149,7 +149,21 @@ impl RoomListWorker {
                         )
                         .await;
                     }
-                    let session = match until_stopped(&cancelled, login()).await {
+                    // A panic while signing in (e.g. a TLS verifier that is not set up) must end as a
+                    // failed sign-in, not leave the UI waiting forever on a dead worker.
+                    use std::future::Future as _;
+                    let mut login = std::pin::pin!(login());
+                    let guarded = std::future::poll_fn(|cx| {
+                        let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            login.as_mut().poll(cx)
+                        }));
+                        match polled {
+                            Ok(std::task::Poll::Pending) => std::task::Poll::Pending,
+                            Ok(std::task::Poll::Ready(out)) => std::task::Poll::Ready(out),
+                            Err(_) => std::task::Poll::Ready(Err(crate::auth::AuthError::Transport)),
+                        }
+                    });
+                    let session = match until_stopped(&cancelled, guarded).await {
                         None => {
                             return unstarted_shutdown(
                                 &mut sends,
