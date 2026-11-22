@@ -32,6 +32,7 @@ mod mobile;
 mod newchat;
 mod poll;
 mod rail;
+mod reactions;
 mod rows;
 mod roomedit;
 mod space;
@@ -1594,7 +1595,7 @@ impl App {
             && let Some(mut th) = s.thread.take()
         {
             let (mut close, mut out) = (false, info::ThreadOut::default());
-            let mut acts = timeline::Acts { now_playing: s.audio_now(), ..Default::default() };
+            let mut acts = timeline::Acts { now_playing: s.audio_now(), wishes: s.ops.wishes().to_vec(), ..Default::default() };
             let members = s.sidebar.selected().map_or(3, |r| r.info.joined_members);
             let recording = s.recording(true);
             let w = self.prefs.thread_width.map_or(320., |w| w as f32);
@@ -1634,6 +1635,7 @@ impl App {
             if let Some((id, name)) = out.save { s.save(id, &name); }
             if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
             if let Some(id) = acts.play.take() { s.play_audio(id); }
+            s.reaction_acts(std::mem::take(&mut acts.react), ui.ctx(), t);
             if acts.open_link.is_some() { self.pending_web = acts.open_link; }
         }
         let mut to_send = None;
@@ -1723,7 +1725,7 @@ impl App {
             {
                 s.flash = s.flash.take().filter(|(_, at)| at.elapsed() < std::time::Duration::from_millis(1500));
                 if s.flash.is_some() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(100)); }
-                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.as_ref().map(|(id, _)| id.clone()), lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), ..Default::default() };
+                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.as_ref().map(|(id, _)| id.clone()), lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), wishes: s.ops.wishes().to_vec(), ..Default::default() };
                 let jump = s.search_jump.as_ref().and_then(|(id, _)| messages.events().iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())));
                 let room = s.sidebar.selected();
                 let members = room.map_or(3, |r| r.info.joined_members);
@@ -1740,6 +1742,7 @@ impl App {
                         lift.rect = acts.lift_rect.unwrap_or(lift.rect);
                         lift.view = acts.view.unwrap_or(lift.view);
                         (acts.reply_jump, acts.picture, acts.play, acts.vote, acts.open_link) = (None, None, None, None, None);
+                        acts.react = Default::default();
                         (None, None, None)
                     }
                     None => (menu, save, thread),
@@ -1770,6 +1773,7 @@ impl App {
                 if let Some((id, ix)) = acts.vote {
                     s.vote(id, ix);
                 }
+                s.reaction_acts(std::mem::take(&mut acts.react), ui.ctx(), t);
                 if acts.open_link.is_some() {
                     self.pending_web = acts.open_link;
                 }

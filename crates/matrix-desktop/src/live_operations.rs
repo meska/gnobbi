@@ -1,5 +1,7 @@
 //! View inspection is cancellable; accepted writes will remain room-scoped.
 use crate::i18n;
+use matrix_engine::history::Reaction;
+use std::time::{Duration, Instant};
 use matrix_domain::{EventId, Poll, RoomScope, ScopedTimelineId, TimelineId, TransactionId};
 use matrix_engine::{
     ViewRequests,
@@ -30,8 +32,72 @@ pub struct LiveOperations {
     /// Poll whose last vote was refused; cleared by the next vote.
     vote_failed: Option<EventId>,
     confirmed: Vec<ConfirmedOperation>,
+    /// Taps on a reaction pill, shown at once and until the server shows the same (or the send fails).
+    wishes: Vec<Wish>,
 }
+
+/// A reaction the user asked for and the timeline does not show yet: `add` it, or take it back.
+#[derive(Clone)]
+pub struct Wish {
+    pub target: EventId,
+    pub key: String,
+    pub add: bool,
+    request: OperationRequest,
+    /// When the server confirmed it; the wish then lives a few seconds more, for the timeline to catch up.
+    done: Option<Instant>,
+    since: Instant,
+}
+
+/// How long a confirmed wish stays, and the longest an unanswered one does.
+const WISH_AFTER_DONE: Duration = Duration::from_secs(8);
+const WISH_MAX: Duration = Duration::from_secs(30);
+
+/// `server` with the wishes for `target` laid over it: an emoji added shows with us counted, one taken back without us; both as
+/// `pending` (dimmed). A wish the server already agrees with changes nothing.
+pub fn overlay(wishes: &[Wish], target: &EventId, server: &[Reaction]) -> Vec<Reaction> {
+    let mut out = server.to_vec();
+    for w in wishes.iter().filter(|w| w.target == *target) {
+        match (out.iter().position(|r| r.key == w.key), w.add) {
+            (Some(at), true) if !out[at].mine => {
+                let r = &mut out[at];
+                (r.count, r.mine, r.pending) = (r.count + 1, true, true);
+            }
+            (None, true) => out.push(Reaction { key: w.key.clone(), count: 1, senders: Vec::new(), mine: true, pending: true }),
+            (Some(at), false) if out[at].mine => {
+                if out[at].count <= 1 {
+                    out.remove(at);
+                } else {
+                    let r = &mut out[at];
+                    (r.count, r.mine, r.pending) = (r.count - 1, false, true);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 impl LiveOperations {
+    /// The user tapped the pill `key` of `target` (`mine`: it is theirs now): asks the engine to add or take it back. No message
+    /// selection and no operations panel: the answer only settles the wish (a failed send drops it, so the pill rolls back).
+    pub fn react_direct(&mut self, scope: RoomScope, target: EventId, key: &str, mine: bool, transaction_id: TransactionId) -> bool {
+        if self.command.is_some() || key.trim().is_empty() || key.len() > 32768 || transaction_id.as_str().is_empty() || self.wishes.iter().any(|w| w.target == target && w.key == key) {
+            return false;
+        }
+        let operation = if mine { Operation::Unreact { key: key.to_owned() } } else { Operation::React { key: key.to_owned() } };
+        let request = OperationRequest { scope, target: target.clone(), transaction_id, operation };
+        self.command = Some(OperationCommand::Apply(request.clone()));
+        self.wishes.push(Wish { target, key: key.to_owned(), add: !mine, request, done: None, since: Instant::now() });
+        true
+    }
+    pub fn wishes(&self) -> &[Wish] {
+        &self.wishes
+    }
+    /// Forgets the wishes that settled or went stale.
+    pub fn tick(&mut self, now: Instant) {
+        self.wishes.retain(|w| w.done.map_or(now.saturating_duration_since(w.since) < WISH_MAX, |d| now.saturating_duration_since(d) < WISH_AFTER_DONE));
+    }
+
     /// Shared visible/semantic status; accepted writes outlive selection dismissal.
     /// Accessible-only idle text; never drawn on screen.
     pub fn notice(&self, confirming: bool) -> &'static str {
@@ -85,7 +151,7 @@ impl LiveOperations {
         }
         let text = match &operation {
             Operation::Reply { body } | Operation::Edit { body } => Some(body),
-            Operation::React { key } => Some(key),
+            Operation::React { key } | Operation::Unreact { key } => Some(key),
             Operation::Redact | Operation::Vote { .. } | Operation::EndPoll => None,
         };
         if text.is_some_and(|text| text.trim().is_empty() || text.len() > 32768) {
@@ -103,7 +169,7 @@ impl LiveOperations {
         let allowed = match &operation {
             Operation::Reply { .. } => details.permissions.reply,
             Operation::Edit { .. } => details.permissions.edit,
-            Operation::React { .. } => details.permissions.react,
+            Operation::React { .. } | Operation::Unreact { .. } => details.permissions.react,
             Operation::Redact => details.permissions.redact,
             // shortcut: reuse react/redact rights; the poll UI card refines them.
             Operation::Vote { .. } => details.permissions.react,
@@ -142,54 +208,10 @@ impl LiveOperations {
     pub fn vote_failed(&self, target: &EventId) -> bool {
         self.vote_failed.as_ref() == Some(target)
     }
-    /// The user's own reaction `key` on the selected message, as confirmed by the server in this session and not removed since.
-    fn own_reaction(&self, key: &str) -> Option<&ConfirmedOperation> {
-        let selected = self.selection.as_ref()?;
-        self.confirmed.iter().rev().find(|op| {
-            op.request.scope == selected.scope
-                && TimelineId::Server(op.request.target.clone()) == selected.id
-                && op.request.operation
-                    == (Operation::React {
-                        key: key.to_owned(),
-                    })
-                && !self.confirmed.iter().any(|redact| {
-                    redact.request.scope == op.request.scope
-                        && redact.request.target == op.event_id
-                        && redact.request.operation == Operation::Redact
-                })
-        })
-    }
-    /// The selected message carries the user's reaction `key`: choosing it again removes it.
-    pub fn reacted(&self, key: &str) -> bool {
-        self.own_reaction(key).is_some()
-    }
-    pub fn toggle_reaction(&mut self, key: &str, transaction_id: TransactionId) -> bool {
-        if self.pending.is_some() || self.command.is_some() || transaction_id.as_str().is_empty() {
-            return false;
-        }
-        let Some(selected) = self.selection.clone() else {
-            return false;
-        };
-        let existing = self.own_reaction(key).map(|op| op.event_id.clone());
-        if let Some(existing) = existing {
-            let request = OperationRequest {
-                scope: selected.scope.clone(),
-                target: existing,
-                transaction_id,
-                operation: Operation::Redact,
-            };
-            self.command = Some(OperationCommand::Apply(request.clone()));
-            self.pending = Some(request);
-            self.error = None;
-            true
-        } else {
-            self.submit(
-                Operation::React {
-                    key: key.to_owned(),
-                },
-                transaction_id,
-            )
-        }
+    /// Menu: choosing an emoji again removes it (`mine`: the row already carries ours).
+    pub fn toggle_reaction(&mut self, key: &str, mine: bool, transaction_id: TransactionId) -> bool {
+        let key = key.to_owned();
+        self.submit(if mine { Operation::Unreact { key } } else { Operation::React { key } }, transaction_id)
     }
     pub fn submit_draft(
         &mut self,
@@ -315,6 +337,14 @@ impl LiveOperations {
                     Ok(event_id) => self.confirmed.push(ConfirmedOperation { request, event_id }),
                     // A vote is never retried by the panel: the next click is a new vote.
                     Err(_) => self.vote_failed = Some(request.target),
+                }
+                true
+            }
+            OperationResult::Applied { request, result } if self.wishes.iter().any(|w| w.request == request) => {
+                match result {
+                    Ok(_) => self.wishes.iter_mut().filter(|w| w.request == request).for_each(|w| w.done = Some(Instant::now())),
+                    // Refused or lost: the pill goes back to what the server shows.
+                    Err(_) => self.wishes.retain(|w| w.request != request),
                 }
                 true
             }

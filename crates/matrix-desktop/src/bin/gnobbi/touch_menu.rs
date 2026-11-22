@@ -329,7 +329,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     }
     if open && let Some((p, items)) = entries(s) {
         (lift.react, lift.items) = (p.react, items);
-        lift.own = QUICK.map(|(_, emoji)| s.ops.reacted(emoji));
+        lift.own = QUICK.map(|(_, emoji)| s.reacted(emoji));
         lift.shown.get_or_insert(now);
     }
     #[cfg(debug_assertions)]
@@ -395,13 +395,14 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
         }
         if rows > 0. {
             card(ctx, &under, "message-actions", list, alpha, spring, t, |ui| {
+                let mine: Vec<String> = s.selected_reactions().into_iter().filter(|r| r.mine).map(|r| r.key).collect();
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if lift.picker {
                         let size = vec2(ui.available_width() / columns as f32, CELL);
                         for line in matrix_desktop::EMOJI_SET.chunks(columns) {
                             ui.horizontal(|ui| {
                                 for (name, emoji) in line {
-                                    if emoji_cell(ui, size, name, emoji, s.ops.reacted(emoji), t) {
+                                    if emoji_cell(ui, size, name, emoji, mine.iter().any(|k| k == emoji), t) {
                                         pick = Some(Pick::React(*emoji));
                                     }
                                 }

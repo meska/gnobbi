@@ -26,7 +26,7 @@ fn server_message_exposes_its_event_id_and_unsent_one_does_not() {
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None, reply_to: None,
         status: false, status_row: None,
-        utd: false,
+        reactions: Vec::new(), utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }]);

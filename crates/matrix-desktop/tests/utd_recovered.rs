@@ -16,7 +16,7 @@ fn ev(body: &str, utd: bool) -> HistoryEvent {
         thread: None,
         thread_root: None, reply_to: None,
         status: false, status_row: None,
-        utd,
+        utd, reactions: Vec::new(),
         attachment_name: None,
         attachment_size: None,
     }

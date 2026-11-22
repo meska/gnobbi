@@ -25,28 +25,6 @@ fn edited_body_copy_does_not_include_status_annotation() {
 }
 
 #[test]
-fn removed_reaction_disappears_without_redacting_message() {
-    let (mut rows, mut actions) = fixture();
-    ack(
-        &mut actions,
-        Operation::React { key: "+1".into() },
-        "$reaction",
-    );
-    assert!(actions.toggle_reaction("+1", TransactionId::new("remove")));
-    let Some(OperationCommand::Apply(request)) = actions.take_command() else {
-        panic!("remove");
-    };
-    actions.apply(OperationResult::Applied {
-        request,
-        result: Ok(EventId::new("$removed")),
-    });
-    rows.project_operations(actions.confirmed());
-    assert_eq!(rows.events().len(), 1);
-    assert_eq!(rows.events()[0].text, "old");
-    assert_eq!(rows.events()[0].annotation, "");
-}
-
-#[test]
 fn acknowledged_redaction_keeps_placeholder_at_same_identity() {
     let (mut rows, mut actions) = fixture();
     ack(&mut actions, Operation::Redact, "$redaction");
@@ -60,7 +38,7 @@ fn acknowledged_redaction_keeps_placeholder_at_same_identity() {
 }
 
 #[test]
-fn reaction_is_a_separate_idempotent_annotation() {
+fn an_acknowledged_reaction_changes_no_row_the_timeline_shows_it() {
     let (mut rows, mut actions) = fixture();
     ack(
         &mut actions,
@@ -71,7 +49,9 @@ fn reaction_is_a_separate_idempotent_annotation() {
     rows.project_operations(actions.confirmed());
     assert_eq!(rows.events().len(), 1);
     assert_eq!(rows.events()[0].text, "old");
-    assert_eq!(rows.events()[0].annotation, "+1 · tu");
+    // The pill comes from the server's reactions (`DemoEvent::reactions`), not from the acknowledgement.
+    assert_eq!(rows.events()[0].annotation, "");
+    assert!(rows.events()[0].reactions.is_empty());
 }
 
 #[test]
@@ -114,7 +94,7 @@ fn fixture() -> (DemoHistory, LiveOperations) {
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None, reply_to: None,
         status: false, status_row: None,
-        utd: false,
+        reactions: Vec::new(), utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }]);
@@ -172,7 +152,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None, reply_to: None,
         status: false, status_row: None,
-        utd: false,
+        reactions: Vec::new(), utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }]);
@@ -234,7 +214,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None, reply_to: None,
         status: false, status_row: None,
-        utd: false,
+        reactions: Vec::new(), utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }]);
@@ -262,7 +242,7 @@ fn refresh_server_keeps_edited_suffix_on_local_clock_time() {
         thread: None,
         thread_root: None, reply_to: None,
         status: false, status_row: None,
-        utd: false,
+        reactions: Vec::new(), utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }]);

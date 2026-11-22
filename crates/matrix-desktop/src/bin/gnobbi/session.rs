@@ -247,6 +247,8 @@ pub struct Session {
     pub search_jump: Option<(EventId, bool)>,
     /// The message a jump landed on and when: drawn lit for a moment.
     pub flash: Option<(EventId, std::time::Instant)>,
+    /// The «who reacted» popup: the pill it hangs from and the reaction it lists (a snapshot).
+    pub who: Option<(eframe::egui::Rect, matrix_engine::history::Reaction)>,
     media: LiveMedia,
     pub viewer: Option<crate::viewer::Viewer>,
     media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
@@ -413,6 +415,7 @@ impl Session {
             search: matrix_engine::operations::MessageSearchState::Idle,
             search_jump: None,
             flash: None,
+            who: None,
             media: LiveMedia::default(),
             viewer: None,
             media_route,
@@ -1046,6 +1049,7 @@ impl Session {
         if self.op_pending.is_none() && !self.op_queue.is_empty() {
             self.op_pending = Some(self.op_queue.remove(0));
         }
+        self.ops.tick(std::time::Instant::now());
         if self.op_pending.is_none() {
             self.op_pending = self.ops.take_command();
         }
@@ -1738,9 +1742,47 @@ impl Session {
         crate::avatar::lookup(&self.avatars, self.verification.as_ref().and_then(|v| v.profile_avatar()))
     }
 
+    /// The menu chose `key` on the selected message: adds it, or takes ours back when the row already shows it.
     pub fn react(&mut self, key: &str) {
-        self.ops.toggle_reaction(key, matrix_engine::sending::fresh_transaction_id());
+        let mine = self.reacted(key);
+        self.ops.toggle_reaction(key, mine, matrix_engine::sending::fresh_transaction_id());
         self.close_menu_keep_selection();
+    }
+
+    /// The reactions of the selected message as drawn: the server's with the taps on their way.
+    pub fn selected_reactions(&self) -> Vec<matrix_engine::history::Reaction> {
+        #[cfg(debug_assertions)]
+        if let Some(fake) = crate::reactions::fixture() {
+            return fake;
+        }
+        let Some(row) = crate::touch_menu::selected(self) else { return Vec::new() };
+        match &row.id.id {
+            TimelineId::Server(id) => matrix_desktop::overlay_reactions(self.ops.wishes(), id, &row.reactions),
+            _ => row.reactions.clone(),
+        }
+    }
+
+    /// The selected message carries our reaction `key`.
+    pub fn reacted(&self, key: &str) -> bool {
+        self.selected_reactions().iter().any(|r| r.key == key && r.mine)
+    }
+
+    /// What the pills asked for in this frame: a tap adds or takes back ours (shown at once, rolled back if the send fails), a long
+    /// press or right click opens the list of who reacted.
+    pub fn reaction_acts(&mut self, acts: crate::reactions::Acts, ctx: &eframe::egui::Context, t: &matrix_desktop::DesignTokens) {
+        if let (Some((target, key, mine)), Some(scope)) = (acts.toggle, self.draft_scope.clone()) {
+            self.ops.react_direct(scope, target, &key, mine, matrix_engine::sending::fresh_transaction_id());
+        }
+        let fresh = acts.who.is_some();
+        if acts.who.is_some() {
+            self.who = acts.who;
+        }
+        if let Some((at, r)) = &self.who && !crate::reactions::popup(ctx, *at, r, fresh, t) {
+            self.who = None;
+        }
+        if !self.ops.wishes().is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
     }
 
     pub fn end_poll(&mut self) {

@@ -25,7 +25,7 @@ fn live_mapping_carries_sender_id_and_name() {
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None, reply_to: None,
         status: false, status_row: None,
-        utd: false,
+        reactions: Vec::new(), utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }]);
@@ -67,7 +67,7 @@ fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> Hi
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None, reply_to: None,
         status: false, status_row: None,
-        utd: false,
+        reactions: Vec::new(), utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }
@@ -111,7 +111,7 @@ fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
         thread: None,
         thread_root: None, reply_to: None,
         status, status_row: None,
-        utd: false,
+        reactions: Vec::new(), utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     };

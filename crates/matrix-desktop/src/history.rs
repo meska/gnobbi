@@ -78,6 +78,8 @@ pub struct DemoEvent {
     pub status_row: Option<matrix_engine::status_line::StatusRow>,
     /// Could not be decrypted: the row offers «Recupera chiavi» while the recovery is incomplete.
     pub utd: bool,
+    /// Reactions under the message (server state; the pending ones of this session are laid over it at draw time).
+    pub reactions: Vec<matrix_engine::history::Reaction>,
 }
 
 impl DemoEvent {
@@ -186,7 +188,7 @@ impl DemoHistory {
                 DemoEvent {
                     server_confirmed: false,
                     redacted: false,
-                    annotation: String::new(),
+                    annotation: String::new(), reactions: Vec::new(),
                     transaction_id: None,
                     id: ScopedTimelineId {
                         scope: scope.clone(),
@@ -265,7 +267,7 @@ impl DemoHistory {
         self.events.push(DemoEvent {
             server_confirmed: false,
             redacted: false,
-            annotation: String::new(),
+            annotation: String::new(), reactions: Vec::new(),
             transaction_id: None,
             id: ScopedTimelineId {
                 scope: self.scope.clone(),
@@ -357,8 +359,10 @@ impl DemoHistory {
                     || row.highlighted != event.highlighted
                     || row.poll != event.poll
                     || row.media != event.media
-                    || row.redacted != event.redacted)
+                    || row.redacted != event.redacted
+                    || row.reactions != event.reactions)
             {
+                row.reactions.clone_from(&event.reactions);
                 row.media.clone_from(&event.media);
                 row.poll.clone_from(&event.poll);
                 row.redacted = event.redacted;
@@ -418,6 +422,7 @@ impl DemoHistory {
                 server_confirmed: true,
                 redacted: event.redacted,
                 annotation: String::new(),
+                reactions: event.reactions,
                 transaction_id: None,
                 id: ScopedTimelineId {
                     scope: self.scope.clone(),
@@ -546,23 +551,6 @@ impl DemoHistory {
                 row.redacted = true;
                 row.annotation.clear();
             }
-            if let matrix_engine::operations::Operation::React { key } =
-                &operation.request.operation
-                && !operations.iter().any(|redact| {
-                    redact.request.scope == self.scope
-                        && redact.request.target == operation.event_id
-                        && redact.request.operation == matrix_engine::operations::Operation::Redact
-                })
-                && let Some(row) = self
-                    .events
-                    .iter_mut()
-                    .find(|row| row.id.id == TimelineId::Server(operation.request.target.clone()))
-            {
-                if !row.annotation.is_empty() {
-                    row.annotation.push_str(" · ");
-                }
-                row.annotation.push_str(&format!("{key} · tu"));
-            }
             if let matrix_engine::operations::Operation::Reply { body } =
                 &operation.request.operation
                 && !self
@@ -571,7 +559,7 @@ impl DemoHistory {
                     .any(|row| row.id.id == TimelineId::Server(operation.event_id.clone()))
             {
                 self.events.push(DemoEvent {
-                    annotation: String::new(),
+                    annotation: String::new(), reactions: Vec::new(),
                     transaction_id: None,
                     server_confirmed: true,
                     redacted: false,
@@ -659,7 +647,7 @@ impl DemoHistory {
                 }
             } else {
                 self.events.push(DemoEvent {
-                    annotation: String::new(),
+                    annotation: String::new(), reactions: Vec::new(),
                     id: item.identity.clone(),
                     server_confirmed: state.is_none(),
                     redacted: false,

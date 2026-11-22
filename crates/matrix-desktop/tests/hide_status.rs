@@ -22,7 +22,7 @@ fn ev(id: &str, sender: &str, ts: u64, status: bool, mine: bool) -> HistoryEvent
         thread_root: None,
         reply_to: None,
         status, status_row: None,
-        utd: false,
+        reactions: Vec::new(), utd: false,
         attachment_name: None,
         attachment_size: None,
         media: None,

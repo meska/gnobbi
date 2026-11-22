@@ -153,40 +153,65 @@ fn failed_write_remains_retryable_after_inspecting_another_room() {
 }
 
 #[test]
-fn toggling_own_reaction_redacts_its_server_id() {
-    let mut actions = inspected(MessagePermissions {
-        react: true,
-        ..Default::default()
-    });
-    assert!(!actions.reacted("+1"));
-    assert!(actions.toggle_reaction("+1", TransactionId::new("react")));
-    let Some(OperationCommand::Apply(request)) = actions.take_command() else {
-        panic!("react");
-    };
+fn the_menu_toggle_reacts_or_takes_back_by_what_the_row_shows() {
+    let mut actions = inspected(MessagePermissions { react: true, ..Default::default() });
+    assert!(actions.toggle_reaction("+1", false, TransactionId::new("react")));
+    let Some(OperationCommand::Apply(request)) = actions.take_command() else { panic!("react") };
     assert!(request.operation == Operation::React { key: "+1".into() });
-    actions.apply(OperationResult::Applied {
-        request,
-        result: Ok(EventId::new("$reaction")),
-    });
-    // The reaction bar marks it as the user's own; another emoji is not.
-    assert!(actions.reacted("+1") && !actions.reacted("heart"));
-    assert!(actions.toggle_reaction("+1", TransactionId::new("remove")));
-    let Some(OperationCommand::Apply(request)) = actions.take_command() else {
-        panic!("remove");
-    };
-    assert!(request.operation == Operation::Redact);
-    assert_eq!(request.target, EventId::new("$reaction"));
-    actions.apply(OperationResult::Applied {
-        request,
-        result: Ok(EventId::new("$removal")),
-    });
-    // Removed: no longer marked, and the next tap reacts again.
-    assert!(!actions.reacted("+1"));
-    assert!(actions.toggle_reaction("+1", TransactionId::new("again")));
-    let Some(OperationCommand::Apply(request)) = actions.take_command() else {
-        panic!("again");
-    };
-    assert!(request.operation == Operation::React { key: "+1".into() });
+    actions.apply(OperationResult::Applied { request, result: Ok(EventId::new("$reaction")) });
+    // The row now says the reaction is ours (even one made in an earlier session): the same emoji takes it back.
+    assert!(actions.toggle_reaction("+1", true, TransactionId::new("remove")));
+    let Some(OperationCommand::Apply(request)) = actions.take_command() else { panic!("remove") };
+    assert!(request.operation == Operation::Unreact { key: "+1".into() });
+}
+
+fn reaction(key: &str, count: usize, mine: bool) -> matrix_engine::history::Reaction {
+    matrix_engine::history::Reaction { key: key.into(), count, senders: Vec::new(), mine, pending: false }
+}
+
+#[test]
+fn a_pill_tap_shows_at_once_and_rolls_back_when_the_send_fails() {
+    use matrix_desktop::overlay_reactions as overlay;
+    let mut actions = LiveOperations::default();
+    let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:test") };
+    let target = EventId::new("$m");
+    let server = vec![reaction("👍", 2, false)];
+    assert!(actions.react_direct(scope.clone(), target.clone(), "👍", false, TransactionId::new("t1")));
+    assert!(!actions.react_direct(scope.clone(), target.clone(), "👍", false, TransactionId::new("t2")), "one wish per pill");
+    let shown = overlay(actions.wishes(), &target, &server);
+    assert_eq!((shown[0].count, shown[0].mine, shown[0].pending), (3, true, true));
+    // A new emoji appears after the others; another message is untouched.
+    assert!(actions.react_direct(scope.clone(), target.clone(), "🎉", false, TransactionId::new("t3")) == false, "the command slot is busy");
+    assert_eq!(overlay(actions.wishes(), &EventId::new("$other"), &server), server);
+    let Some(OperationCommand::Apply(request)) = actions.take_command() else { panic!("apply") };
+    assert!(request.operation == Operation::React { key: "👍".into() });
+    actions.apply(OperationResult::Applied { request, result: Err(OperationError::Transport) });
+    assert_eq!(overlay(actions.wishes(), &target, &server), server, "rolled back");
+}
+
+#[test]
+fn taking_a_pill_back_drops_it_at_zero_and_a_wish_the_server_met_changes_nothing() {
+    use matrix_desktop::overlay_reactions as overlay;
+    let mut actions = LiveOperations::default();
+    let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:test") };
+    let target = EventId::new("$m");
+    assert!(actions.react_direct(scope, target.clone(), "👍", true, TransactionId::new("t1")));
+    let alone = vec![reaction("👍", 1, true), reaction("🎉", 1, false)];
+    let shown = overlay(actions.wishes(), &target, &alone);
+    assert_eq!(shown.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["🎉"]);
+    let shared = vec![reaction("👍", 3, true)];
+    let shown = overlay(actions.wishes(), &target, &shared);
+    assert_eq!((shown[0].count, shown[0].mine, shown[0].pending), (2, false, true));
+    // The server already shows it gone: nothing changes.
+    let gone = vec![reaction("👍", 2, false)];
+    assert_eq!(overlay(actions.wishes(), &target, &gone), gone);
+    let Some(OperationCommand::Apply(request)) = actions.take_command() else { panic!("apply") };
+    assert!(request.operation == Operation::Unreact { key: "👍".into() });
+    actions.apply(OperationResult::Applied { request, result: Ok(EventId::new("$removed")) });
+    actions.tick(std::time::Instant::now());
+    assert_eq!(actions.wishes().len(), 1, "kept a few seconds for the timeline to catch up");
+    actions.tick(std::time::Instant::now() + std::time::Duration::from_secs(9));
+    assert!(actions.wishes().is_empty());
 }
 
 #[test]

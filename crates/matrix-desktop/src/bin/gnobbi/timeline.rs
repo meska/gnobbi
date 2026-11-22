@@ -27,6 +27,10 @@ pub struct Acts {
     pub held: Option<egui::Rect>,
     /// The viewport of the list.
     pub view: Option<egui::Rect>,
+    /// Taps of this session on reaction pills not yet shown by the server (set by the app before drawing).
+    pub wishes: Vec<matrix_desktop::Wish>,
+    /// What the pills asked for this frame.
+    pub react: crate::reactions::Acts,
 }
 
 /// Where the menu was asked for on the bubble `rect` this frame: a right click, or a long press (`acts.held` then carries the bubble).
@@ -74,6 +78,17 @@ pub(crate) fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWe
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_change_of_reactions_moves_the_cached_height_by_the_difference() {
+        let (mut stored, id) = (std::collections::HashMap::new(), matrix_domain::EventId::new("$a"));
+        // Pills appear under a row measured without them, grow to a second line, stay, then all go.
+        assert_eq!(super::pill_shift(&mut stored, &id, 28., 100.), 128.);
+        assert_eq!(super::pill_shift(&mut stored, &id, 28., 128.), 128., "unchanged: the measured height stands");
+        assert_eq!(super::pill_shift(&mut stored, &id, 56., 128.), 156.);
+        assert_eq!(super::pill_shift(&mut stored, &id, 0., 156.), 100.);
+        assert!(stored.is_empty());
+    }
+
     #[test]
     fn prepended_page_shifts_measured_heights() {
         let (mut rows, mut first) = (vec![10., 20.], None);
@@ -178,6 +193,8 @@ pub struct Heights {
     pub restore_unread: bool,
     /// The row the «new messages» line stands above (kept until the room is left).
     pub divider: Option<matrix_domain::EventId>,
+    /// Height of the reaction pills each row was last laid out with: a row out of view is not measured again, so a change moves its cached height by the difference.
+    pills: std::collections::HashMap<matrix_domain::EventId, f32>,
     /// Rows whose bottom edge is in view this frame, as (index, event id): what the read marker may follow.
     pub visible: Vec<(usize, matrix_domain::EventId)>,
     /// Unread rows are in view and their receipt is pending: keep drawing until it goes out.
@@ -310,6 +327,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
     let max = ((ui.available_width() - side) * 0.85).clamp(120., MAX_BUBBLE);
     let layout = if e.outgoing { crate::dir::row_rev(Align::TOP) } else { crate::dir::row(Align::TOP) };
     let mut opened = None;
+    let mut bubble = egui::Rect::NOTHING;
     let mut save = false;
     let mut thread = false;
     ui.with_layout(layout, |ui| {
@@ -529,8 +547,34 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             paint_avatar(ui, egui::Rect::from_min_size(egui::pos2(column.left(), frame.response.rect.bottom() - 32.), Vec2::splat(32.)), &pic, &initials, 12., t);
         }
         opened = menu_at(ui, frame.response.rect, e, acts);
+        bubble = frame.response.rect;
     });
+    let shown = reactions_of(e, &acts.wishes);
+    crate::reactions::show(ui, e, &shown, group, bubble, acts.press, &mut acts.react, t);
     (opened, save, thread)
+}
+
+/// The cached height of a row whose pills now take `ph`: moved by the difference from what they took when it was last laid out
+/// (rows out of view are not measured again). `stored` remembers the pill height per row, only while there are pills.
+fn pill_shift(stored: &mut std::collections::HashMap<matrix_domain::EventId, f32>, id: &matrix_domain::EventId, ph: f32, row: f32) -> f32 {
+    let old = stored.get(id).copied().unwrap_or(0.);
+    if (ph - old).abs() <= 0.5 {
+        return row;
+    }
+    if ph > 0. { stored.insert(id.clone(), ph); } else { stored.remove(id); }
+    (row + ph - old).max(0.)
+}
+
+/// The reactions to draw under `e`: the server's with the taps of this session on their way laid over.
+fn reactions_of<'a>(e: &'a DemoEvent, wishes: &[matrix_desktop::Wish]) -> std::borrow::Cow<'a, [matrix_engine::history::Reaction]> {
+    #[cfg(debug_assertions)]
+    if !e.status && !e.redacted && let Some(fake) = crate::reactions::fixture() {
+        return fake.into();
+    }
+    match &e.id.id {
+        matrix_domain::TimelineId::Server(id) if !wishes.is_empty() => matrix_desktop::overlay_reactions(wishes, id, &e.reactions).into(),
+        _ => (&e.reactions[..]).into(),
+    }
 }
 
 /// «Name (@id)» as the engine writes an ambiguous sender: the name alone and whether the id was there.
@@ -650,6 +694,10 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
             }
         }
         for (i, e) in events.iter().enumerate() {
+            if let (matrix_domain::TimelineId::Server(id), false, false) = (&e.id.id, e.status, e.redacted) {
+                let ph = crate::reactions::height(ui, &reactions_of(e, &acts.wishes), e.outgoing, members > 2, ui.available_width());
+                heights.rows[i] = pill_shift(&mut heights.pills, id, ph, heights.rows[i]);
+            }
             let h = heights.rows[i];
             // Space below row i: tight when the next bubble belongs to the same group.
             let gap = if glued(i + 1) { TIGHT } else { GAP };
@@ -678,7 +726,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
                         ui.set_style(style);
                         ui.set_min_width(line.width());
                         ui.set_max_width(line.width());
-                        let mut inert = Acts { now_playing: acts.now_playing.clone(), lift: Some(lift), ..Default::default() };
+                        let mut inert = Acts { now_playing: acts.now_playing.clone(), lift: Some(lift), wishes: acts.wishes.clone(), ..Default::default() };
                         row(ui, e, pictures, avatars, &mut inert, label.as_deref(), (glued(i), glued(i + 1)), members > 2, None, readers.get(&i).map_or(&[][..], Vec::as_slice), t);
                     });
                 }

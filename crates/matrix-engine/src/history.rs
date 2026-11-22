@@ -158,6 +158,100 @@ pub struct HistoryEvent {
     pub poll: Option<matrix_domain::Poll>,
     /// The event could not be decrypted (no keys): the only rows a key recovery can fix.
     pub utd: bool,
+    /// The reactions under the message, in order of first appearance.
+    pub reactions: Vec<Reaction>,
+}
+
+/// Names kept per reaction: the popup shows 10 and «+N»; `Reaction::count` is the true number.
+pub const MAX_REACTION_SENDERS: usize = 20;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReactionSender {
+    pub user_id: String,
+    pub name: Option<String>,
+}
+
+/// One emoji under a message. `pending`: our own reaction is still on its way to the server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reaction {
+    pub key: String,
+    pub count: usize,
+    pub senders: Vec<ReactionSender>,
+    pub mine: bool,
+    pub pending: bool,
+}
+
+/// Groups `(key, [(user, pending)])` as the Timeline holds them (first appearance order). A sender
+/// counts once per key; empty keys and groups are dropped (a redacted reaction leaves the group).
+pub fn aggregate_reactions(groups: Vec<(String, Vec<(String, bool)>)>, me: &str) -> Vec<Reaction> {
+    let mut out: Vec<Reaction> = Vec::new();
+    for (key, who) in groups {
+        if key.is_empty() {
+            continue;
+        }
+        let at = match out.iter().position(|r| r.key == key) {
+            Some(at) => at,
+            None => {
+                out.push(Reaction { key, count: 0, senders: Vec::new(), mine: false, pending: false });
+                out.len() - 1
+            }
+        };
+        let r = &mut out[at];
+        for (user, pending) in who {
+            if r.senders.iter().any(|s| s.user_id == user) {
+                continue;
+            }
+            r.count += 1;
+            if user == me {
+                r.mine = true;
+                r.pending = pending;
+            }
+            if r.senders.len() < MAX_REACTION_SENDERS {
+                r.senders.push(ReactionSender { user_id: user, name: None });
+            }
+        }
+    }
+    out.retain(|r| r.count > 0);
+    out
+}
+
+#[cfg(test)]
+mod reaction_tests {
+    use super::*;
+    fn g(key: &str, who: &[(&str, bool)]) -> (String, Vec<(String, bool)>) {
+        (key.into(), who.iter().map(|(u, p)| ((*u).into(), *p)).collect())
+    }
+
+    #[test]
+    fn counts_flags_and_keeps_first_appearance_order() {
+        let r = aggregate_reactions(vec![g("🎉", &[("@b:t", false)]), g("👍", &[("@a:t", false), ("@b:t", false)])], "@a:t");
+        assert_eq!(r.iter().map(|r| (r.key.as_str(), r.count, r.mine)).collect::<Vec<_>>(), [("🎉", 1, false), ("👍", 2, true)]);
+        assert_eq!(r[1].senders[0].user_id, "@a:t");
+    }
+
+    #[test]
+    fn the_same_sender_counts_once_and_the_same_key_merges() {
+        let r = aggregate_reactions(vec![g("👍", &[("@b:t", false), ("@b:t", false)]), g("👍", &[("@c:t", false)])], "@a:t");
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].count, 2);
+        assert!(!r[0].mine);
+    }
+
+    #[test]
+    fn a_removed_reaction_leaves_nothing_and_pending_is_only_ours() {
+        assert!(aggregate_reactions(vec![g("👍", &[]), g("", &[("@b:t", false)])], "@a:t").is_empty());
+        let r = aggregate_reactions(vec![g("👍", &[("@a:t", true), ("@b:t", true)])], "@a:t");
+        assert!(r[0].mine && r[0].pending);
+        let r = aggregate_reactions(vec![g("👍", &[("@b:t", true)])], "@a:t");
+        assert!(!r[0].pending);
+    }
+
+    #[test]
+    fn names_are_capped_but_the_count_is_true() {
+        let who: Vec<(String, bool)> = (0..30).map(|n| (format!("@u{n}:t"), false)).collect();
+        let r = aggregate_reactions(vec![("👍".into(), who)], "@a:t");
+        assert_eq!((r[0].count, r[0].senders.len()), (30, MAX_REACTION_SENDERS));
+    }
 }
 
 /// The message a reply answers. `author`/`preview` are None unless `state` is `Resolved`.

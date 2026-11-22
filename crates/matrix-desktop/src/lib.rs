@@ -91,7 +91,7 @@ pub use voice::{max_note_samples, voice_attachment};
 mod live_media;
 pub use live_media::LiveMedia;
 mod live_operations;
-pub use live_operations::LiveOperations;
+pub use live_operations::{LiveOperations, Wish, overlay as overlay_reactions};
 pub mod read_track;
 mod live_history;
 pub use live_history::{HistorySession, HistoryStatus, SETTLE};

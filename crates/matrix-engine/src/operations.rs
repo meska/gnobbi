@@ -6,6 +6,8 @@ pub enum Operation {
     Reply { body: String },
     Edit { body: String },
     React { key: String },
+    /// Take back our own reaction `key` on `target`, whenever it was sent (the SDK shows no event ID for a confirmed one).
+    Unreact { key: String },
     Redact,
     /// Replace own votes with these option ids (empty = withdraw). `target` is the poll start.
     Vote { answers: Vec<String> },
@@ -2071,7 +2073,7 @@ async fn perform_uncached(
     }
     let text = match &request.operation {
         Operation::Reply { body } | Operation::Edit { body } => Some(body),
-        Operation::React { key } => Some(key),
+        Operation::React { key } | Operation::Unreact { key } => Some(key),
         Operation::Redact | Operation::EndPoll | Operation::Vote { .. } => None,
     };
     if matches!(&request.operation, Operation::Vote { answers } if answers.len() > 20 || answers.iter().any(|a| a.chars().count() > 340)) {
@@ -2183,6 +2185,16 @@ async fn perform_uncached(
                     && r["key"].as_str() == Some(key.as_str())
             })
             .await
+        }
+        Operation::Unreact { key } => {
+            // On a retry the reaction may already be gone: then only the redaction (our txn as proof) tells.
+            let reaction = match own_reaction(&room, user, &target, key).await {
+                Ok(id) => id,
+                Err(_) if retry => return Err(OperationError::Transport),
+                Err(e) => return Err(e),
+            };
+            let request = OperationRequest { target: reaction, operation: Operation::Redact, ..request.clone() };
+            redact_reaction(&room, user, &request, retry).await
         }
         Operation::Edit { body } => {
             let item = item.ok_or(OperationError::Unavailable)?;

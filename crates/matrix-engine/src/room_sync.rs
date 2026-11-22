@@ -1935,6 +1935,37 @@ fn utd_cause_text(cause: matrix_sdk_crypto::types::events::UtdCause) -> &'static
     }
 }
 
+/// The reactions of one message with the names of who reacted (looked up once per `loaded`).
+async fn reactions_of(
+    room: &matrix_sdk::Room,
+    content: &matrix_sdk_ui::timeline::MsgLikeContent,
+    names: &mut std::collections::HashMap<String, Option<String>>,
+) -> Vec<crate::history::Reaction> {
+    use matrix_sdk_ui::timeline::EventSendState;
+    let groups = content
+        .reactions
+        .iter()
+        .map(|(key, by)| {
+            let who = by
+                .iter()
+                .map(|(user, info)| (user.to_string(), info.send_state.as_ref().is_some_and(|s| !matches!(s, EventSendState::Sent { .. }))))
+                .collect();
+            (key.clone(), who)
+        })
+        .collect();
+    let mut all = crate::history::aggregate_reactions(groups, room.own_user_id().as_str());
+    for sender in all.iter_mut().flat_map(|r| r.senders.iter_mut()) {
+        if !names.contains_key(&sender.user_id)
+            && let Ok(user) = matrix_sdk::ruma::UserId::parse(sender.user_id.as_str())
+        {
+            let found = history_sender(room, &user).await.name;
+            names.insert(sender.user_id.clone(), found);
+        }
+        sender.name = names.get(&sender.user_id).cloned().flatten();
+    }
+    all
+}
+
 /// Translate the items. Never downloads: media rows keep only the sources of the event.
 pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<matrix_sdk_ui::timeline::Timeline>) -> Loaded {
     use crate::history::{HistoryEvent, ReactionCount};
@@ -1945,6 +1976,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
         at_start: false,
     };
     let items = timeline.items().await;
+    let mut names = std::collections::HashMap::new();
     // The originals of replies that are already loaded (what a click on the quote scrolls to).
     let by_id: std::collections::HashMap<&str, &matrix_sdk_ui::timeline::EventTimelineItem> =
         items.iter().filter_map(|i| i.as_event()).filter_map(|e| Some((e.event_id()?.as_str(), e))).collect();
@@ -2040,6 +2072,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
                     count: senders.len(),
                 }),
         );
+        let reactions = reactions_of(room, content, &mut names).await;
         out.rows.push(HistoryEvent {
             event_id: matrix_domain::EventId::new(id.as_str()),
             body,
@@ -2061,7 +2094,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
             },
             status: false,
             status_row: None,
-            utd: matches!(content.kind, MsgLikeKind::UnableToDecrypt(_)),
+            reactions, utd: matches!(content.kind, MsgLikeKind::UnableToDecrypt(_)),
             attachment_name,
             attachment_size,
             poll,
@@ -2288,7 +2321,7 @@ async fn status_row(
         reply_to: None,
         status: true,
         status_row: Some(StatusRow { status, actor: label(&actor), subject, reason }),
-        utd: false,
+        reactions: Vec::new(), utd: false,
         attachment_name: None,
         attachment_size: None,
     })
