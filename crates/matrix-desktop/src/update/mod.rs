@@ -2,6 +2,7 @@
 pub mod channel;
 pub mod label;
 pub mod check;
+pub mod github;
 pub mod scheduler;
 pub mod verify;
 pub mod startup;

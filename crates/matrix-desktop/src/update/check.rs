@@ -8,7 +8,7 @@
 use super::verify::{
     Candidate, MAX_MANIFEST_BYTES, UpdateError, UpdateKeys, VerifiedManifest, authenticate_manifest,
 };
-use super::{build_number, effective_base};
+use super::{build_number, effective_base, github};
 use crate::{AppDirs, Preferences};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -123,6 +123,20 @@ pub(super) async fn run(
     if !go {
         return Ok(Outcome::NoUpdate);
     }
+    // GitHub Releases first, only for the default source (a custom `update_base` is a mirror).
+    // The site answers only when GitHub is unreachable or failing server-side.
+    if prefs.update_base.is_none() {
+        match github::fetch(platform, crate::build_info::BUILD_INFO.version).await {
+            Ok(None) => return Ok(Outcome::NoUpdate),
+            Ok(Some(f)) => {
+                let (build, url) = (f.candidate.build, f.url);
+                let candidate = Some(f.candidate).filter(|c| c.build > running_build);
+                return commit(dirs, &base, build, candidate, Some(url));
+            }
+            Err(CheckError::Network | CheckError::Status(500..=599)) => eprintln!("update: GitHub unavailable, trying the site"),
+            Err(e) => return Err(e),
+        }
+    }
     let verified = fetch(&base, keys, now).await?;
     let build = verified.build;
     // Every authenticated manifest raises the floor (B3), even without our artifact.
@@ -131,7 +145,7 @@ pub(super) async fn run(
         Err(UpdateError::NotNewer { .. } | UpdateError::NoArtifact) => (None, None),
         Err(e) => (None, Some(CheckError::Verify(e))),
     };
-    let outcome = commit(dirs, &base, build, candidate)?;
+    let outcome = commit(dirs, &base, build, candidate, None)?;
     error.map_or(Ok(outcome), Err)
 }
 
@@ -183,6 +197,7 @@ fn commit(
     base: &str,
     build: u64,
     candidate: Option<Candidate>,
+    url: Option<String>,
 ) -> Result<Outcome, CheckError> {
     let mut outcome = Outcome::NoUpdate;
     Preferences::update(dirs, |prefs| {
@@ -200,7 +215,7 @@ fn commit(
             outcome = Outcome::Candidate(Offer {
                 version: c.version,
                 build: c.build,
-                url: format!("{base}{}", c.file_name),
+                url: url.unwrap_or_else(|| format!("{base}{}", c.file_name)),
                 sha256: c.sha256,
                 size: c.size,
             });

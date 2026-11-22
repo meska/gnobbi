@@ -133,7 +133,7 @@ mod online {
         static ATTEMPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let id = ATTEMPT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let staging = target(channel).with_file_name(format!(".gnobbi.{}.{}.{}.new", c.build, std::process::id(), id));
-        let client = match reqwest::Client::builder().user_agent("Gnobbi").connect_timeout(READ_TIMEOUT).read_timeout(READ_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build() {
+        let client = match reqwest::Client::builder().user_agent("Gnobbi").connect_timeout(READ_TIMEOUT).read_timeout(READ_TIMEOUT).redirect(crate::update::github::redirect_policy()).build() {
             Ok(c) => c,
             Err(e) => return eprintln!("update: client: {e}"),
         };
