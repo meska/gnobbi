@@ -105,7 +105,34 @@ pub enum TextSize {
 }
 
 /// The interface scale stays in this range whatever the system or the choice says.
-pub const SCALE_RANGE: (f32, f32) = (0.8, 2.0);
+pub const SCALE_RANGE: (f32, f32) = (0.8, 3.2); // up to iOS accessibility XXXL (3.12)
+
+/// Narrowest layout (UI points) the phone screens keep usable (composer, headers, rail); a bigger zoom would push buttons off screen.
+const MIN_UI_WIDTH: f32 = 300.; // measured on a 402 pt iPhone: 250 pushes the composer microphone off screen, 290 clips it, 298 (xxxL) fits
+
+/// `zoom` limited so a screen `screen_width` points wide (unzoomed, 0 = unknown) still lays out in `MIN_UI_WIDTH`. Touch screens only.
+pub fn fit_zoom(zoom: f32, screen_width: f32) -> f32 {
+    if screen_width > 0. { zoom.min((screen_width / MIN_UI_WIDTH).max(1.)) } else { zoom }
+}
+
+/// Apple's Dynamic Type curve for body text (17 pt = 1.0, `UIFontMetrics`), from a `UIContentSizeCategory` name.
+/// Unknown or unreadable = 1.0.
+pub fn dynamic_type_scale(category: &str) -> f32 {
+    match category.trim_start_matches("UICTContentSizeCategory") {
+        "XS" => 0.82,
+        "S" => 0.88,
+        "M" => 0.94,
+        "XL" => 1.12,
+        "XXL" => 1.24,
+        "XXXL" => 1.35,
+        "AccessibilityM" => 1.6,
+        "AccessibilityL" => 1.9,
+        "AccessibilityXL" => 2.35,
+        "AccessibilityXXL" => 2.76,
+        "AccessibilityXXXL" => 3.12,
+        _ => 1.,
+    }
+}
 
 impl TextSize {
     pub const ALL: [TextSize; 4] = [TextSize::System, TextSize::Small, TextSize::Normal, TextSize::Large];
@@ -820,6 +847,21 @@ mod scale_tests {
     }
 
     #[test]
+    fn dynamic_type_categories_follow_apples_curve_and_combine_with_the_choice() {
+        let f = |c: &str| dynamic_type_scale(&format!("UICTContentSizeCategory{c}"));
+        assert_eq!((f("XS"), f("L"), f("XXXL"), f("AccessibilityXL"), f("AccessibilityXXXL")), (0.82, 1., 1.35, 2.35, 3.12));
+        assert_eq!(dynamic_type_scale("garbage"), 1.);
+        assert_eq!(TextSize::System.zoom(f("AccessibilityXXXL")), 3.12);
+        // a manual choice ignores the system size, in both directions
+        assert_eq!((TextSize::Large.zoom(f("AccessibilityXL")), TextSize::Small.zoom(f("XS"))), (1.15, 0.9));
+    }
+
+    #[test]
+    fn zoom_never_squeezes_the_layout_below_the_minimum_width() {
+        assert_eq!((fit_zoom(3.12, 402.), fit_zoom(1.2, 402.), fit_zoom(3.12, 0.), fit_zoom(2., 200.)), (402. / 300., 1.2, 3.12, 1.));
+    }
+
+    #[test]
     fn levels_map_to_growing_measures() {
         let [s, c, n, k] = Density::ALL.map(Density::metrics);
         assert_eq!(s, n, "follow the text = the standard measures");
@@ -832,7 +874,7 @@ mod scale_tests {
     #[test]
     fn final_scale_is_the_system_factor_or_the_override_clamped() {
         assert_eq!(TextSize::System.zoom(1.25), 1.25);
-        assert_eq!(TextSize::System.zoom(3.), 2.);
+        assert_eq!(TextSize::System.zoom(5.), 3.2);
         assert_eq!(TextSize::System.zoom(0.5), 0.8);
         for bad in [0., -1., f32::NAN, f32::INFINITY] {
             assert_eq!(TextSize::System.zoom(bad), 1., "unreadable = 1.0");

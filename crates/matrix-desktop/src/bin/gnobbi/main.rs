@@ -139,7 +139,7 @@ struct App {
     theme: Theme,
     tokens: DesignTokens,
     /// What `visuals` was last built for: rebuilt only when it changes.
-    applied: Option<(Theme, u32, matrix_desktop::TextSize, matrix_desktop::Density, u32)>,
+    applied: Option<(Theme, u32, matrix_desktop::TextSize, matrix_desktop::Density, u32, u32)>,
     /// OS text scale (1.0 when unknown), read at start and when the window regains focus.
     system_scale: f32,
     was_focused: bool,
@@ -454,13 +454,13 @@ impl App {
     fn refresh(&mut self, ctx: &egui::Context) {
         let system_dark = ctx.system_theme().is_some_and(|t| t == egui::Theme::Dark);
         let focused = ctx.input(|i| i.focused);
-        if focused && !self.was_focused {
+        if cfg!(target_os = "ios") || (focused && !self.was_focused) {
             self.system_scale = metrics::system_scale();
         }
         self.was_focused = focused;
         self.theme = self.prefs.effective_theme(system_dark, matrix_desktop::local_hour());
         self.tokens = self.theme.tokens_with(self.prefs.effective_accent());
-        let key = (self.theme, self.tokens.accent, self.prefs.text_size, self.prefs.density, self.system_scale.to_bits());
+        let key = (self.theme, self.tokens.accent, self.prefs.text_size, self.prefs.density, self.system_scale.to_bits(), (ctx.content_rect().width() * ctx.zoom_factor()).round() as u32); // the width: a rotation changes the zoom the screen allows
         if self.applied != Some(key) {
             ctx.set_visuals(visuals(&self.tokens, self.theme.is_dark()));
             metrics::apply(ctx, &self.prefs, self.system_scale);
@@ -1943,7 +1943,7 @@ impl App {
             // Scrolls when the keyboard (it shrinks the content rect) or a large text size leaves too little room.
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 let m = crate::metrics::get();
-                let width = (ui.available_width() - 2. * m.gap * 3.).clamp(200., 400.);
+                let width = (ui.available_width() - 2. * m.gap * 3.).clamp(200., 400.).min(ui.available_width()); // never wider than the screen at a huge text size
                 let height_id = egui::Id::new("signin_height");
                 let last = ui.data(|d| d.get_temp::<f32>(height_id)).unwrap_or(0.);
                 ui.add_space(((room - last) / 2.).max(m.gap * 3.));
@@ -2532,6 +2532,7 @@ fn main() -> eframe::Result {
         {
             mobile::observe_keyboard(&cc.egui_ctx);
             mobile::observe_lifecycle(&cc.egui_ctx);
+            metrics::observe_text_size(&cc.egui_ctx);
         }
         #[cfg(target_os = "ios")]
         pick::purge_temp();

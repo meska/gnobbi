@@ -19,7 +19,10 @@ pub fn button() -> f32 {
 /// Makes `prefs` the scale in use: zoom for the text, one style for every standard button, the text styles.
 pub fn apply(ctx: &egui::Context, prefs: &Preferences, system: f32) {
     LEVEL.store(Density::ALL.iter().position(|d| *d == prefs.density).unwrap_or(0) as u8, Ordering::Relaxed);
-    let zoom = prefs.text_size.zoom(system);
+    let mut zoom = prefs.text_size.zoom(system);
+    if cfg!(target_os = "ios") {
+        zoom = matrix_desktop::fit_zoom(zoom, ctx.content_rect().width() * ctx.zoom_factor()); // screen width in points, whatever the zoom now is
+    }
     ctx.set_zoom_factor(zoom);
     // Viewport commands are in UI points (zoomed): the same 436 x 420 UI points are a bigger window as the zoom grows, so the layout minimum always fits.
     ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(crate::MIN_WIDTH, crate::MIN_HEIGHT)));
@@ -49,14 +52,38 @@ pub fn system_scale() -> f32 {
     if let Some(v) = std::env::var("GNOBBI_EGUI_SYSTEM_SCALE").ok().and_then(|v| v.parse::<f32>().ok()) {
         return v; // test hook, debug builds only
     }
+    #[cfg(target_os = "ios")]
+    return ios_scale();
+    #[cfg(not(target_os = "ios"))]
     let run = |cmd: &str, args: &[&str]| std::process::Command::new(cmd).args(args).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
     #[cfg(target_os = "linux")]
     let read = run("gsettings", &["get", "org.gnome.desktop.interface", "text-scaling-factor"]).and_then(|o| matrix_desktop::parse_gsettings_scale(&o));
     #[cfg(target_os = "windows")]
     let read = run("reg", &["query", r"HKCU\SOFTWARE\Microsoft\Accessibility", "/v", "TextScaleFactor"]).and_then(|o| matrix_desktop::parse_windows_text_scale(&o));
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "ios")))]
     let read: Option<f32> = { let _ = run; None };
+    #[cfg(not(target_os = "ios"))]
     read.unwrap_or(1.)
+}
+
+/// iOS Dynamic Type: the app's preferred content size category, mapped on Apple's body-text curve.
+#[cfg(target_os = "ios")]
+fn ios_scale() -> f32 {
+    use objc2::{MainThreadMarker, msg_send, rc::Retained};
+    use objc2_foundation::NSString;
+    use objc2_ui_kit::UIApplication;
+    let Some(mtm) = MainThreadMarker::new() else { return 1. };
+    let category: Option<Retained<NSString>> = unsafe { msg_send![&*UIApplication::sharedApplication(mtm), preferredContentSizeCategory] };
+    category.map_or(1., |c| matrix_desktop::dynamic_type_scale(&c.to_string()))
+}
+
+/// Repaints when the user changes Dynamic Type while the app runs (`refresh` re-reads the category every frame on iOS).
+#[cfg(target_os = "ios")]
+pub fn observe_text_size(ctx: &egui::Context) {
+    use objc2_foundation::{NSNotification, NSNotificationCenter, NSString};
+    let ctx = ctx.clone();
+    let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| ctx.request_repaint());
+    let _ = unsafe { NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(Some(&NSString::from_str("UIContentSizeCategoryDidChangeNotification")), None, None, &block) };
 }
 
 /// A single-line field whose text sits on the middle of the box (the fields are as tall as the buttons).

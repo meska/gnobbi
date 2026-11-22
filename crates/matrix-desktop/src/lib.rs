@@ -64,7 +64,7 @@ mod rail_layout;
 mod room_status;
 pub use room_status::{RoomStatusChoices, StatusChoice};
 pub use preferences::{
-    AutoNight, Density, FontChoice, IconChoice, Metrics, Preferences, SCALE_RANGE, TextSize, Theme, parse_gsettings_scale, parse_windows_text_scale, is_night_hour, local_hour, set_font,
+    AutoNight, Density, FontChoice, IconChoice, Metrics, Preferences, SCALE_RANGE, TextSize, dynamic_type_scale, fit_zoom, Theme, parse_gsettings_scale, parse_windows_text_scale, is_night_hour, local_hour, set_font,
     ui_font,
 };
 pub use rail_layout::{RailLayout, RailLayouts};
