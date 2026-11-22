@@ -1998,7 +1998,7 @@ pub(crate) async fn perform(
             return Err(OperationError::InvalidInput);
         }
         // shortcut: 128 unconfirmed-or-kept intents per session; replies and edits evict a confirmed
-        // one instead of refusing. Use a durable journal (P283a) before lifting this cap.
+        // one instead of refusing. Use a durable journal before lifting this cap.
         if state.requests.len() >= 128 {
             let confirmed = state.requests.iter().position(|(_, e, _)| e.is_some());
             match (&request.operation, confirmed) {

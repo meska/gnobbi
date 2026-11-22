@@ -321,7 +321,7 @@ fn body(event: &ThreadListItemEvent) -> Option<String> {
 }
 
 pub(crate) async fn list(room: matrix_sdk::Room) -> Result<Vec<ThreadSummary>, HistoryError> {
-    // shortcut: one page and no live updates; the list view (P331+) subscribes to the service.
+    // shortcut: one page and no live updates; the list view subscribes to the service.
     let service = ThreadListService::new(room);
     service.paginate().await.map_err(|_| HistoryError::Transport)?;
     Ok(service

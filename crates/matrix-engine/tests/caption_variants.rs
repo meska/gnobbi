@@ -1,6 +1,6 @@
-//! Caption variants (P0FG): what ruma's media caption accessors return for each
+//! Caption variants: what ruma's media caption accessors return for each
 //! raw event shape the disposable Synapse/Tuwunel probe stored as fixtures
-//! (the caption_variants script, artifacts/P0FG). Reception code today
+//! using the caption_variants script. Reception code today
 //! (room_sync.rs message_label/message_rich) reads none of these, so this test
 //! is the reusable contract for the caption feature: for every variant and
 //! media msgtype, filename()/caption()/formatted_caption() must match the spec

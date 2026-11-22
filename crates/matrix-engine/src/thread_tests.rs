@@ -1,4 +1,4 @@
-/// P282b: thread view (`TimelineFocus::Thread`) and thread list (`ThreadListService`) through RoomSync.
+/// Thread view (`TimelineFocus::Thread`) and thread list (`ThreadListService`) through RoomSync.
 /// Run: `python3 the auth_smoke script --filter disposable_thread_`
 #[test]
 #[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
@@ -43,13 +43,13 @@ fn disposable_thread_view_and_list_through_the_timeline() {
         let list = sync.thread_list(&scope).await;
         let summary = list.as_ref().ok().and_then(|l| l.iter().find(|t| t.root == root_id));
         // Probe output first: Tuwunel 1.9.4 limits are reported from here, not hidden.
-        println!("P282B_THREAD {}", serde_json::json!({"replies": replies, "root_found": page.root.is_some(),
+        println!("THREAD {}", serde_json::json!({"replies": replies, "root_found": page.root.is_some(),
             "at_start": page.at_start, "list_ok": list.is_ok(), "list_len": list.as_ref().map(|l| l.len()).ok(),
             "num_replies": summary.map(|s| s.num_replies), "latest": summary.and_then(|s| s.latest_body.clone())}));
         assert_eq!(replies, ["reply one", "reply two"], "only the thread's events, oldest first");
         assert_eq!(page.root.as_ref().map(|r| r.body.as_str()), Some("root"), "root from the room's timeline");
         let counted = |page: &crate::threads::ThreadPage| page.root.as_ref().and_then(|r| r.thread.as_ref()).map(|t| t.num_replies);
-        println!("P331_COUNT before={:?}", counted(&page));
+        println!("THREAD_COUNT before={:?}", counted(&page));
         // A third reply arrives while the sync runs: the root's summary must follow on its own.
         sync.sliding_round_after(async { send("bob", "thr-r3", "reply three", Some(root.clone())).await; }).await.unwrap();
         let mut live = None;
@@ -60,7 +60,7 @@ fn disposable_thread_view_and_list_through_the_timeline() {
             if live == Some(3) { break; }
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
-        println!("P331_COUNT after={live:?}");
+        println!("THREAD_COUNT after={live:?}");
         assert_eq!(live, Some(3), "root summary counts the live reply");
         let summary = summary.expect("thread list holds the thread");
         assert_eq!(summary.num_replies, 2);
@@ -117,7 +117,7 @@ fn disposable_thread_panel_long_thread_in_steps() {
         let mut sorted = bodies.clone();
         sorted.sort();
         sorted.dedup();
-        let probe = format!("P332_LONG {}", serde_json::json!({"server": config["server"], "steps": steps,
+        let probe = format!("LONG_THREAD {}", serde_json::json!({"server": config["server"], "steps": steps,
             "replies": bodies.len(), "root": page.root.as_ref().map(|r| r.body.clone()),
             "num_replies": page.root.as_ref().and_then(|r| r.thread.as_ref()).map(|t| t.num_replies)}));
         println!("{probe}");
@@ -178,7 +178,7 @@ fn disposable_thread_composer_sends_into_the_thread() {
         };
         let (plain_event, answer_event) = (seen(plain.clone()).await, seen(answer.clone()).await);
         let (p, a) = (&plain_event["content"]["m.relates_to"], &answer_event["content"]["m.relates_to"]);
-        println!("P333_RELATIONS {}", serde_json::json!({"server": config["server"], "plain": p, "answer": a}));
+        println!("RELATIONS {}", serde_json::json!({"server": config["server"], "plain": p, "answer": a}));
         assert_eq!((p["rel_type"].as_str(), p["event_id"].as_str()), (Some("m.thread"), Some(root.as_str())));
         assert_eq!(p["is_falling_back"], true, "a plain thread message carries the fallback");
         assert!(p["m.in_reply_to"]["event_id"].is_string());
@@ -275,7 +275,7 @@ fn disposable_thread_receipts_probe() {
             let mut log = vec![("start", before)];
             for step in if order == "main_first" { ["main", "thread"] } else { ["thread", "main"] } {
                 let sent = if step == "main" { sync.mark_main_read(&scope, true).await } else { sync.mark_thread_read(&scope, &root_id, true).await };
-                println!("P334_SENT {step} {sent:?}");
+                println!("THREAD_SENT {step} {sent:?}");
                 tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
                 log.push((step, counts(room.clone()).await));
                 // Each receipt clears its own timeline and nothing else.
@@ -289,7 +289,7 @@ fn disposable_thread_receipts_probe() {
             room_request(&config, "alice", reqwest::Method::POST, &format!("rooms/{room}/receipt/m.read/{last}"), serde_json::json!({})).await;
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             log.push(("raw_unthreaded", counts(room.clone()).await));
-            println!("P334_COUNTS {}", serde_json::json!({"server": config["server"], "order": order, "steps": log}));
+            println!("THREAD_COUNTS {}", serde_json::json!({"server": config["server"], "order": order, "steps": log}));
         }
     });
 }
@@ -374,7 +374,7 @@ fn disposable_thread_unread_counter_follows_the_thread_receipt() {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             let _ = again.sliding_round().await;
         }
-        println!("P334_UNREAD {}", serde_json::json!({"server": config["server"], "opened": first, "after_main": after_main,
+        println!("THREAD_UNREAD {}", serde_json::json!({"server": config["server"], "opened": first, "after_main": after_main,
             "after_thread": after_thread, "after_new_reply": after_new, "new_session": restarted}));
         assert_eq!((first, after_main, after_thread, after_new, restarted),
             (Some(3), Some(3), Some(0), Some(1), Some(1)));
@@ -430,7 +430,7 @@ fn disposable_thread_replies_leave_the_main_timeline() {
         }
         let panel = sync.open_thread(&scope, &root_id, 25).await.unwrap();
         let panel: Vec<_> = panel.replies.iter().map(|r| r.body.clone()).collect();
-        println!("P335_HIDE {}", serde_json::json!({"server": config["server"], "main": bodies, "root_replies": replies, "panel": panel, "room_badge": badge}));
+        println!("THREAD_HIDE {}", serde_json::json!({"server": config["server"], "main": bodies, "root_replies": replies, "panel": panel, "room_badge": badge}));
         // Status rows (room creation, joins) precede the messages: only the messages are the contract.
         assert!(bodies.iter().all(|b| !b.starts_with("reply ")) && bodies.ends_with(&["root".to_owned(), "main one".to_owned()]),
             "thread replies stay out of the main timeline: {bodies:?}");
@@ -1324,7 +1324,7 @@ fn disposable_thread_badge_counts_main_messages_only_plain_and_encrypted() {
             seen.push(("new_reply_after_read", settle!(0)));
             {tokio::time::timeout(std::time::Duration::from_secs(40), peer_room.send(Msg::text_plain("main two"))).await.expect("peer send hung (bounded, see Tuwunel note)").unwrap()};
             seen.push(("new_main_after_read", settle!(1)));
-            println!("P336_BADGE {}", serde_json::json!({"server": config["server"], "encrypted": encrypted, "steps": seen}));
+            println!("THREAD_BADGE {}", serde_json::json!({"server": config["server"], "encrypted": encrypted, "steps": seen}));
             let want = [("only_thread_replies", Some(0)), ("main_then_reply", Some(1)), ("main_read", Some(0)),
                 ("new_reply_after_read", Some(0)), ("new_main_after_read", Some(1))];
             assert_eq!(seen, want, "badge counts main messages only (encrypted: {encrypted})");

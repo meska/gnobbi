@@ -175,7 +175,7 @@ fn disposable_history_edits_preserve_paginated_identity() {
             original["origin_server_ts"].as_u64().unwrap()
         );
         println!(
-            "P051_EVENT_EVIDENCE {}",
+            "EDIT_EVENT_EVIDENCE {}",
             serde_json::json!({
                 "room_id":room, "original_id":ids[0], "replacement_id":edit_id,
                 "original_body":original["content"]["body"], "replacement_body":body,

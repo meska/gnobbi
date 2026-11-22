@@ -120,8 +120,8 @@ pub fn delete_store_secret(path: &std::path::Path) -> Result<(), VaultError> {
     delete(&store_name(path)?)
 }
 
-/// Real Credential Manager + sealed store. Phases (GNOBBI_P207_PHASE=write|read|clean, root in
-/// GNOBBI_P207_ROOT) run in separate processes to prove the data survives a restart; with no
+/// Real Credential Manager + sealed store. Phases (GNOBBI_WINCRED_PHASE=write|read|clean, root in
+/// GNOBBI_WINCRED_ROOT) run in separate processes to prove the data survives a restart; with no
 /// phase the whole cycle runs in one process under %LOCALAPPDATA%.
 #[cfg(test)]
 mod tests {
@@ -132,7 +132,7 @@ mod tests {
     const ID: u64 = 207;
 
     fn root() -> PathBuf {
-        std::env::var_os("GNOBBI_P207_ROOT")
+        std::env::var_os("GNOBBI_WINCRED_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(|| {
                 PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap())
@@ -185,7 +185,7 @@ mod tests {
     #[ignore = "needs a Windows logon session (not SSH): run with --ignored under PsExec -s, see the WINDOWS_SPIKE notes"]
     fn credential_and_sealed_store_survive_reopen() {
         let root = root();
-        match std::env::var("GNOBBI_P207_PHASE").as_deref() {
+        match std::env::var("GNOBBI_WINCRED_PHASE").as_deref() {
             Ok("write") => write(&root),
             Ok("read") => read(&root),
             Ok("clean") => clean(&root),

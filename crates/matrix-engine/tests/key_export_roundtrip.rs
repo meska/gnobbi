@@ -127,7 +127,8 @@ keys = json.loads(dec.update(ct) + dec.finalize())
 ok = all(x.get("algorithm") == "m.megolm.v1.aes-sha2" and x.get("session_key") and x.get("sender_key") for x in keys)
 print(f"{len(keys)},{sum(1 for x in keys if x['room_id'] == room)},{ok},{rounds}")
 "#;
-    let mut child = Command::new("artifacts/P015/venv/bin/python")
+    // The selected Python interpreter must have the cryptography package installed.
+    let mut child = Command::new(std::env::var("GNOBBI_TEST_PYTHON").unwrap_or_else(|_| "python3".to_owned()))
         .args(["-c", PY])
         .arg(file)
         .arg(room)

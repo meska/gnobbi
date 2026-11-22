@@ -47,7 +47,7 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
         }
         assert!(found, "exact public peer marker must reach Dime after incremental sync");
         assert!(sync.sliding_round().await.unwrap().is_empty(), "unchanged markers must not emit duplicate diffs");
-        println!("P054_RECEIPT {}", serde_json::json!({"room":room,"event":event,"peer":"@bob:matrix-desktop.test","readers":1,"account":54,"independent_http":true}));
+        println!("RECEIPT {}", serde_json::json!({"room":room,"event":event,"peer":"@bob:matrix-desktop.test","readers":1,"account":54,"independent_http":true}));
         let next = room_request(&config, "alice", reqwest::Method::PUT,
             &format!("rooms/{room}/send/m.room.message/p054-next"),
             serde_json::json!({"msgtype":"m.text","body":"Next marker"})).await;
@@ -68,7 +68,7 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
         assert_eq!(summary.info.public_read_receipts.len(), 1);
         assert_eq!(summary.info.public_read_receipts[0].event_id.as_str(), next);
         assert_eq!(summary.info.public_read_receipts[0].readers, 1);
-        println!("P054_UPDATE {}", serde_json::json!({"room":room,"previous_event":event,"event":next,"readers":1,"private_did_not_advance":true}));
+        println!("RECEIPT_UPDATE {}", serde_json::json!({"room":room,"previous_event":event,"event":next,"readers":1,"private_did_not_advance":true}));
         room_request(&config, "alice", reqwest::Method::POST,
             &format!("rooms/{room}/leave"), serde_json::json!({})).await;
         assert!(sync.sliding_round().await.unwrap().iter().any(|d| matches!(d, RoomListDiff::Remove(s) if s.room_id.as_str() == room)));
@@ -214,7 +214,7 @@ fn disposable_room_menu_marks_read_and_unread() {
     });
 }
 
-/// Probe (P282a): bob reads through the Timeline, alice sees his receipt on the item and bob's counter drops.
+/// Probe: bob reads through the Timeline, alice sees his receipt on the item and bob's counter drops.
 /// Run: `python3 the auth_smoke script --filter disposable_receipt_bob_reads_through_timeline`
 #[test]
 #[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
@@ -268,7 +268,7 @@ fn disposable_receipt_bob_reads_through_timeline() {
         let _ = std::fs::remove_dir_all(&root);
         assert!(alice_sees, "alice sees bob's receipt on the item");
         assert_eq!(bob_unread, Some(0), "bob's counter dropped");
-        println!("P282A_BOB_READS {}", serde_json::json!({"room": room, "event": event, "alice_sees_receipt": true, "bob_unread": 0}));
+        println!("BOB_READS {}", serde_json::json!({"room": room, "event": event, "alice_sees_receipt": true, "bob_unread": 0}));
     });
 }
 
