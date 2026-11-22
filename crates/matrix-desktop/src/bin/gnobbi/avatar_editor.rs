@@ -303,7 +303,7 @@ impl Editor {
     /// Test hook, debug builds only: GNOBBI_EGUI_AVATAR_EDIT="<filter 0-7> <zoom> <degrees> <brightness>".
     #[cfg(debug_assertions)]
     fn hook(&mut self) {
-        if let Ok(v) = std::env::var("GNOBBI_EGUI_AVATAR_EDIT") {
+        if let Ok(v) = matrix_desktop::hooks::var("GNOBBI_EGUI_AVATAR_EDIT") {
             let mut n = v.split_whitespace().map(|p| p.parse::<f32>().unwrap_or(0.));
             self.look.filter = Filter::ALL[(n.next().unwrap_or(0.) as usize).min(7)];
             self.pose.zoom = n.next().unwrap_or(1.);

@@ -233,7 +233,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             if !room.info.invited {
                 // Test hook: GNOBBI_EGUI_VIEW=room-menu shows the menu of the open room without a click, room-space-pick the window behind «Aggiungi a uno spazio…».
                 let mut menu = egui::Popup::context_menu(&resp);
-                if selected.as_ref() == Some(&room.scope) && let Ok(view) = std::env::var("GNOBBI_EGUI_VIEW") && view.starts_with("room-") {
+                if selected.as_ref() == Some(&room.scope) && let Ok(view) = matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW") && view.starts_with("room-") {
                     match &session.space_choices {
                         Some((asked, Some(_))) if asked == &room.scope => if view == "room-space-pick" && session.space_pick.is_none() { session.space_pick = Some((room.scope.clone(), None)); },
                         Some((asked, None)) if asked == &room.scope => {}

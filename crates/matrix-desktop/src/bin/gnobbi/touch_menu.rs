@@ -333,7 +333,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
         lift.shown.get_or_insert(now);
     }
     #[cfg(debug_assertions)]
-    if std::env::var_os("GNOBBI_DEBUG_LONGPRESS_PICKER").is_some() {
+    if matrix_desktop::hooks::var_os("GNOBBI_DEBUG_LONGPRESS_PICKER").is_some() {
         lift.picker = true; // test hook: the emoji grid, for screenshots
     }
     let reduce = crate::mobile::reduce_motion();
@@ -369,7 +369,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
         }
         let (bar, list) = place(area, lift.rect, bar_size, list_size);
         #[cfg(debug_assertions)]
-        if std::env::var_os("GNOBBI_DEBUG_LONGPRESS_MSG").is_some() {
+        if matrix_desktop::hooks::var_os("GNOBBI_DEBUG_LONGPRESS_MSG").is_some() {
             // Test hook: the geometry in points, for the scripts that measure the screenshots.
             let r = |r: Rect| format!("{:.1},{:.1},{:.1},{:.1}", r.left(), r.top(), r.right(), r.bottom());
             eprintln!("touch-menu zoom {:.2} screen {} safe {} view {} bubble {} bar {} list {}", ctx.zoom_factor(), r(screen), r(safe), r(lift.view), r(lift.rect), r(bar), r(list));

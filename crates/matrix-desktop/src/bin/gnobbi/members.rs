@@ -90,7 +90,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
         ui.add_space(4.);
     }
     // Test hook: GNOBBI_EGUI_MEMBER=menu shows the first «⋮» menu without a click.
-    let mut hook = std::env::var("GNOBBI_EGUI_MEMBER").as_deref() == Ok("menu");
+    let mut hook = matrix_desktop::hooks::var("GNOBBI_EGUI_MEMBER").as_deref() == Ok("menu");
     let duplicates = crate::rows::duplicate_names(members.iter().map(|m| m.name.as_str()));
     for (m, duplicate) in members.iter().zip(duplicates) {
         let menu = (perms.can_kick || perms.can_ban) && m.user_id != me;

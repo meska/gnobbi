@@ -313,7 +313,7 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
 /// The rail below the account picture. `account` is the catalog id the layout is stored under; `placed` the engine's answer to a move.
 pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline::Avatars, state: &mut State, account: u64, placed: Option<Result<(), OperationError>>, t: &DesignTokens) {
     // Test hooks: GNOBBI_EGUI_VIEW=rail-open unfolds every parent space, rail-edit shows «Organizza spazi», rail-drag / rail-line also a held row.
-    let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
+    let view = matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
     if matches!(view.as_str(), "rail-edit" | "rail-drag" | "rail-line") {
         state.set_edit(true);
     }
@@ -566,7 +566,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
             ui.spacing_mut().item_spacing = Vec2::ZERO;
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 let (top, left) = (ui.cursor().top(), ui.max_rect().left());
-                let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
+                let view = matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
                 // The held row and where the pointer is; the test hooks hold the last row over the first.
                 let (held, pos, from) = match view.as_str() {
                     "rail-drag" | "rail-line" => (Some(rows.len() - 1), Some(egui::pos2(left + 150., top + if view == "rail-drag" { ROW / 2. } else { ROW })), None),

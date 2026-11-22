@@ -224,9 +224,9 @@ impl App {
                 }
             }
         }
-        App { prefs, dirs: dirs.cloned(), list_open: false, nav: mobile::Nav::from_env(), rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
-            auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false, startup, startup_notice: None, account_notice: None, reopening: None, remembered_root: None, signing_in_again: false, recovery_switch: false, add_from: None, discarding: Vec::new() }
+        App { prefs, dirs: dirs.cloned(), list_open: false, nav: mobile::Nav::from_env(), rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: matrix_desktop::hooks::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: matrix_desktop::hooks::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
+            auto_login: matrix_desktop::hooks::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false, startup, startup_notice: None, account_notice: None, reopening: None, remembered_root: None, signing_in_again: false, recovery_switch: false, add_from: None, discarding: Vec::new() }
     }
 
     /// Brings parked account `i` on screen; the shown one takes its place in the list.
@@ -597,7 +597,7 @@ impl eframe::App for App {
         mobile::note_composer(0.);
         ctx.request_repaint_after(Duration::from_secs(60));
         if let Some((path, frame)) = &mut self.shot {
-            let secs: u64 = std::env::var("GNOBBI_EGUI_SHOT_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+            let secs: u64 = matrix_desktop::hooks::var("GNOBBI_EGUI_SHOT_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
             if frame.elapsed().as_secs() >= secs && !self.shot_sent {
                 self.shot_sent = true;
                 let path = path.clone();
@@ -611,7 +611,7 @@ impl eframe::App for App {
             ctx.request_repaint();
         }
         // Test hook: GNOBBI_EGUI_EMOJI_PROBE=1 draws thumbs-up, ZWJ family, flag, keycap and toned hand (label + text field) over everything, for GNOBBI_EGUI_SHOT.
-        if std::env::var_os("GNOBBI_EGUI_EMOJI_PROBE").is_some() {
+        if matrix_desktop::hooks::var_os("GNOBBI_EGUI_EMOJI_PROBE").is_some() {
             let mut samples = ["\u{1F44D}", "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", "\u{1F1EE}\u{1F1F9}", "1\u{FE0F}\u{20E3}", "\u{1F44B}\u{1F3FD}"].map(String::from);
             egui::Area::new(egui::Id::new("emoji-probe")).fixed_pos(egui::pos2(0., 80.)).order(egui::Order::Debug).show(&ctx, |ui| {
                 egui::Frame::new().fill(egui::Color32::WHITE).show(ui, |ui| {
@@ -790,9 +790,9 @@ impl eframe::App for App {
         #[cfg(debug_assertions)]
         stickers::demo(&ctx, &t);
         #[cfg(debug_assertions)]
-        if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("avatar-editor") { self.account_form.demo(&ctx, &t); }
+        if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("avatar-editor") { self.account_form.demo(&ctx, &t); }
         #[cfg(debug_assertions)]
-        if let Ok(view) = std::env::var("GNOBBI_EGUI_VIEW") && view.starts_with("loading-") { loading::demo(&ctx, &view, chat_background(&t), list_fill(&t), &t); }
+        if let Ok(view) = matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW") && view.starts_with("loading-") { loading::demo(&ctx, &view, chat_background(&t), list_fill(&t), &t); }
         if let Some(s) = &mut self.session && s.quick_open { quick_search(&ctx, s, &t); }
         if let Some(url) = self.pending_web.clone() {
             let mut choice = None;
@@ -869,7 +869,7 @@ impl App {
     /// Test hooks (env only): sign in with the given account, then open the view named in GNOBBI_EGUI_VIEW.
     fn test_hooks(&mut self, ctx: &egui::Context) {
         // GNOBBI_EGUI_PICK=file|image|share: opens that system dialog once (from frame 60) and prints the answer; for a simulator run.
-        if let Ok(kind) = std::env::var("GNOBBI_EGUI_PICK") {
+        if let Ok(kind) = matrix_desktop::hooks::var("GNOBBI_EGUI_PICK") {
             static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
             if ctx.cumulative_pass_nr() >= 60 && !STARTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                 match kind.as_str() {
@@ -888,7 +888,7 @@ impl App {
         // GNOBBI_EGUI_ADD=1: once the first account is in the catalog, add a second one (signed in by GNOBBI_EGUI_LOGIN2).
         if !self.hook_added
             && self.recorded
-            && std::env::var_os("GNOBBI_EGUI_ADD").is_some()
+            && matrix_desktop::hooks::var_os("GNOBBI_EGUI_ADD").is_some()
             && let Some(d) = &self.dirs
         {
             self.hook_added = true;
@@ -898,7 +898,7 @@ impl App {
         }
         let Some(s) = &mut self.session else { return };
         // The test accounts have nothing to recover: skip the step so the other views can be reached.
-        if self.auto_login.is_some() && s.recovering() && s.form.recovery_key().is_none() && std::env::var_os("GNOBBI_EGUI_KEEP_RECOVERY").is_none() {
+        if self.auto_login.is_some() && s.recovering() && s.form.recovery_key().is_none() && matrix_desktop::hooks::var_os("GNOBBI_EGUI_KEEP_RECOVERY").is_none() {
             s.defer_recovery();
         }
         if let Some(login) = if self.hook_added { &self.auto_login2 } else { &self.auto_login }
@@ -913,11 +913,11 @@ impl App {
             s.phrase = get("phrase");
             s.submit();
         }
-        if s.account.is_some() && std::env::var_os("GNOBBI_EGUI_VIEW").is_some() {
-            let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
+        if s.account.is_some() && matrix_desktop::hooks::var_os("GNOBBI_EGUI_VIEW").is_some() {
+            let view = matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
             // The first room with something to read, once the list has arrived.
             // GNOBBI_EGUI_ROOM=<name>: that room instead of the first.
-            let wanted = std::env::var("GNOBBI_EGUI_ROOM").ok();
+            let wanted = matrix_desktop::hooks::var("GNOBBI_EGUI_ROOM").ok();
             let pick = |s: &Session| {
                 let rooms = s.sidebar.rooms();
                 let by_name = wanted.as_deref().and_then(|w| s.sidebar.visible_indices().iter().copied().find(|&i| rooms[i].name == w));
@@ -935,11 +935,11 @@ impl App {
                 && let Some(v) = &mut s.verification
                 && v.own().is_some()
             {
-                if let Ok(pass) = std::env::var("GNOBBI_EGUI_EXPORT") {
-                    let path = std::env::var_os("GNOBBI_EGUI_EXPORT_PATH").map(std::path::PathBuf::from).unwrap_or_default();
+                if let Ok(pass) = matrix_desktop::hooks::var("GNOBBI_EGUI_EXPORT") {
+                    let path = matrix_desktop::hooks::var_os("GNOBBI_EGUI_EXPORT_PATH").map(std::path::PathBuf::from).unwrap_or_default();
                     devices::start_export(v, path, &zeroize::Zeroizing::new(pass));
                     self.hook_keys = true;
-                } else if std::env::var_os("GNOBBI_EGUI_NEWKEY").is_some() {
+                } else if matrix_desktop::hooks::var_os("GNOBBI_EGUI_NEWKEY").is_some() {
                     v.keys = Some(matrix_desktop::key_export::KeysPage::new(matrix_desktop::key_export::KeysKind::Reset));
                     v.reset_recovery(None);
                     self.hook_keys = true;
@@ -948,7 +948,7 @@ impl App {
             // GNOBBI_EGUI_ALIAS=<local>: adds that address to the open room once its addresses are loaded.
             if !self.hook_alias
                 && s.aliases.is_some()
-                && let Ok(local) = std::env::var("GNOBBI_EGUI_ALIAS")
+                && let Ok(local) = matrix_desktop::hooks::var("GNOBBI_EGUI_ALIAS")
             {
                 s.alias_action(matrix_engine::alias::AliasAction::Add { local, make_canonical: None });
                 self.hook_alias = true;
@@ -957,21 +957,21 @@ impl App {
             if !self.hook_type
                 && s.messages.is_some()
                 && s.members.is_some()
-                && let Ok(text) = std::env::var("GNOBBI_EGUI_TYPE")
+                && let Ok(text) = matrix_desktop::hooks::var("GNOBBI_EGUI_TYPE")
             {
                 s.draft = text;
                 ctx.memory_mut(|m| m.request_focus(egui::Id::new("composer-text")));
                 self.hook_type = true;
             }
             // A headless seat never focuses the window, and egui drops the text focus with it: say it is focused.
-            if self.hook_type && std::env::var_os("GNOBBI_EGUI_TYPE").is_some() {
+            if self.hook_type && matrix_desktop::hooks::var_os("GNOBBI_EGUI_TYPE").is_some() {
                 ctx.input_mut(|i| i.events.push(egui::Event::WindowFocused(true)));
                 ctx.memory_mut(|m| m.request_focus(egui::Id::new("composer-text")));
             }
             // GNOBBI_EGUI_SEND=<text>: sends it once into the open room (disposable servers only).
             if !self.hook_sent
                 && s.messages.as_ref().is_some_and(|m| !m.events().is_empty())
-                && let Ok(text) = std::env::var("GNOBBI_EGUI_SEND")
+                && let Ok(text) = matrix_desktop::hooks::var("GNOBBI_EGUI_SEND")
             {
                 s.send(text);
                 self.hook_sent = true;
@@ -983,7 +983,7 @@ impl App {
                 && let Some(matrix_domain::TimelineId::Server(root)) = s.messages.as_ref().and_then(|m| m.events().iter().find(|e| e.thread.is_some()).map(|e| e.id.id.clone()))
             {
                 s.open_thread(root);
-                if let (Some(th), Ok(text)) = (&mut s.thread, std::env::var("GNOBBI_EGUI_THREAD_TYPE")) { th.draft = text; }
+                if let (Some(th), Ok(text)) = (&mut s.thread, matrix_desktop::hooks::var("GNOBBI_EGUI_THREAD_TYPE")) { th.draft = text; }
             }
             // View «menu»: right-click menu of the newest message, a few seconds after the send.
             if view == "menu"
@@ -1007,7 +1007,7 @@ impl App {
                         None => s.space_facts_for(scope),
                         Some((_, Some(c))) if space::leave_block(s.sidebar.rooms(), &scope, c).is_none() => {
                             self.hook_member = true;
-                            match std::env::var("GNOBBI_EGUI_CONFIRM") {
+                            match matrix_desktop::hooks::var("GNOBBI_EGUI_CONFIRM") {
                                 Ok(how) => s.leave_space(scope, how == "forget"),
                                 Err(_) => s.space_exit = Some((scope, false)),
                             }
@@ -1024,7 +1024,7 @@ impl App {
             }
             // GNOBBI_EGUI_MEMBER=profile|role: the card of the first other member, or of the last one, who is made «Moderatore» once the rights are in.
             if !self.hook_member
-                && let Ok(what @ ("profile" | "role")) = std::env::var("GNOBBI_EGUI_MEMBER").as_deref()
+                && let Ok(what @ ("profile" | "role")) = matrix_desktop::hooks::var("GNOBBI_EGUI_MEMBER").as_deref()
                 && let Some(user) = s.members.as_ref().and_then(|(_, l)| {
                     let mut others = l.iter().filter(|m| m.user_id != s.user);
                     if what == "role" { others.next_back() } else { others.next() }.map(|m| m.user_id.clone())
@@ -1041,7 +1041,7 @@ impl App {
             // GNOBBI_EGUI_MEMBER=kick|ban|invite|unban: that action on the first other (or first banned) member, once the rights and the lists are in.
             // With GNOBBI_EGUI_CONFIRM the «Espelli»/«Blocca» window is confirmed too (reason from GNOBBI_EGUI_REASON).
             if !self.hook_member
-                && let Ok(what) = std::env::var("GNOBBI_EGUI_MEMBER")
+                && let Ok(what) = matrix_desktop::hooks::var("GNOBBI_EGUI_MEMBER")
                 && let Some(a) = s.admin.as_ref().filter(|a| a.perms.can_kick || a.perms.can_invite)
             {
                 let list = s.space_view.as_ref().and_then(|v| v.members.as_ref()).or(s.members.as_ref().map(|(_, m)| m));
@@ -1055,12 +1055,12 @@ impl App {
                     self.hook_member = true;
                     s.member_act(act);
                     // GNOBBI_EGUI_TERM=<text>: typed in the «Invita» search.
-                    if what == "invite" { s.new_term = std::env::var("GNOBBI_EGUI_TERM").unwrap_or_default(); }
+                    if what == "invite" { s.new_term = matrix_desktop::hooks::var("GNOBBI_EGUI_TERM").unwrap_or_default(); }
                     if let Some(a) = &mut s.admin
                         && let Some(d) = &mut a.dialog
                     {
-                        d.reason = std::env::var("GNOBBI_EGUI_REASON").unwrap_or_default();
-                        if std::env::var_os("GNOBBI_EGUI_CONFIRM").is_some() {
+                        d.reason = matrix_desktop::hooks::var("GNOBBI_EGUI_REASON").unwrap_or_default();
+                        if matrix_desktop::hooks::var_os("GNOBBI_EGUI_CONFIRM").is_some() {
                             a.busy = true;
                             use matrix_engine::operations::Moderation;
                             let (scope, user, action) = (a.scope.clone(), d.user_id.clone(), if d.ban { Moderation::BanWith(d.reason.clone()) } else { Moderation::KickWith(d.reason.clone()) });
@@ -1250,7 +1250,7 @@ impl App {
             self.list_open = false;
         }
         // Test hook: GNOBBI_EGUI_VIEW=list shows the list of a narrow window without a click.
-        if narrow && std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("list") {
+        if narrow && matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("list") {
             self.list_open = true;
         }
         // Left-edge swipe = the back button; the chat follows the finger.
@@ -1281,7 +1281,7 @@ impl App {
             }
             ui.data_mut(|d| d.insert_temp(started, true));
             #[cfg(debug_assertions)]
-            if room.is_some() && std::env::var_os("GNOBBI_DEBUG_LONGPRESS_MSG").is_some() {
+            if room.is_some() && matrix_desktop::hooks::var_os("GNOBBI_DEBUG_LONGPRESS_MSG").is_some() {
                 self.list_open = false; // test hook: the long-pressed message needs the chat on screen
             }
             if single {
@@ -1375,7 +1375,7 @@ impl App {
                     }
                     if !others.is_empty() {
                         // Test hook: GNOBBI_EGUI_VIEW=account-menu shows the list without a click.
-                        if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
+                        if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
                             egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
                         }
                         egui::Popup::menu(&resp).align(if dir::rtl() { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START }).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| crate::dir::popup(ui, |ui| {
@@ -1793,7 +1793,7 @@ impl App {
                 }
             }
             #[cfg(debug_assertions)]
-            if std::env::var_os("GNOBBI_EGUI_FAKE_UNREAD_NOTICE").is_some() {
+            if matrix_desktop::hooks::var_os("GNOBBI_EGUI_FAKE_UNREAD_NOTICE").is_some() {
                 status_pill::show(ui, timeline_view, i18n::t("Unread messages not found"), Duration::from_secs(1), t);
             }
         }));
@@ -1831,7 +1831,7 @@ impl App {
         {
             // Debug builds only (screenshots): a fixed list of other devices, every frame so the engine's own answer cannot replace it.
             #[cfg(debug_assertions)]
-            if let (Some(account_id), true) = (account, std::env::var_os("GNOBBI_EGUI_FAKE_DEVICES").is_some()) {
+            if let (Some(account_id), true) = (account, matrix_desktop::hooks::var_os("GNOBBI_EGUI_FAKE_DEVICES").is_some()) {
                 let d = |id: &str, name: Option<&str>, verified, ago_min: u64, ip: &str| matrix_engine::verification::VerificationDevice {
                     user_id: String::new(),
                     device_id: id.into(),
@@ -1863,7 +1863,7 @@ impl App {
             devices::popup(ui.ctx(), v);
             devices::new_key(ui.ctx(), v);
             // Test hook: GNOBBI_EGUI_NO_OFFER keeps the recovery-key offer out of a screenshot.
-            let suppressed = account.is_some_and(|a| self.prefs.no_recovery_offer_accounts.contains(&a.as_u64())) || std::env::var_os("GNOBBI_EGUI_NO_OFFER").is_some();
+            let suppressed = account.is_some_and(|a| self.prefs.no_recovery_offer_accounts.contains(&a.as_u64())) || matrix_desktop::hooks::var_os("GNOBBI_EGUI_NO_OFFER").is_some();
             match devices::offer(ui.ctx(), v, suppressed, &mut self.device_fields) {
                 Some(devices::Offer::Create) => v.accept_offer(),
                 Some(devices::Offer::Recover(key)) => { v.recover_keys(key); }

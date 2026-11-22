@@ -268,7 +268,7 @@ pub fn observe_lifecycle(ctx: &egui::Context) {
 /// iOS and Android, or the test hook GNOBBI_EGUI_TOUCH on desktop.
 pub fn touch() -> bool {
     static TOUCH_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *TOUCH_ON.get_or_init(|| cfg!(any(target_os = "ios", target_os = "android")) || std::env::var_os("GNOBBI_EGUI_TOUCH").is_some())
+    *TOUCH_ON.get_or_init(|| cfg!(any(target_os = "ios", target_os = "android")) || matrix_desktop::hooks::var_os("GNOBBI_EGUI_TOUCH").is_some())
 }
 
 /// Side of a tappable target: `desktop` as it is, at least 44 pt on touch.
@@ -338,12 +338,12 @@ impl Insets {
     /// Test hooks: GNOBBI_EGUI_INSETS=<top,left,bottom,right> and GNOBBI_EGUI_KEYBOARD=<points> simulate a phone on desktop.
     pub fn from_env() -> Self {
         let mut insets = Self::default();
-        if let Ok(v) = std::env::var("GNOBBI_EGUI_INSETS") {
+        if let Ok(v) = matrix_desktop::hooks::var("GNOBBI_EGUI_INSETS") {
             let mut n = v.split(',').map(|p| p.trim().parse().unwrap_or(0.));
             let m = &mut insets.0.0;
             (m.top, m.left, m.bottom, m.right) = (n.next().unwrap_or(0.), n.next().unwrap_or(0.), n.next().unwrap_or(0.), n.next().unwrap_or(0.));
         }
-        if let Some(k) = std::env::var("GNOBBI_EGUI_KEYBOARD").ok().and_then(|v| v.parse().ok()) {
+        if let Some(k) = matrix_desktop::hooks::var("GNOBBI_EGUI_KEYBOARD").ok().and_then(|v| v.parse().ok()) {
             set_keyboard(k);
         }
         insets
@@ -433,14 +433,14 @@ pub fn reduce_motion() -> bool {
     {
         // Test hook, debug builds only: GNOBBI_EGUI_REDUCE_MOTION=1.
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ON.get_or_init(|| cfg!(debug_assertions) && std::env::var_os("GNOBBI_EGUI_REDUCE_MOTION").is_some())
+        *ON.get_or_init(|| cfg!(debug_assertions) && matrix_desktop::hooks::var_os("GNOBBI_EGUI_REDUCE_MOTION").is_some())
     }
 }
 
 /// Test hook: GNOBBI_EGUI_NAV_PROGRESS=<0..1> holds the one-column navigation (chat over list, or the drawer on top) at that point, the page under it drawn too.
 pub fn nav_forced() -> Option<f32> {
     static FORCED: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
-    *FORCED.get_or_init(|| std::env::var("GNOBBI_EGUI_NAV_PROGRESS").ok().and_then(|v| v.parse::<f32>().ok()).map(|p| p.clamp(0., 1.)))
+    *FORCED.get_or_init(|| matrix_desktop::hooks::var("GNOBBI_EGUI_NAV_PROGRESS").ok().and_then(|v| v.parse::<f32>().ok()).map(|p| p.clamp(0., 1.)))
 }
 
 /// A page over the one under it in the one-column layout: progress 0 = the page fully shown, 1 = slid off to the side.

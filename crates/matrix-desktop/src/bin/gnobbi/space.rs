@@ -33,7 +33,7 @@ pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &Design
     }
     let mut popup = egui::Popup::menu(&resp);
     // Test hook: GNOBBI_EGUI_VIEW=sp-menu shows the menu without a click.
-    if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("sp-menu") {
+    if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("sp-menu") {
         popup = popup.open(true);
     }
     popup.show(|ui| crate::dir::popup(ui, |ui| {

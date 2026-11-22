@@ -56,7 +56,7 @@ fn debug_press(i: usize, len: usize) -> bool {
     static WANT: OnceLock<Option<i64>> = OnceLock::new();
     static SINCE: OnceLock<std::time::Instant> = OnceLock::new();
     static DONE: AtomicBool = AtomicBool::new(false);
-    let Some(want) = *WANT.get_or_init(|| std::env::var("GNOBBI_DEBUG_LONGPRESS_MSG").ok()?.parse().ok()) else { return false };
+    let Some(want) = *WANT.get_or_init(|| matrix_desktop::hooks::var("GNOBBI_DEBUG_LONGPRESS_MSG").ok()?.parse().ok()) else { return false };
     (if want < 0 { len as i64 + want } else { want }) == i as i64 && SINCE.get_or_init(std::time::Instant::now).elapsed().as_secs() >= 4 && !DONE.swap(true, Ordering::Relaxed)
 }
 

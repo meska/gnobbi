@@ -695,7 +695,7 @@ pub fn windows(ctx: &egui::Context, panel: &mut Panel, textures: &Avatars, t: &D
 /// Debug builds, GNOBBI_DEBUG_STICKER_FIXTURE=<packs>: that many packs (0 = the empty state) with painted pictures, no server.
 #[cfg(debug_assertions)]
 pub fn fixture(ctx: &egui::Context, panel: &mut Panel, textures: &mut Avatars) -> bool {
-    let Some(count) = std::env::var("GNOBBI_DEBUG_STICKER_FIXTURE").ok().and_then(|v| v.parse::<usize>().ok()) else { return false };
+    let Some(count) = matrix_desktop::hooks::var("GNOBBI_DEBUG_STICKER_FIXTURE").ok().and_then(|v| v.parse::<usize>().ok()) else { return false };
     if panel.packs.is_some() {
         return true;
     }
@@ -730,7 +730,7 @@ pub fn fixture(ctx: &egui::Context, panel: &mut Panel, textures: &mut Avatars) -
 #[cfg(debug_assertions)]
 pub fn demo(ctx: &egui::Context, t: &DesignTokens) {
     thread_local!(static DEMO: std::cell::RefCell<(Panel, Avatars)> = Default::default());
-    let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
+    let view = matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
     if !view.starts_with("stickers") {
         return;
     }

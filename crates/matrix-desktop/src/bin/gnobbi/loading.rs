@@ -344,7 +344,7 @@ pub fn debug_hold(sent: bool) -> bool {
     {
         static DELAY: std::sync::OnceLock<Option<Duration>> = std::sync::OnceLock::new();
         static SENT: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
-        let Some(delay) = *DELAY.get_or_init(|| std::env::var("GNOBBI_DEBUG_ROOM_LOAD_DELAY_MS").ok().and_then(|v| v.parse().ok()).map(Duration::from_millis)) else { return false };
+        let Some(delay) = *DELAY.get_or_init(|| matrix_desktop::hooks::var("GNOBBI_DEBUG_ROOM_LOAD_DELAY_MS").ok().and_then(|v| v.parse().ok()).map(Duration::from_millis)) else { return false };
         let mut at = SENT.lock().unwrap();
         if sent {
             *at = Some(Instant::now());
@@ -362,7 +362,7 @@ pub fn debug_hold(sent: bool) -> bool {
 /// GNOBBI_DEBUG_LOADING_T=<seconds> is the frozen animation time.
 #[cfg(debug_assertions)]
 pub fn demo(ctx: &egui::Context, view: &str, pane_fill: Color32, list_fill: Color32, t: &DesignTokens) {
-    let at: f64 = std::env::var("GNOBBI_DEBUG_LOADING_T").ok().and_then(|v| v.parse().ok()).unwrap_or(0.5);
+    let at: f64 = matrix_desktop::hooks::var("GNOBBI_DEBUG_LOADING_T").ok().and_then(|v| v.parse().ok()).unwrap_or(0.5);
     let time = (!crate::mobile::reduce_motion()).then_some(at);
     let screen = ctx.content_rect();
     egui::Area::new(egui::Id::unique("loading-demo")).order(egui::Order::Foreground).fixed_pos(screen.min).show(ctx, |ui| {

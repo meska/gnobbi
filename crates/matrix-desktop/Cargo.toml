@@ -113,6 +113,8 @@ crate-type = ["cdylib"]
 test = false
 
 [features]
+# Keeps the GNOBBI_EGUI_*/GNOBBI_DEBUG_* automation hooks in release builds (debug builds always have them).
+test-hooks = []
 # New profiles keep their protection secret in the OS vault.
 linux-vault = ["matrix-engine/linux-vault"]
 mac-vault = ["matrix-engine/mac-vault"]

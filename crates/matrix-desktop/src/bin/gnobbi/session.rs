@@ -623,7 +623,7 @@ impl Session {
             (self.stickers.scope, self.stickers.fetched) = (Some(scope.clone()), None);
         }
         let open = self.stickers.wants_packs();
-        if cfg!(debug_assertions) && std::env::var_os("GNOBBI_DEBUG_STICKER_FIXTURE").is_some() {
+        if cfg!(debug_assertions) && matrix_desktop::hooks::var_os("GNOBBI_DEBUG_STICKER_FIXTURE").is_some() {
             self.stickers.edits.clear(); // painted packs, nothing to ask or change on a server
             self.stickers.busy = false;
             return false;

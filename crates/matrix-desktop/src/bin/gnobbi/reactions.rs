@@ -137,7 +137,7 @@ pub fn show(ui: &mut egui::Ui, e: &DemoEvent, rs: &[Reaction], group: bool, bubb
     }
     let column = Rect::from_min_size(block.min, vec2(width, h));
     #[cfg(debug_assertions)]
-    let log = std::env::var_os("GNOBBI_DEBUG_REACTIONS_FIXTURE").is_some();
+    let log = matrix_desktop::hooks::var_os("GNOBBI_DEBUG_REACTIONS_FIXTURE").is_some();
     #[cfg(not(debug_assertions))]
     let _ = bubble;
     #[cfg(debug_assertions)]
@@ -224,7 +224,7 @@ pub fn popup(ctx: &egui::Context, anchor: Rect, r: &Reaction, fresh: bool, t: &D
 /// 1 = ours and another's, 2 = many (a wrapped line, 9, 10, 99+), 3 = only others'.
 #[cfg(debug_assertions)]
 pub fn fixture() -> Option<Vec<Reaction>> {
-    let set: &[(&str, usize, bool)] = match std::env::var("GNOBBI_DEBUG_REACTIONS_FIXTURE").ok()?.as_str() {
+    let set: &[(&str, usize, bool)] = match matrix_desktop::hooks::var("GNOBBI_DEBUG_REACTIONS_FIXTURE").ok()?.as_str() {
         "1" => &[("👍", 2, true), ("❤️", 1, false)],
         "2" => &[("👍", 12, true), ("❤️", 1, false), ("😂", 3, false), ("😮", 9, false), ("😢", 10, false), ("🙏", 1, true), ("🎉", 100, false), ("🔥", 2, false), ("👀", 1, false)],
         "3" => &[("👍", 1, false), ("🎉", 3, false)],

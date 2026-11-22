@@ -43,7 +43,7 @@ impl Form {
     /// Test hook, debug builds only: the retouch window alone on GNOBBI_EGUI_PHOTO, with no account (GNOBBI_EGUI_VIEW=avatar-editor).
     #[cfg(debug_assertions)]
     pub fn demo(&mut self, ctx: &egui::Context, t: &DesignTokens) {
-        if let (None, Ok(path)) = (&self.editor, std::env::var("GNOBBI_EGUI_PHOTO")) {
+        if let (None, Ok(path)) = (&self.editor, matrix_desktop::hooks::var("GNOBBI_EGUI_PHOTO")) {
             self.pick(path.into(), &std::env::temp_dir(), ctx);
         }
         if let Some(e) = &mut self.editor {
@@ -75,15 +75,15 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
     // Test hook: GNOBBI_EGUI_NAME=<text> and GNOBBI_EGUI_PHOTO=<file>|remove fill the card once; GNOBBI_EGUI_CONFIRM presses «Salva».
     if !f.hooked && s.profile_caps.is_some() {
         f.hooked = true;
-        if let Ok(name) = std::env::var("GNOBBI_EGUI_NAME") {
+        if let Ok(name) = matrix_desktop::hooks::var("GNOBBI_EGUI_NAME") {
             f.name = name;
         }
-        match std::env::var("GNOBBI_EGUI_PHOTO") {
+        match matrix_desktop::hooks::var("GNOBBI_EGUI_PHOTO") {
             Ok(p) if p == "remove" => f.photo = Photo::Remove,
             Ok(p) => f.pick(p.into(), profile, ui.ctx()),
             Err(_) => {}
         }
-        f.hook_save = std::env::var_os("GNOBBI_EGUI_CONFIRM").is_some();
+        f.hook_save = matrix_desktop::hooks::var_os("GNOBBI_EGUI_CONFIRM").is_some();
         // With the confirm hook the retouch window applies the picture as it is.
         if let Some(e) = f.editor.as_mut().filter(|_| f.hook_save) {
             e.auto_apply = true;
@@ -324,7 +324,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
                     }
                     // Debug builds only (screenshots): three accounts with the same name.
                     #[cfg(debug_assertions)]
-                    if std::env::var_os("GNOBBI_EGUI_FAKE_ACCOUNTS").is_some() {
+                    if matrix_desktop::hooks::var_os("GNOBBI_EGUI_FAKE_ACCOUNTS").is_some() {
                         for (id, unread) in [("@marco:example.com · example.com", 0), ("@marco:gnobbi.chat · gnobbi.chat", 3), ("@marco:matrix.org", 120)] {
                             row(ui, "Marco", id, &crate::avatar::Avatar::Missing, id.contains("example") && !carded, unread, t);
                         }
