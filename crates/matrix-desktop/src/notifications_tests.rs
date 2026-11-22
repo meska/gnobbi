@@ -211,3 +211,18 @@ fn tap_on_a_plain_remote_push_opens_that_account_and_room() {
         assert_eq!(parse_remote(bad.0, bad.1), None, "{bad:?}");
     }
 }
+
+#[test]
+fn reading_a_room_removes_only_its_delivered_alerts() {
+    let d = |id: &str, thread: &str| (id.to_owned(), thread.to_owned());
+    let delivered = [
+        d("apns-1", "!r:s"),               // remote push, rewritten by the extension
+        d("apns-2", "!other:s"),
+        d("3:7:!r:s", ""),                 // our own alert
+        d("3:7:!other:s", ""),
+        d("apns-3", ""),                   // push the extension did not touch
+    ];
+    assert_eq!(delivered_to_remove(&delivered, "!r:s"), ["apns-1", "3:7:!r:s"]);
+    assert!(delivered_to_remove(&delivered, "!none:s").is_empty());
+    assert!(delivered_to_remove(&[], "!r:s").is_empty());
+}

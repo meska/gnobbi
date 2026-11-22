@@ -291,6 +291,30 @@ fn parse_remote(account: &str, room: &str) -> Option<(Option<AccountId>, RoomSco
     parse_target(&format!("{catalog}:{worker}:{room}"))
 }
 
+/// Identifiers of the delivered notifications (`(identifier, thread identifier)`) that belong to `room`: a remote push
+/// carries the room as thread id (the extension sets it), our own alert has `<catalog>:<worker>:<room>` as identifier.
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
+fn delivered_to_remove<'a>(delivered: &'a [(String, String)], room: &str) -> Vec<&'a str> {
+    let ours = |id: &str| parse_target(id).is_some_and(|(_, scope)| scope.room_id.as_str() == room);
+    delivered.iter().filter(|(id, thread)| thread == room || ours(id)).map(|(id, _)| id.as_str()).collect()
+}
+
+/// The room was read (here or on another device): its alerts leave the Notification Center. Best effort, async.
+pub fn clear_room(room: &RoomScope) {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    macos::clear_room(room.room_id.as_str());
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    let _ = room;
+}
+
+/// The app icon's badge: unread messages over all accounts. iOS only (macOS keeps its dock tile untouched).
+pub fn set_badge(unread: u64) {
+    #[cfg(target_os = "ios")]
+    macos::set_badge(unread);
+    #[cfg(not(target_os = "ios"))]
+    let _ = unread;
+}
+
 /// A click that reached the process before (or without) the session that owns it: kept here until that account polls.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 static EARLY_CLICK: Mutex<Option<(Option<AccountId>, RoomScope)>> = Mutex::new(None);
@@ -422,6 +446,31 @@ mod macos {
             #[cfg(not(target_os = "ios"))]
             let _ = granted;
         })));
+    }
+
+    pub fn clear_room(room: &str) {
+        if NSBundle::mainBundle().bundleIdentifier().is_none() {
+            return;
+        }
+        let room = room.to_owned();
+        UNUserNotificationCenter::currentNotificationCenter().getDeliveredNotificationsWithCompletionHandler(&RcBlock::new(move |list: std::ptr::NonNull<NSArray<UNNotification>>| {
+            // SAFETY: the center passes a live array for the duration of the callback.
+            let delivered: Vec<(String, String)> = unsafe { list.as_ref() }.iter().map(|n| (n.request().identifier().to_string(), n.request().content().threadIdentifier().to_string())).collect();
+            let ids: Vec<Retained<NSString>> = delivered_to_remove(&delivered, &room).into_iter().map(NSString::from_str).collect();
+            if !ids.is_empty() {
+                UNUserNotificationCenter::currentNotificationCenter().removeDeliveredNotificationsWithIdentifiers(&NSArray::from_retained_slice(&ids));
+            }
+        }));
+    }
+
+    #[cfg(target_os = "ios")]
+    pub fn set_badge(unread: u64) {
+        static LAST: AtomicU64 = AtomicU64::new(u64::MAX);
+        if NSBundle::mainBundle().bundleIdentifier().is_none() || LAST.swap(unread, Ordering::Relaxed) == unread {
+            return;
+        }
+        // The app's deployment target is iOS 17: setBadgeCount (16+) needs no fallback.
+        UNUserNotificationCenter::currentNotificationCenter().setBadgeCount_withCompletionHandler(unread.min(i32::MAX as u64) as isize, None);
     }
 
     pub fn deliver(notification: Notification, picture: Option<Avatar>, click: &Click) -> Result<(), NotificationError> {

@@ -171,6 +171,8 @@ pub struct Session {
     /// Set by the app each frame: the window has focus, the newest message is in view, the «Conferme di lettura» setting.
     pub reading: (bool, bool, bool),
     read_dirty: bool,
+    /// Rooms seen with unread messages: when one reaches zero its delivered alerts are removed.
+    alerted_unread: std::collections::HashSet<String>,
     /// The shown room was opened with unread messages: first-unread anchor and progressive reading.
     unread_open: Option<unread::UnreadOpen>,
     pub unread_notice: Option<std::time::Instant>,
@@ -361,6 +363,7 @@ impl Session {
             voice: None,
             reading: (false, false, true),
             read_dirty: true,
+            alerted_unread: Default::default(),
             unread_open: None,
             unread_notice: None,
             mentions: Vec::new(),
@@ -912,6 +915,7 @@ impl Session {
         // Opening or receiving in the room on screen: the read marker goes out once the newest message is in view (main only, so threads stay unread).
         changed |= self.drive_unread();
         self.queue_read_marker();
+        self.clear_read_alerts();
         self.queue_lookups();
         self.queue_thread_requests();
         self.queue_aliases_load();

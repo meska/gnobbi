@@ -35,6 +35,23 @@ impl Session {
         self.unread_open = Some(UnreadOpen { scope, unread0, saved, markers: None, retry_at: None, anchored: false, read_id: None, tracker: ReadTracker::default() });
     }
 
+    /// A room that had unread messages and has none now (read here, or by a receipt synced from another device): its delivered alerts go.
+    pub(super) fn clear_read_alerts(&mut self) {
+        for room in self.sidebar.rooms() {
+            let id = room.scope.room_id.as_str();
+            if room.unread > 0 {
+                self.alerted_unread.insert(id.to_owned());
+            } else if self.alerted_unread.remove(id) {
+                matrix_desktop::notifications::clear_room(&room.scope);
+            }
+        }
+    }
+
+    /// Unread messages of the account's unmuted rooms, for the app icon badge.
+    pub(crate) fn unread_total(&self) -> u64 {
+        self.sidebar.rooms().iter().filter(|r| !r.info.invited && !r.info.is_space && !r.info.muted()).fold(0, |n, r| n.saturating_add(r.unread))
+    }
+
     /// While the first unread is being located nothing may mark the room read.
     pub(crate) fn unread_pending(&self) -> bool {
         self.unread_open.as_ref().is_some_and(|u| !u.anchored)

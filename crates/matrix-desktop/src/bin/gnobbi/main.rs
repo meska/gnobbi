@@ -1123,7 +1123,11 @@ impl App {
 
     /// Tray clicks, the menu and icon state, and what closing the window does (hide when the tray can be reached).
     #[cfg(any(target_os = "ios", target_os = "android"))]
-    fn tray(&mut self, _ctx: &egui::Context) {} // mobile: no tray, no close-to-tray
+    fn tray(&mut self, _ctx: &egui::Context) {
+        // mobile: no tray, no close-to-tray; the icon badge is the unread total of every account.
+        let total = self.session.iter().chain(self.parked.iter().map(|p| &p.session)).fold(0u64, |n, s| n.saturating_add(s.unread_total()));
+        matrix_desktop::notifications::set_badge(total);
+    }
 
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     fn tray(&mut self, ctx: &egui::Context) {
