@@ -182,12 +182,13 @@ fn secret_file_must_be_a_regular_file() {
 fn error_table_exit_codes() {
     use AuthError as A;
     use SignInError as S;
-    let rows: [(CliError, i32, &str); 20] = [
+    let rows: [(CliError, i32, &str); 21] = [
         (signin_error(S::InvalidHomeserver), 2, "usage"),
         (signin_error(S::InvalidUserId), 2, "usage"),
         (signin_error(S::InvalidSecret), 2, "usage"),
         (signin_error(S::InvalidTrustRoot), 2, "usage"),
         (signin_error(S::Discovery), 6, "temporary"),
+        (signin_error(S::Tls), 6, "tls"),
         (signin_error(S::UnsupportedLogin), 7, "server_unsupported"),
         (signin_error(S::NoSlidingSync), 7, "server_unsupported"),
         (signin_error(S::ServerStatus), 7, "server_unsupported"),
