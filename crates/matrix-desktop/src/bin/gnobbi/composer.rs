@@ -114,8 +114,8 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
     // Not horizontal_centered: it fills the panel's height from the previous frame, so the bar never shrank after a narrow-window wrap.
     ui.horizontal_top(|ui| {
         ui.add_space(12.);
-        // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
-        let slots = if thread { 3. } else { 4. };
+        // All on the right: text, attach (menu), then the mic/send slot.
+        let slots = 2.;
         let w = (ui.available_width() - slots * slot - (slots + 1.) * ui.spacing().item_spacing.x - 12.).max(80.); // Keep the right gap close to the 12 px left pad.
         let id = nid("composer-text");
         format_shortcuts(ui, id, draft);
@@ -144,7 +144,26 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         ui.add_space((text_h - slot).max(0.));
         ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        let emoji = icon_at(ui, rect, &format!("composer-emoji{salt}"), Icon::Smiley, 1., true, i18n::t("Emoji"));
+        // One button opens a menu with the rest: emoji, poll, attach. Keeps the field wide at any text scale (Telegram keeps attach and send/mic only).
+        let attach = icon_at(ui, rect, &format!("composer-attach{salt}"), Icon::Paperclip, 1., true, i18n::t("Attach a file"));
+        // Invisible twin of the button: the emoji popup hangs from it, opened by the menu entry.
+        let emoji = ui.interact(rect, egui::Id::new(format!("composer-emoji{salt}")), egui::Sense::hover());
+        // The picker answers by its title, the same for both bars: remember which one asked.
+        let asker = egui::Id::new("composer-attach-asker");
+        egui::Popup::menu(&attach).show(|ui| {
+            if ui.button(i18n::t("Emoji")).clicked() {
+                egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&emoji));
+            }
+            if !thread && ui.button(i18n::t("Poll")).clicked() {
+                *poll = true;
+                ui.close();
+            }
+            if ui.button(i18n::t("Attach a file")).clicked() {
+                ui.data_mut(|d| d.insert_temp(asker, thread));
+                crate::pick::start(ui.ctx(), i18n::t("Attach a file"), false);
+                ui.close();
+            }
+        });
         // Stays open on clicks inside (tabs, search, pack bar); a picked emoji or sticker closes it itself.
         let mut popup = egui::Popup::menu(&emoji).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
         if !(stickers.is_some() && ui.data(|d| d.get_temp::<bool>(egui::Id::new(crate::stickers::TAB_ID))).unwrap_or(false)) {
@@ -191,19 +210,6 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
                 });
             });
         }));
-        if !thread {
-        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        if icon_at(ui, rect, "composer-poll", Icon::ChartBarHorizontal, 1., true, i18n::t("Poll")).clicked() {
-            *poll = true;
-        }
-        }
-        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        // The picker answers by its title, the same for both bars: remember which one asked.
-        let asker = egui::Id::new("composer-attach-asker");
-        if icon_at(ui, rect, &format!("composer-attach{salt}"), Icon::Paperclip, 1., true, i18n::t("Attach a file")).clicked() {
-            ui.data_mut(|d| d.insert_temp(asker, thread));
-            crate::pick::start(ui.ctx(), i18n::t("Attach a file"), false);
-        }
         if ui.data(|d| d.get_temp::<bool>(asker)) == Some(thread) && let Some(p) = crate::pick::done(i18n::t("Attach a file")) {
             *picked = Some(p);
         }
@@ -637,17 +643,50 @@ mod tests {
                 out.textures_delta.clear();
             }
             let r = |id: &str| ctx.read_response(egui::Id::new(id)).map(|r| (r.rect, r.sense.senses_click()));
-            (r("composer-emoji-thread"), r("composer-attach-thread"), r("composer-voice-thread"), r("composer-send-thread"), r("composer-poll"))
+            (r("composer-attach-thread"), r("composer-voice-thread"), r("composer-send-thread"), r("composer-poll"))
         };
-        let (emoji, attach, voice, send, poll) = rects("");
-        let (emoji2, attach2, voice2, send2, _) = rects("ciao");
+        let (attach, voice, send, poll) = rects("");
+        let (attach2, voice2, send2, _) = rects("ciao");
         assert!(poll.is_none(), "no poll in a thread");
-        assert_eq!((emoji.unwrap().0, attach.unwrap().0), (emoji2.unwrap().0, attach2.unwrap().0), "the other icons do not move");
+        assert_eq!(attach.unwrap().0, attach2.unwrap().0, "attach does not move");
         let (mic, plane) = (voice.unwrap(), send2.unwrap());
         assert!(mic.1 && plane.1, "microphone clickable when empty, send with text");
         assert_eq!(mic.0, plane.0, "one slot for both");
         assert!(send.is_none_or(|s| !s.1) && voice2.is_none_or(|v| !v.1), "the faded one is inert");
         assert!(320. - mic.0.right() <= 16., "no empty slot at the right edge");
+    }
+
+    /// Telegram layout at every width and text scale: the field takes the remaining width, attach and mic/send sit right on the field's last row, nothing leaves the panel.
+    #[test]
+    fn field_takes_the_remaining_width_with_attach_and_send_anchored_right_at_every_scale() {
+        use eframe::egui;
+        for (width, zoom) in [(240., 1.5), (390., 1.), (436., 1.5), (900., 1.)] {
+            for text in ["", "a\nb\nc\nd"] {
+                let ctx = crate::icons::test_context();
+                ctx.set_zoom_factor(zoom);
+                let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.))), ..Default::default() };
+                for _ in 0..4 {
+                    let mut out = ctx.run_ui(input.clone(), |ui| {
+                        super::panel(egui::Frame::NONE).show(ui, |ui| {
+                            let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
+                            super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
+                        });
+                    });
+                    out.textures_delta.clear();
+                }
+                let r = |id: &str| ctx.read_response(egui::Id::new(id)).unwrap_or_else(|| panic!("{id} missing")).rect;
+                let (field, attach) = (r("composer-text"), r("composer-attach"));
+                let mic = ctx.read_response(egui::Id::new("composer-voice")).or_else(|| ctx.read_response(egui::Id::new("composer-send"))).unwrap().rect;
+                let slot = crate::metrics::button();
+                let ctx_msg = format!("width {width} zoom {zoom} text {text:?}");
+                assert!(field.width() >= 0.4 * width, "field too narrow: {} {ctx_msg}", field.width());
+                assert!(field.right() <= attach.left() + 1., "field overlaps attach {ctx_msg}");
+                assert!(attach.right() <= mic.left() + 1. && mic.right() <= width, "buttons leave the panel {ctx_msg}");
+                assert!((mic.left() - attach.right()).abs() <= 8. && attach.size() == mic.size() && attach.bottom() == mic.bottom(), "buttons are one uniform row {ctx_msg}");
+                let below = mic.bottom() - field.bottom(); // the field has its vertical padding outside its rect
+                assert!((0. ..=slot / 2. + 1.).contains(&below), "buttons stay on the field's last row: {below} {ctx_msg}");
+            }
+        }
     }
 
     #[test]
