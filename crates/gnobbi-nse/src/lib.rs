@@ -69,11 +69,18 @@ pub fn store_path(tag: &str) -> Option<PathBuf> {
     Some(Path::new(dir).join(format!("account-{worker}")))
 }
 
+/// `version` of `session.sealed` this reader understands; must equal matrix-engine's `SEALED_VERSION` (contract test).
+#[doc(hidden)]
+pub const SEALED_VERSION: u64 = 1;
+
 /// Reads the app's `session.sealed` (written by matrix-engine `AccountStore::seal`); public only for the contract test.
 #[doc(hidden)]
 pub fn unseal(dir: &Path, pass: &str) -> Result<(String, MatrixSession), Fail> {
     let bytes = std::fs::read(dir.join("session.sealed")).map_err(|_| Fail::Store)?;
     let record: Value = serde_json::from_slice(&bytes).map_err(|_| Fail::Store)?;
+    if record["version"] != SEALED_VERSION {
+        return Err(Fail::Store);
+    }
     let exported: Vec<u8> =
         serde_json::from_value(record["cipher"].clone()).map_err(|_| Fail::Store)?;
     let payload: Vec<u8> =

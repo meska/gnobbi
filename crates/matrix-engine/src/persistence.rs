@@ -37,6 +37,9 @@ pub struct AccountStore {
     pub(crate) avatars: std::sync::Arc<crate::avatar_cache::AvatarCache>,
 }
 
+/// `version` field of `session.sealed`; the iOS NSE reader pins its own copy (contract test in persistence_tests.rs).
+pub(crate) const SEALED_VERSION: u64 = 1;
+
 impl AccountStore {
     /// The caller-allocated identity this store was created or opened for.
     pub fn account_id(&self) -> AccountId {
@@ -352,7 +355,7 @@ impl AccountStore {
             .encrypt_value(&json!({"account": self.account_id.as_u64(), "value": value}))
             .map_err(|_| StoreError::LockedOrCorrupt)?;
         let bytes =
-            serde_json::to_vec(&json!({"version": 1, "cipher": export, "payload": encrypted}))
+            serde_json::to_vec(&json!({"version": SEALED_VERSION, "cipher": export, "payload": encrypted}))
                 .map_err(|_| StoreError::LockedOrCorrupt)?;
         // Publish only a fully written encrypted record; never overwrite another session.
         let pending = self.path.join("session.pending");
@@ -394,7 +397,7 @@ impl AccountStore {
         }
         let record: Value =
             serde_json::from_slice(&bytes).map_err(|_| StoreError::LockedOrCorrupt)?;
-        if record["version"] != 1 {
+        if record["version"] != SEALED_VERSION {
             return Err(StoreError::LockedOrCorrupt);
         }
         let exported: Vec<u8> = serde_json::from_value(record["cipher"].clone())

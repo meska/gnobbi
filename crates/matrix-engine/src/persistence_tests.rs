@@ -1,5 +1,5 @@
 #![cfg(feature = "sdk")]
-use super::{AccountStore, StoreError};
+use super::{AccountStore, SEALED_VERSION, StoreError};
 use matrix_domain::AccountId;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::{fs, path::PathBuf};
@@ -315,4 +315,13 @@ fn sealed_session_is_readable_by_the_nse() {
     let (homeserver, got) = gnobbi_nse::unseal(&store.path, PASSPHRASE).expect("NSE cannot read the app's session.sealed");
     assert_eq!(homeserver, "https://hs.test/");
     assert_eq!(serde_json::to_value(&got).unwrap(), session);
+    assert_eq!(gnobbi_nse::SEALED_VERSION, SEALED_VERSION);
+
+    // A record of another version is refused by the NSE, not guessed at.
+    let file = store.path.join("session.sealed");
+    let mut record: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+    assert_eq!(record["version"], SEALED_VERSION);
+    record["version"] = (SEALED_VERSION + 1).into();
+    fs::write(&file, serde_json::to_vec(&record).unwrap()).unwrap();
+    assert!(gnobbi_nse::unseal(&store.path, PASSPHRASE).is_err());
 }
