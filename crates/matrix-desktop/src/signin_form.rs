@@ -107,9 +107,8 @@ impl FormStatus {
             ServerStatus => {
                 t("The server answered with an error: check the address (e.g. https://matrix.example.org).")
             }
-            Discovery | InvalidTrustRoot => {
-                t("Server unreachable or invalid TLS certificate.")
-            }
+            Tls | InvalidTrustRoot => t("Invalid server certificate (TLS)."),
+            Discovery => t("Server unreachable or not answering."),
             Authentication(matrix_engine::auth::AuthError::CredentialsRejected) => {
                 t("Credentials not accepted. Try again.")
             }
@@ -126,7 +125,9 @@ impl FormStatus {
                 t("The profile key is not in the system keychain. The profile was not changed.")
             }
             ProfileBusy => t("Profile already open in another instance. Close it and restart."),
-            _ => t("Local profile unavailable. Close and check the profile path."),
+            Storage | InvalidStorePath => t("Local profile unavailable. Close and check the profile path."),
+            // Unclassified: the detail goes to the log (see `apply`), not to a misleading specific message.
+            _ => t("Unexpected error. Details are in the log."),
         })
     }
 }
@@ -323,6 +324,7 @@ impl SignInForm {
             SignInEvent::Failed(error) => {
                 self.password.take();
                 self.phrase.take();
+                eprintln!("Gnobbi: sign-in/unlock failed: {error:?}");
                 self.status = FormStatus::Failed(error);
             }
         }
@@ -403,5 +405,25 @@ mod rate_limit_tests {
             matrix_engine::auth::AuthError::RateLimited,
         ));
         assert_eq!(status.error_message(), Some(t("Too many attempts: try again in a moment.")));
+    }
+}
+
+#[cfg(test)]
+mod classification_tests {
+    use super::*;
+    use matrix_engine::signin::SignInError as E;
+
+    fn message(error: E) -> Option<&'static str> {
+        FormStatus::Failed(error).error_message()
+    }
+
+    #[test]
+    fn only_tls_errors_get_the_tls_message() {
+        let tls = message(E::Tls);
+        assert!(tls.unwrap().contains("TLS"));
+        for other in [E::Discovery, E::NoSession, E::AttemptLimit, E::ProtectionMismatch, E::AlreadySignedIn, E::Storage] {
+            assert_ne!(message(other), tls, "{other:?}");
+        }
+        assert_eq!(message(E::NoSession), Some(t("Unexpected error. Details are in the log.")));
     }
 }

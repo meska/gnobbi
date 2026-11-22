@@ -183,7 +183,7 @@ pub fn signin_error(e: SignInError) -> CliError {
         SignInError::InvalidSecret => usage("invalid secret (empty or longer than 4096 bytes)"),
         SignInError::InvalidTrustRoot => usage("invalid CA file"),
         SignInError::InvalidStorePath => usage("invalid store path"),
-        SignInError::Discovery => fail(6, "temporary", "homeserver discovery failed; retry later"),
+        SignInError::Discovery | SignInError::Tls => fail(6, "temporary", "homeserver discovery failed; retry later"),
         SignInError::UnsupportedLogin | SignInError::NoSlidingSync | SignInError::ServerStatus => {
             fail(7, "server_unsupported", "homeserver not supported")
         }

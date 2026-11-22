@@ -138,6 +138,8 @@ pub enum SignInError {
     InvalidTrustRoot,
     InvalidStorePath,
     Discovery,
+    /// The server certificate was rejected (unknown issuer, wrong host, expired).
+    Tls,
     /// The address answered with an HTTP error: not a Matrix endpoint (TLS was fine).
     ServerStatus,
     UnsupportedLogin,
@@ -254,6 +256,7 @@ impl PasswordSignIn {
             .await
             .map_err(|error| match error {
                 DiscoveryError::HttpStatus(_) => SignInError::ServerStatus,
+                DiscoveryError::Tls => SignInError::Tls,
                 _ => SignInError::Discovery,
             })?;
         if !result

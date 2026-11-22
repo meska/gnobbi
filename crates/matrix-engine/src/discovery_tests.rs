@@ -138,7 +138,7 @@ fn signin_explicit_ca_keeps_hostname_and_expiry_verification() {
             Secret::new("protocol fixture unlock phrase".into()).unwrap(),
             Some(std::fs::read(f.root.join("ca.pem")).unwrap()),
         ));
-        assert!(matches!(result, Err(SignInError::Discovery)), "mode {mode}");
+        assert!(matches!(result, Err(SignInError::Tls)), "mode {mode}");
         assert!(f.requests().is_empty());
         assert!(!root.join("account-1").exists());
     }

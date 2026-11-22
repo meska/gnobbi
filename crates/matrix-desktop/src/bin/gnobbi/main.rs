@@ -2284,8 +2284,8 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens, icon: matr
             (SignInMode::UnlockVault, _) => {}
         }
     }
-    // The engine gives up on its own only after discovery succeeds: after 20 s say what the form already says for an unreachable server.
-    let stalled = waited.is_some_and(|w| w > std::time::Duration::from_secs(20));
+    // The engine gives up on its own only after discovery succeeds: after 20 s of a sign-in (not an unlock) say what the form says for an unreachable server.
+    let stalled = !unlock && waited.is_some_and(|w| w > std::time::Duration::from_secs(20));
     let error = if stalled { FormStatus::Failed(matrix_engine::signin::SignInError::Discovery).error_message() } else { s.form.status().error_message() };
     if let Some(message) = error {
         ui.label(RichText::new(message).color(rgb(t.error)));
