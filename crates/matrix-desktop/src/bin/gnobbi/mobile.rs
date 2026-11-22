@@ -3,8 +3,8 @@
 use eframe::egui;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-/// Smallest side of anything tappable on a touch screen.
-const TOUCH: f32 = 44.;
+/// Smallest side of anything tappable on a touch screen (iOS HIG 44 pt, Android 48 dp).
+const TOUCH: f32 = if cfg!(target_os = "android") { 48. } else { 44. };
 
 /// Home indicator height iOS reports in landscape on notch phones.
 const LANDSCAPE_HOME: f32 = 21.;
@@ -265,10 +265,10 @@ pub fn observe_lifecycle(ctx: &egui::Context) {
     }
 }
 
-/// iOS, or the test hook GNOBBI_EGUI_TOUCH on desktop.
+/// iOS and Android, or the test hook GNOBBI_EGUI_TOUCH on desktop.
 pub fn touch() -> bool {
     static TOUCH_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *TOUCH_ON.get_or_init(|| cfg!(target_os = "ios") || std::env::var_os("GNOBBI_EGUI_TOUCH").is_some())
+    *TOUCH_ON.get_or_init(|| cfg!(any(target_os = "ios", target_os = "android")) || std::env::var_os("GNOBBI_EGUI_TOUCH").is_some())
 }
 
 /// Side of a tappable target: `desktop` as it is, at least 44 pt on touch.
@@ -288,6 +288,41 @@ fn uikit_ratio(screen_width: f32, view_width: f64) -> f32 {
 /// Never the sum, and never the safe inset above a keyboard: that was a blank band between the content and the keys.
 fn bottom_reserved(safe_bottom: f32, keyboard: f32) -> f32 {
     if keyboard > 0. { keyboard } else { safe_bottom }
+}
+
+/// Android: pixels covered by the system bars and the display cutout, [top, left, bottom, right]; None until the window has insets.
+/// Reads the decor view's root insets over JNI (NativeActivity has no Java code of its own), the max of bars and cutout per side.
+/// shortcut: called from the render thread, not the UI thread (reads only, works in practice); every frame, cache it if profiling shows a cost.
+#[cfg(target_os = "android")]
+fn android_insets() -> Option<[f32; 4]> {
+    use jni::{jni_sig, jni_str, objects::JObject};
+    let ctx = std::panic::catch_unwind(ndk_context::android_context).ok()?;
+    // SAFETY: the VM pointer comes from android-activity; from_raw is idempotent.
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) };
+    vm.attach_current_thread(|env| -> Result<Option<[f32; 4]>, jni::errors::Error> {
+        // SAFETY: the activity is a global ref owned by android-activity; JObject has no Drop and is not kept.
+        let activity = unsafe { JObject::from_raw(env, ctx.context().cast()) };
+        let window = env.call_method(&activity, jni_str!("getWindow"), jni_sig!("()Landroid/view/Window;"), &[])?.l()?;
+        let decor = env.call_method(&window, jni_str!("getDecorView"), jni_sig!("()Landroid/view/View;"), &[])?.l()?;
+        let insets = env.call_method(&decor, jni_str!("getRootWindowInsets"), jni_sig!("()Landroid/view/WindowInsets;"), &[])?.l()?;
+        if insets.is_null() {
+            return Ok(None);
+        }
+        let mut out = [0f32; 4];
+        for (i, name) in [jni_str!("getSystemWindowInsetTop"), jni_str!("getSystemWindowInsetLeft"), jni_str!("getSystemWindowInsetBottom"), jni_str!("getSystemWindowInsetRight")].into_iter().enumerate() {
+            out[i] = env.call_method(&insets, name, jni_sig!("()I"), &[])?.i()? as f32;
+        }
+        // getDisplayCutout is API 28+ and null without a cutout: a failure here only means no cutout.
+        let cutout = env.call_method(&insets, jni_str!("getDisplayCutout"), jni_sig!("()Landroid/view/DisplayCutout;"), &[]).and_then(|v| v.l());
+        if let Some(cutout) = cutout.ok().filter(|c| !c.is_null()) {
+            for (i, name) in [jni_str!("getSafeInsetTop"), jni_str!("getSafeInsetLeft"), jni_str!("getSafeInsetBottom"), jni_str!("getSafeInsetRight")].into_iter().enumerate() {
+                out[i] = out[i].max(env.call_method(&cutout, name, jni_sig!("()I"), &[])?.i()? as f32);
+            }
+        }
+        Ok(Some(out))
+    })
+    .ok()
+    .flatten()
 }
 
 /// The insets of the last window event, with the keyboard folded into the bottom one.
@@ -311,7 +346,13 @@ impl Insets {
 
     /// Called from `raw_input_hook`. egui-winit sends the insets only with a window event (resize, rotation, focus): keep the last ones.
     /// Returns true when the screen just turned between portrait and landscape.
-    pub fn apply(&mut self, raw: &mut egui::RawInput) -> bool {
+    pub fn apply(&mut self, raw: &mut egui::RawInput, pixels_per_point: f32) -> bool {
+        #[cfg(target_os = "android")]
+        if let Some(px) = android_insets() {
+            raw.safe_area_insets = Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: px[0] / pixels_per_point, left: px[1] / pixels_per_point, bottom: px[2] / pixels_per_point, right: px[3] / pixels_per_point }));
+        }
+        #[cfg(not(target_os = "android"))]
+        let _ = pixels_per_point;
         let ratio = raw.screen_rect.zip(uikit_facts()).map_or(1., |(screen, kit)| uikit_ratio(screen.width(), kit.view.0));
         self.apply_with_ratio(raw, ratio)
     }
@@ -325,7 +366,7 @@ impl Insets {
         // iOS keeps reporting the portrait insets after a rotation (top = notch, sides 0, bottom = home bar): in landscape the notch is on a side
         // (both sides, for symmetry), nothing is left on top and the home indicator is the short one.
         // shortcut: assumes insets left+right == 0 means stale and top > 40 means a notch (SE top is 20); drop it if UIKit starts reporting the sides.
-        if landscape && all.0.left + all.0.right == 0. && all.0.top > 40. {
+        if cfg!(not(target_os = "android")) && landscape && all.0.left + all.0.right == 0. && all.0.top > 40. {
             (all.0.left, all.0.right, all.0.top, all.0.bottom) = (all.0.top, all.0.top, 0., LANDSCAPE_HOME);
         }
         // egui-winit 0.37 forwards UIKit safeAreaInsets unscaled; keep the cached values in UIKit units.
@@ -838,7 +879,7 @@ mod tests {
     /// Header top and composer bottom of one frame on a 393x852 screen.
     fn frame(ctx: &egui::Context, insets: &mut Insets, event: Option<egui::SafeAreaInsets>) -> (f32, f32) {
         let mut raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(393., 852.))), safe_area_insets: event, ..Default::default() };
-        insets.apply(&mut raw);
+        insets.apply(&mut raw, 1.);
         let mut edges = (0., 0.);
         let mut out = ctx.run_ui(raw, |ui| {
             let mut ui = safe_ui(ui, egui::Color32::BLACK);
@@ -881,11 +922,11 @@ mod tests {
     fn landscape_notch_becomes_a_side_inset() {
         let mut insets = Insets::default();
         let mut raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(852., 393.))), safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 62., bottom: 34., ..Default::default() })), ..Default::default() };
-        insets.apply(&mut raw);
+        insets.apply(&mut raw, 1.);
         let m = raw.safe_area_insets.unwrap().0;
         assert_eq!((m.left, m.right, m.top, m.bottom), (62., 62., 0., 21.));
         let mut se = egui::RawInput { screen_rect: raw.screen_rect, safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 20., ..Default::default() })), ..Default::default() };
-        insets.apply(&mut se);
+        insets.apply(&mut se, 1.);
         assert_eq!(se.safe_area_insets.unwrap().0.left, 0., "no notch: nothing to add");
     }
 
@@ -923,7 +964,7 @@ mod tests {
         assert_eq!(frame(&ctx, &mut insets, None), (59., 516.), "keyboard open: the composer sits on it");
         // No consumer adds the home-bar band above the keys: the list helper reserves nothing while the keyboard is up.
         let mut raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(393., 852.))), ..Default::default() };
-        insets.apply(&mut raw);
+        insets.apply(&mut raw, 1.);
         let mut out = ctx.run_ui(raw, |ui| {
             let mut ui = safe_ui(ui, egui::Color32::BLACK);
             assert_eq!(extend_list(&mut ui, true).1, 0.);
