@@ -78,7 +78,7 @@ jobs:
         run: |
           mkdir -p out
           mv dist/gnobbi-windows-x64-*.zip "out/gnobbi-${{ needs.version.outputs.version }}-windows-x64.zip"
-      # Windows: unsigned (accepted); macOS: Developer ID signing + notarization TODO (needs Developer ID cert in GitHub secrets)
+      # Windows: unsigned (accepted).
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -96,6 +96,8 @@ jobs:
       - name: Build
         run: cargo build --locked --release -p matrix-desktop --features mac-vault
       - name: App and dmg
+        # Ad-hoc signed here: no Apple credentials on GitHub. Developer ID signing and notarization happen on the
+        # maintainer's Mac, which then publishes the draft Release.
         run: packaging/macos/make-dmg.sh "${{ needs.version.outputs.version }}" dist
       - uses: actions/upload-artifact@v4
         with:
@@ -137,7 +139,8 @@ jobs:
         run: |
           v="${{ needs.version.outputs.version }}"
           pre=""; case "$v" in 0.*) pre=--prerelease;; esac
-          gh release create "v$v" assets/* --title "Gnobbi $v" --notes-file notes.md --target "$GITHUB_SHA" $pre
+          # Draft on purpose: the macOS dmg is signed and notarized locally, which then publishes the Release.
+          gh release create "v$v" assets/* --draft --title "Gnobbi $v" --notes-file notes.md --target "$GITHUB_SHA" $pre
       - name: Notes preview (no release)
         if: github.ref_type != 'tag' && !inputs.publish
         run: |
