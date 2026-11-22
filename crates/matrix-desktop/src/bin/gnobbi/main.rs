@@ -1117,10 +1117,10 @@ impl App {
     }
 
     /// Tray clicks, the menu and icon state, and what closing the window does (hide when the tray can be reached).
-    #[cfg(target_os = "ios")]
-    fn tray(&mut self, _ctx: &egui::Context) {} // iOS: no tray, no close-to-tray
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    fn tray(&mut self, _ctx: &egui::Context) {} // mobile: no tray, no close-to-tray
 
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     fn tray(&mut self, ctx: &egui::Context) {
         use matrix_desktop::tray_menu::{CloseAction, TrayAction, close_action, tray_menu};
         let show = |ctx: &egui::Context| {
@@ -2392,16 +2392,16 @@ fn single_instance_gate(_link: Option<String>) {}
 /// Linux and iOS: the bundled Noto Color Emoji (SIL OFL 1.1, see THIRD_PARTY_NOTICES.md) as the last fallback, so the emoji set is the
 /// same on every system and never depends on the app being allowed to read Apple Color Emoji (on iOS the system font provider
 /// found nothing on the owner's iPhone). macOS and Windows keep their own emoji font (system_fonts).
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use matrix_desktop::tray::Tray as TrayHandle;
-/// iOS stub: the tray module needs tray-icon, which does not exist there.
-#[cfg(target_os = "ios")]
+/// Mobile stub: the tray module needs tray-icon, which does not exist on iOS or Android.
+#[cfg(any(target_os = "ios", target_os = "android"))]
 struct TrayHandle;
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 impl TrayHandle { fn start() -> Option<Self> { None } }
 
 fn register_emoji_font(ctx: &egui::Context) {
-    #[cfg(any(target_os = "linux", target_os = "ios"))]
+    #[cfg(any(target_os = "linux", target_os = "ios", target_os = "android"))]
     {
         static NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../assets/fonts/NotoColorEmoji.ttf");
         ctx.add_font(egui::epaint::text::FontInsert::new(
@@ -2413,7 +2413,7 @@ fn register_emoji_font(ctx: &egui::Context) {
             ],
         ));
     }
-    #[cfg(not(any(target_os = "linux", target_os = "ios")))]
+    #[cfg(not(any(target_os = "linux", target_os = "ios", target_os = "android")))]
     let _ = ctx;
 }
 
@@ -2464,12 +2464,37 @@ fn take_once(done: &mut bool) -> bool {
     !std::mem::replace(done, true)
 }
 
+/// Android entry (NativeActivity): the activity's app handle is the only thing the event loop needs besides the options.
+#[cfg(target_os = "android")]
+static ANDROID_APP: std::sync::OnceLock<android_activity::AndroidApp> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub fn android_main(app: android_activity::AndroidApp) {
+    android_logger::init_once(android_logger::Config::default().with_tag("gnobbi").with_max_level(log::LevelFilter::Info));
+    // No HOME on Android: the XDG fallbacks of app_dirs then land in the app's private dir.
+    // Canonical: /data/user/0 is a symlink to /data/data and the engine refuses store paths with a link in them.
+    if let Some(dir) = app.internal_data_path().and_then(|d| d.canonicalize().ok()) {
+        unsafe { std::env::set_var("HOME", dir) };
+    }
+    // shortcut: engine logs always on while the port is a spike; drop with the first release build.
+    if std::env::var_os("RUST_LOG").is_none() {
+        unsafe { std::env::set_var("RUST_LOG", "info") };
+    }
+    let _ = ANDROID_APP.set(app);
+    if let Err(e) = main() {
+        log::error!("gnobbi exited: {e}");
+    }
+}
+
 fn main() -> eframe::Result {
     // iOS: stderr goes nowhere, so `log` goes to os_log (Console / `log stream`) and stderr is piped into it line by line.
-    #[cfg(target_os = "ios")]
+    // Android is the same: stderr (panics included) goes to logcat through the `log` logger set up in android_main.
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     {
         use std::io::BufRead;
         use std::os::fd::FromRawFd;
+        #[cfg(target_os = "ios")]
         let _ = oslog::OsLogger::new("app.gnobbi").level_filter(log::LevelFilter::Info).init();
         let mut fds = [0; 2];
         if unsafe { libc::pipe(fds.as_mut_ptr()) } == 0 {
@@ -2482,7 +2507,7 @@ fn main() -> eframe::Result {
         }
     }
     // `gnobbi account …` is a console command: no window, no notifications, no single-instance gate.
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
         let args: Vec<String> = std::env::args().skip(1).collect();
         if args.first().map(String::as_str) == Some("account") {
@@ -2562,6 +2587,10 @@ fn main() -> eframe::Result {
             .with_icon(app_icon(dirs.as_ref().map(Preferences::load).unwrap_or_default().icon).unwrap_or_default()),
         ..Default::default()
     };
+    #[cfg(target_os = "android")]
+    {
+        options.android_app = ANDROID_APP.get().cloned();
+    }
     // iOS: the Metal adapter (the simulator's at least) caps max_inter_stage_shader_variables at 15, below wgpu's default 16 that egui-wgpu requests.
     #[cfg(target_os = "ios")]
     {

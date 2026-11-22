@@ -441,8 +441,8 @@ mod tests {
 
 /// iOS has no arboard (the system paste menu fills the field instead).
 fn clipboard_text() -> Option<String> {
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     return arboard::Clipboard::new().and_then(|mut b| b.get_text()).ok();
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     None
 }

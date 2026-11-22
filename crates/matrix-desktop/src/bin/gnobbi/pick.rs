@@ -19,13 +19,24 @@ pub fn done(title: &str) -> Option<PathBuf> {
 }
 
 // shortcut: blocks the frame loop while the dialog is open (macOS needs the main thread); move to the async API if that is felt.
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn start(_ctx: &eframe::egui::Context, title: &str, images_only: bool) {
     let mut dialog = rfd::FileDialog::new().set_title(title);
     if images_only {
         dialog = dialog.add_filter(i18n::t("Images"), &["png", "jpg", "jpeg", "gif", "webp"]);
     }
     store(title, dialog.pick_file());
+}
+
+// Android: no picker yet (SAF intent needed through JNI); the attach button answers "nothing picked".
+#[cfg(target_os = "android")]
+pub fn start(_ctx: &eframe::egui::Context, title: &str, _images_only: bool) {
+    store(title, None);
+}
+
+#[cfg(target_os = "android")]
+pub fn save_as(_name: &str) -> Option<PathBuf> {
+    None
 }
 
 /// Photos from the library (PHPicker) for images, any file (UIDocumentPicker) otherwise.
@@ -56,7 +67,7 @@ pub fn purge_temp() {
 }
 
 /// Where a file to save goes: the folder the user picks on desktop, a private temp file on iOS (shared afterwards).
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn save_as(name: &str) -> Option<PathBuf> {
     rfd::FileDialog::new().set_title(i18n::t("Save as")).set_file_name(name).save_file()
 }

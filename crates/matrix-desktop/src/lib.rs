@@ -39,7 +39,7 @@ pub use verification::{DeviceVerification, PopupBody, PopupButton, PopupView, de
 mod signin_form;
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod account_catalog;
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub mod account_cli;
 mod account_list;
 mod app_dirs;
@@ -104,8 +104,8 @@ pub mod row_text;
 pub mod time_fmt;
 mod sidebar;
 pub mod tray_menu;
-#[cfg(not(target_os = "ios"))]
-pub mod tray; // tray-icon does not exist on iOS
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub mod tray; // tray-icon does not exist on iOS or Android
 pub use sidebar::{InviteState, Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]

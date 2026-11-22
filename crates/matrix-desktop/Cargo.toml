@@ -26,15 +26,28 @@ unicode-segmentation = "=1.13.3"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 egui_system_font_provider = "=0.37.0"
-eframe = { version = "0.37", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "system_fonts", "wgpu"] }
+eframe = { version = "0.37", default-features = false, features = ["clipboard", "default_fonts", "system_fonts", "wgpu"] }
 
-# Desktop only: file dialogs and Wayland/X11. iOS has none of them.
-[target.'cfg(not(target_os = "ios"))'.dependencies]
+# AccessKit cannot be combined with android-native-activity (eframe compile_error); see docs on the Android spike.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["accesskit"] }
+
+# Desktop only: file dialogs and Wayland/X11. iOS and Android have none of them.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
 # Password prompt without echo for `gnobbi account` (MIT/Apache-2.0).
 rpassword = "=7.4.0"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 arboard = { version = "=3.7.0", default-features = false }
 eframe = { version = "0.37", default-features = false, features = ["wayland", "x11"] }
+
+# Android: NativeActivity entry (android_main in the binary); `log` goes to logcat.
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["android-native-activity"] }
+android-activity = "0.6"
+android_logger = "0.15"
+libc = "=0.2.183"
+log = "0.4"
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
 
 # iOS: stderr goes nowhere, so main() sends `log` and stderr to os_log.
 [target.'cfg(target_os = "ios")'.dependencies]
@@ -88,6 +101,14 @@ tokio = { version = "=1.53.2", default-features = false, features = ["rt", "time
 [[bin]]
 name = "gnobbi"
 path = "src/bin/gnobbi/main.rs"
+
+# Android loads a shared library, and only a library or an example can be a cdylib: the same app root built as an example
+# (`cargo ndk rustc -p matrix-desktop --example gnobbi --crate-type cdylib`, see packaging/android). Cargo warns that the file is shared.
+[[example]]
+name = "gnobbi"
+path = "src/bin/gnobbi/main.rs"
+crate-type = ["cdylib"]
+test = false
 
 [features]
 # New profiles keep their protection secret in the OS vault.

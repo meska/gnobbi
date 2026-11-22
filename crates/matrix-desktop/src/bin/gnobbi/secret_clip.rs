@@ -13,7 +13,7 @@ fn hash(text: &str) -> u64 {
     h.finish()
 }
 
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn copy(ctx: &eframe::egui::Context, text: &str) {
     let mut board = match arboard::Clipboard::new() {
         Ok(b) => b,
@@ -33,13 +33,13 @@ pub fn copy(ctx: &eframe::egui::Context, text: &str) {
     ctx.request_repaint_after(Duration::from_secs(matrix_desktop::key_export::CLIPBOARD_SECONDS));
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 pub fn copy(ctx: &eframe::egui::Context, text: &str) {
     ctx.copy_text(text.to_owned());
 }
 
 /// Every frame: wipes the clipboard once the delay is over and the text is still ours.
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn tick(ctx: &eframe::egui::Context) {
     let mut slot = PENDING.lock().unwrap_or_else(|e| e.into_inner());
     let Some((due, h)) = *slot else { return };
@@ -55,5 +55,5 @@ pub fn tick(ctx: &eframe::egui::Context) {
     }
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 pub fn tick(_ctx: &eframe::egui::Context) {}
