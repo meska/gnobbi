@@ -495,9 +495,37 @@ pub enum BackDrag {
     Released(bool),
 }
 
+/// Width of the strip at the reading-side edge where the back swipe starts.
+pub const BACK_EDGE: f32 = 24.;
+
+/// `p` is in that strip: a press there belongs to the back swipe (the message long press leaves it alone).
+pub fn in_back_edge(ctx: &egui::Context, p: egui::Pos2) -> bool {
+    let content = ctx.content_rect();
+    (if crate::dir::rtl() { content.right() - p.x } else { p.x - content.left() }) < BACK_EDGE
+}
+
+/// Forget the back swipe in progress (something else took the gesture); the next one starts with a new touch.
+pub fn cancel_back_drag(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove_temp::<Option<(egui::Pos2, f64, bool)>>(egui::Id::new("back-swipe")));
+}
+
+/// A light tick under the finger (iOS; nothing elsewhere). Main thread only, like every caller in the UI.
+pub fn haptic_tick() {
+    #[cfg(target_os = "ios")]
+    {
+        use objc2::{class, msg_send, rc::{Allocated, Retained}, runtime::AnyObject};
+        // SAFETY: plain UIKit calls on the main thread; UIImpactFeedbackStyleLight = 0.
+        unsafe {
+            let raw: Allocated<AnyObject> = msg_send![class!(UIImpactFeedbackGenerator), alloc];
+            let tick: Retained<AnyObject> = msg_send![raw, initWithStyle: 0isize];
+            let _: () = msg_send![&*tick, impactOccurred];
+        }
+    }
+}
+
 /// The iOS back gesture, frame by frame: a touch that went down at the left edge and moves right.
 pub fn back_drag(ctx: &egui::Context) -> Option<BackDrag> {
-    const EDGE: f32 = 24.;
+    const EDGE: f32 = BACK_EDGE;
     let id = egui::Id::new("back-swipe");
     // RTL: the list is on the right, so the gesture starts at the right edge and goes left.
     let (content, rtl) = (ctx.content_rect(), crate::dir::rtl());

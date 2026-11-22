@@ -17,6 +17,43 @@ pub struct Acts {
     pub reply_jump: Option<matrix_domain::EventId>,
     /// The message just jumped to, lit for a moment.
     pub flash: Option<matrix_domain::EventId>,
+    /// The long press of this frame, if it landed on this list (set by `show`).
+    pub press: Option<egui::Pos2>,
+    /// Set by the app before drawing: the message the touch menu lifts over the dimmed chat, and how far (0..1).
+    pub lift: Option<(matrix_domain::ScopedTimelineId, f32)>,
+    /// Where that message's bubble is this frame.
+    pub lift_rect: Option<egui::Rect>,
+    /// The bubble a long press opened the menu on (the menu `show` returns names the message).
+    pub held: Option<egui::Rect>,
+    /// The viewport of the list.
+    pub view: Option<egui::Rect>,
+}
+
+/// Where the menu was asked for on the bubble `rect` this frame: a right click, or a long press (`acts.held` then carries the bubble).
+/// Read from the input, not a widget over the bubble: a click-sensing widget on top would swallow the clicks of the link and the download button.
+fn menu_at(ui: &egui::Ui, rect: egui::Rect, e: &DemoEvent, acts: &mut Acts) -> Option<egui::Pos2> {
+    if acts.lift.as_ref().is_some_and(|(id, _)| *id == e.id) {
+        acts.lift_rect = Some(rect);
+    }
+    let inside = |p: &egui::Pos2| rect.contains(*p) && ui.is_rect_visible(rect);
+    let click = ui.input(|i| if i.pointer.button_clicked(egui::PointerButton::Secondary) { i.pointer.interact_pos() } else { None }).filter(inside);
+    let press = acts.press.filter(inside);
+    if press.is_some() {
+        acts.held = Some(rect);
+    }
+    click.or(press)
+}
+
+/// Test hook (debug builds): GNOBBI_DEBUG_LONGPRESS_MSG=<index> long-presses that row once, a few seconds after the room is laid out;
+/// a negative index counts from the newest message (-1).
+#[cfg(debug_assertions)]
+fn debug_press(i: usize, len: usize) -> bool {
+    use std::sync::{OnceLock, atomic::{AtomicBool, Ordering}};
+    static WANT: OnceLock<Option<i64>> = OnceLock::new();
+    static SINCE: OnceLock<std::time::Instant> = OnceLock::new();
+    static DONE: AtomicBool = AtomicBool::new(false);
+    let Some(want) = *WANT.get_or_init(|| std::env::var("GNOBBI_DEBUG_LONGPRESS_MSG").ok()?.parse().ok()) else { return false };
+    (if want < 0 { len as i64 + want } else { want }) == i as i64 && SINCE.get_or_init(std::time::Instant::now).elapsed().as_secs() >= 4 && !DONE.swap(true, Ordering::Relaxed)
 }
 
 pub(crate) fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWebUrl>)> {
@@ -266,9 +303,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             ui.label(small(i18n::t("Message deleted")));
             ui.label(small(&e.time));
         });
-        let pos = ui.input(|i| if i.pointer.button_clicked(egui::PointerButton::Secondary) { i.pointer.interact_pos() } else { None });
-        let opened = pos.filter(|p| r.response.rect.contains(*p) && ui.is_rect_visible(r.response.rect));
-        return (opened, false, false);
+        return (menu_at(ui, r.response.rect, e, acts), false, false);
     }
     // The side margin (12) and, in group rooms, the avatar column (32 + 8) are not available to the bubble: without them a wide bubble overflowed a narrow column and every row shifted right.
     let side = 12. + if group && !e.outgoing { 40. } else { 0. };
@@ -297,7 +332,10 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         let bare = (big.is_some() || sticker) && e.reply_to.is_none() && !e.highlighted && !flashed;
         let fill = if bare { Color32::TRANSPARENT } else if e.highlighted || flashed { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
         let margin = if bare { egui::Margin::symmetric(0, 2) } else { egui::Margin::symmetric(PAD_X as i8, PAD_Y as i8) };
-        let frame = egui::Frame::NONE.fill(fill).corner_radius(radius).inner_margin(margin).show(ui, |ui| {
+        // The copy the touch menu lifts over the dimmed chat (see `show`) casts a soft shadow.
+        let lifted = acts.lift.as_ref().filter(|(id, _)| !bare && *id == e.id && ui.layer_id() == crate::touch_menu::lift_layer()).map_or(0., |(_, by)| *by);
+        let shadow = egui::Shadow { offset: [0, 4], blur: 20, spread: 0, color: Color32::from_black_alpha((64. * lifted) as u8) };
+        let frame = egui::Frame::NONE.fill(fill).corner_radius(radius).inner_margin(margin).shadow(shadow).show(ui, |ui| {
             // Shrink-wrap: as wide as the longest of text, sender and time (at most `max`), not the whole column.
             let wide = e.media.is_some() || e.poll.is_some() || e.thread.is_some() || e.attachment_name.is_some();
             let inner = max - 2. * PAD_X;
@@ -490,11 +528,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             let pic = crate::avatar::lookup(avatars, s.avatar.as_deref());
             paint_avatar(ui, egui::Rect::from_min_size(egui::pos2(column.left(), frame.response.rect.bottom() - 32.), Vec2::splat(32.)), &pic, &initials, 12., t);
         }
-        // Read from the input, not a widget over the bubble: a click-sensing widget on top would swallow the clicks of the link and the download button.
-        let pos = ui.input(|i| if i.pointer.button_clicked(egui::PointerButton::Secondary) { i.pointer.interact_pos() } else { None });
-        if let Some(pos) = pos.filter(|p| frame.response.rect.contains(*p) && ui.is_rect_visible(frame.response.rect)) {
-            opened = Some(pos);
-        }
+        opened = menu_at(ui, frame.response.rect, e, acts);
     });
     (opened, save, thread)
 }
@@ -543,6 +577,8 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     if crate::mobile::touch() {
         ui.spacing_mut().interact_size.y = egui::style::Spacing::default().interact_size.y;
     }
+    // One long press per frame, and only when it lands on this list (not on a panel, a menu or a viewer above it).
+    acts.press = crate::touch_menu::long_press(ui.ctx()).filter(|p| ui.clip_rect().contains(*p) && ui.ctx().layer_id_at(*p) == Some(ui.layer_id()));
     let mut menu = None;
     let mut save = None;
     let mut thread = None;
@@ -626,7 +662,26 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
                 }
                 // Sender name on the first bubble of a group; deleted rows (no bubble) keep the name rule of the history.
                 let label = if e.redacted { history.sender_label(i, members) } else { (members > 2 && !e.outgoing && !glued(i)).then(|| e.sender.as_ref().map(|s| s.name.clone().unwrap_or_else(|| s.id.clone()))).flatten() };
+                #[cfg(debug_assertions)]
+                let hooked = head.is_none() && heights.ready && !hide && debug_press(i, events.len());
+                #[cfg(debug_assertions)]
+                if hooked {
+                    acts.lift = Some((e.id.clone(), 0.));
+                }
                 let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, label.as_deref(), (glued(i), glued(i + 1)), members > 2, history.day_separator(i).as_deref(), readers.get(&i).map_or(&[][..], Vec::as_slice), t);
+                #[cfg(debug_assertions)]
+                let opened = if hooked { acts.held = acts.lift_rect; acts.lift_rect.map(|r| r.center()) } else { opened };
+                // Touch menu: the same row once more on a layer above the dimmed chat, where the bubble already is (the menu scales that layer); taps go through it.
+                if let Some(lift) = acts.lift.clone().filter(|(id, _)| *id == e.id) && let Some(rect) = acts.lift_rect {
+                    let (style, line) = (ui.style().clone(), ui.max_rect());
+                    egui::Area::new(crate::touch_menu::lift_layer().id).order(egui::Order::Foreground).fixed_pos(egui::pos2(line.left(), rect.top())).constrain(false).interactable(false).show(ui.ctx(), |ui| {
+                        ui.set_style(style);
+                        ui.set_min_width(line.width());
+                        ui.set_max_width(line.width());
+                        let mut inert = Acts { now_playing: acts.now_playing.clone(), lift: Some(lift), ..Default::default() };
+                        row(ui, e, pictures, avatars, &mut inert, label.as_deref(), (glued(i), glued(i + 1)), members > 2, None, readers.get(&i).map_or(&[][..], Vec::as_slice), t);
+                    });
+                }
                 if let (true, matrix_domain::TimelineId::Server(id)) = (wants_thread, &e.id.id) {
                     thread = Some(id.clone());
                 }
@@ -667,6 +722,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     if crate::loading::debug_hold(false) {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     }
+    acts.view = Some(out.inner_rect);
     if heights.watching {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(150));
     }

@@ -142,14 +142,10 @@ impl LiveOperations {
     pub fn vote_failed(&self, target: &EventId) -> bool {
         self.vote_failed.as_ref() == Some(target)
     }
-    pub fn toggle_reaction(&mut self, key: &str, transaction_id: TransactionId) -> bool {
-        if self.pending.is_some() || self.command.is_some() || transaction_id.as_str().is_empty() {
-            return false;
-        }
-        let Some(selected) = &self.selection else {
-            return false;
-        };
-        let existing = self.confirmed.iter().rev().find(|op| {
+    /// The user's own reaction `key` on the selected message, as confirmed by the server in this session and not removed since.
+    fn own_reaction(&self, key: &str) -> Option<&ConfirmedOperation> {
+        let selected = self.selection.as_ref()?;
+        self.confirmed.iter().rev().find(|op| {
             op.request.scope == selected.scope
                 && TimelineId::Server(op.request.target.clone()) == selected.id
                 && op.request.operation
@@ -161,11 +157,24 @@ impl LiveOperations {
                         && redact.request.target == op.event_id
                         && redact.request.operation == Operation::Redact
                 })
-        });
+        })
+    }
+    /// The selected message carries the user's reaction `key`: choosing it again removes it.
+    pub fn reacted(&self, key: &str) -> bool {
+        self.own_reaction(key).is_some()
+    }
+    pub fn toggle_reaction(&mut self, key: &str, transaction_id: TransactionId) -> bool {
+        if self.pending.is_some() || self.command.is_some() || transaction_id.as_str().is_empty() {
+            return false;
+        }
+        let Some(selected) = self.selection.clone() else {
+            return false;
+        };
+        let existing = self.own_reaction(key).map(|op| op.event_id.clone());
         if let Some(existing) = existing {
             let request = OperationRequest {
                 scope: selected.scope.clone(),
-                target: existing.event_id.clone(),
+                target: existing,
                 transaction_id,
                 operation: Operation::Redact,
             };

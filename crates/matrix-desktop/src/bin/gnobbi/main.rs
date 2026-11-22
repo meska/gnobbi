@@ -42,6 +42,7 @@ mod suspend;
 mod settings;
 mod status_pill;
 mod timeline;
+mod touch_menu;
 mod viewer;
 use session::Session;
 
@@ -1247,6 +1248,15 @@ impl App {
         }
         // Left-edge swipe = the back button; the chat follows the finger.
         let drag = if single && !self.list_open && !self.rail.any_drawer() { mobile::back_drag(ui.ctx()) } else { None };
+        // The touch menu is open: the swipe closes it and goes no further.
+        let drag = match &mut self.session {
+            Some(s) if drag.is_some() && s.lift.is_some() => {
+                if s.menu.is_some() { s.close_menu(); }
+                mobile::cancel_back_drag(ui.ctx());
+                None
+            }
+            _ => drag,
+        };
         if let Some(mobile::BackDrag::Released(back)) = drag {
             self.list_open = back;
         }
@@ -1263,6 +1273,10 @@ impl App {
                 self.list_open = true;
             }
             ui.data_mut(|d| d.insert_temp(started, true));
+            #[cfg(debug_assertions)]
+            if room.is_some() && std::env::var_os("GNOBBI_DEBUG_LONGPRESS_MSG").is_some() {
+                self.list_open = false; // test hook: the long-pressed message needs the chat on screen
+            }
             if single {
                 side = side_on_top(s.info_open && room.is_some(), s.profile.is_some(), s.search_open, s.thread.is_some());
                 // «Back» closes the side panel on top before it shows the list.
@@ -1709,7 +1723,7 @@ impl App {
             {
                 s.flash = s.flash.take().filter(|(_, at)| at.elapsed() < std::time::Duration::from_millis(1500));
                 if s.flash.is_some() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(100)); }
-                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.as_ref().map(|(id, _)| id.clone()), ..Default::default() };
+                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.as_ref().map(|(id, _)| id.clone()), lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), ..Default::default() };
                 let jump = s.search_jump.as_ref().and_then(|(id, _)| messages.events().iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())));
                 let room = s.sidebar.selected();
                 let members = room.map_or(3, |r| r.info.joined_members);
@@ -1720,12 +1734,28 @@ impl App {
                 if jump.is_some() && let Some((root, open_thread)) = s.search_jump.take() {
                     if open_thread { s.open_thread(root); } else { s.flash = Some((root, std::time::Instant::now())); }
                 }
+                // The touch menu is open: it follows its bubble, and the chat under it takes nothing (the finger that opened it is still down).
+                let (menu, save, thread) = match &mut s.lift {
+                    Some(lift) => {
+                        lift.rect = acts.lift_rect.unwrap_or(lift.rect);
+                        lift.view = acts.view.unwrap_or(lift.view);
+                        (acts.reply_jump, acts.picture, acts.play, acts.vote, acts.open_link) = (None, None, None, None, None);
+                        (None, None, None)
+                    }
+                    None => (menu, save, thread),
+                };
                 // Not in memory: the same loop as a search hit loads older pages until it shows up.
                 if let Some(id) = acts.reply_jump.take() { s.search_jump = Some((id, false)); }
                 s.first_visible = first;
                 if std::mem::take(&mut s.heights.retry) { s.retry_history(); }
                 if let Some((id, pos)) = menu {
-                    s.open_menu(id, pos);
+                    s.open_menu(id.clone(), pos);
+                    // A long press: lift the bubble; whatever the finger was dragging lets go.
+                    if let (Some(rect), Some(view), true) = (acts.held, acts.view, s.ops.selection() == Some(&id)) {
+                        s.lift = Some(touch_menu::Lift::new(id, rect, view));
+                        ui.ctx().stop_dragging();
+                        mobile::haptic_tick();
+                    }
                 }
                 if let Some((id, name)) = save {
                     s.save(id, &name);
@@ -1767,6 +1797,7 @@ impl App {
     fn overlays(&mut self, ui: &mut egui::Ui, t: &DesignTokens) {
         if let Some(s) = &mut self.session {
             message_menu(ui.ctx(), s, t);
+            touch_menu::show(ui.ctx(), s, t);
         }
         if let Some(s) = &mut self.session
             && s.new_open
@@ -2088,21 +2119,18 @@ fn quick_hits(index: &matrix_desktop::quick_search::Index, term: &str) -> Vec<ma
     index.search(term, 20)
 }
 
-/// Right-click menu: only what the engine says the user may do with the message.
+/// Right-click menu: only what the engine says the user may do with the message (a long press shows the same entries in `touch_menu`).
 fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
+    if s.lift.is_some() { return; }
     let Some(pos) = s.menu else { return };
     let fresh = std::mem::take(&mut s.menu_fresh);
-    let perms = s.ops.details().map(|d| d.permissions);
-    let mut action: Option<&'static str> = None;
-    // A picture or a sticker with a server id can be added to the own stickers.
-    let picture = s.ops.selection().and_then(|id| match (&s.messages.as_ref()?.events().iter().find(|e| e.id == *id)?.media, &id.id) {
-        (Some(m), matrix_domain::TimelineId::Server(event)) if m.kind == matrix_engine::history::MediaKind::Image => Some(event.clone()),
-        _ => None,
-    });
+    let entries = touch_menu::entries(s);
+    let mut react: Option<&'static str> = None;
+    let (mut picked, mut cancel) = (None, false);
     let area = egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         egui::Frame::popup(ui.style()).fill(rgb(t.surface)).show(ui, |ui| dir::popup(ui, |ui| {
             ui.set_min_width(160.);
-            let Some(p) = perms else {
+            let Some((p, items)) = &entries else {
                 ui.spinner();
                 return;
             };
@@ -2111,63 +2139,30 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                     egui::Grid::new("reaction-emoji-grid").show(ui, |ui| {
                         for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
                             if ui.button(*emoji).on_hover_text(matrix_desktop::i18n::t(name)).clicked() {
-                                action = Some(*emoji);
+                                react = Some(*emoji);
                             }
                             if i % 8 == 7 { ui.end_row(); }
                         }
                     });
                 });
             }
-            if p.reply && ui.button(i18n::t("Reply")).clicked() {
-                action = Some("reply");
-            }
-            if p.reply && ui.button(i18n::t("Reply in thread")).clicked() {
-                action = Some("thread");
-            }
-            if p.edit && ui.button(i18n::t("Edit")).clicked() {
-                action = Some("edit");
-            }
-            if picture.is_some() && ui.button(i18n::t("Add to my stickers")).clicked() {
-                action = Some("sticker");
-            }
-            let poll = s.ops.selection().and_then(|id| s.messages.as_ref()?.events().iter().find(|e| e.id == *id)?.poll.clone());
-            if s.ops.can_end_poll(poll.as_ref()) {
-                let label = if s.confirm_end_poll { i18n::t("Confirm closing") } else { i18n::t("Close poll") };
-                if ui.button(label).clicked() {
-                    if s.confirm_end_poll { action = Some("end"); } else { s.confirm_end_poll = true; }
+            for (action, confirm) in items {
+                let label = RichText::new(action.label(*confirm));
+                if ui.button(if *action == touch_menu::Action::Delete { label.color(rgb(t.error)) } else { label }).clicked() {
+                    picked = Some(*action);
                 }
-                if s.confirm_end_poll && ui.button(i18n::t("Cancel")).clicked() { s.confirm_end_poll = false; }
+                if *action == touch_menu::Action::EndPoll && *confirm && ui.button(i18n::t("Cancel")).clicked() { cancel = true; }
             }
-            if p.redact {
-                let label = if s.confirm_delete { i18n::t("Confirm deletion") } else { i18n::t("Delete") };
-                if ui.button(RichText::new(label).color(rgb(t.error))).clicked() {
-                    if s.confirm_delete { action = Some("delete") } else { s.confirm_delete = true }
-                }
-            }
-            if !(p.react || p.reply || p.edit || p.redact) {
+            if !p.react && items.is_empty() {
                 ui.label("—");
             }
         }));
     });
-    match action {
-        Some("reply") => s.begin(composer::Mode::Reply),
-        Some("thread") => {
-            let root = s.ops.selection().and_then(|id| match &id.id {
-                matrix_domain::TimelineId::Server(id) => Some(id.clone()),
-                _ => None,
-            });
-            s.close_menu();
-            if let Some(root) = root { s.open_thread(root); }
-        }
-        Some("edit") => s.begin(composer::Mode::Edit),
-        Some("sticker") => {
-            s.close_menu();
-            if let Some(id) = picture { s.sticker_from_message(id); }
-        }
-        Some("delete") => s.delete(),
-        Some("end") => s.end_poll(),
-        Some(key) => s.react(key),
-        None => {
+    if cancel { s.confirm_end_poll = false; }
+    match (picked, react) {
+        (Some(action), _) => touch_menu::apply(ctx, s, action),
+        (None, Some(key)) => s.react(key),
+        (None, None) => {
             let outside = !fresh && ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
             if outside || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 s.close_menu();

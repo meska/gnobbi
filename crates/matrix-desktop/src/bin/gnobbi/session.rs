@@ -264,6 +264,8 @@ pub struct Session {
     parked: String,
     /// Right-click menu: where it opened; "delete" waits for a second click.
     pub menu: Option<eframe::egui::Pos2>,
+    /// The menu was opened by a long press: the message is lifted and the touch menu is shown instead (it outlives `menu` while it fades out).
+    pub lift: Option<crate::touch_menu::Lift>,
     /// File dropped on the window, sent with the next Enter (the text is its caption).
     pub attachment: Option<(String, Vec<u8>)>,
     pub attachment_revision: u64,
@@ -424,6 +426,7 @@ impl Session {
             target: None,
             parked: String::new(),
             menu: None,
+            lift: None,
             attachment: None,
             attachment_revision: 0,
             notice: None,

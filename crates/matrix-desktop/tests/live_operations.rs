@@ -158,6 +158,7 @@ fn toggling_own_reaction_redacts_its_server_id() {
         react: true,
         ..Default::default()
     });
+    assert!(!actions.reacted("+1"));
     assert!(actions.toggle_reaction("+1", TransactionId::new("react")));
     let Some(OperationCommand::Apply(request)) = actions.take_command() else {
         panic!("react");
@@ -167,12 +168,25 @@ fn toggling_own_reaction_redacts_its_server_id() {
         request,
         result: Ok(EventId::new("$reaction")),
     });
+    // The reaction bar marks it as the user's own; another emoji is not.
+    assert!(actions.reacted("+1") && !actions.reacted("heart"));
     assert!(actions.toggle_reaction("+1", TransactionId::new("remove")));
     let Some(OperationCommand::Apply(request)) = actions.take_command() else {
         panic!("remove");
     };
     assert!(request.operation == Operation::Redact);
     assert_eq!(request.target, EventId::new("$reaction"));
+    actions.apply(OperationResult::Applied {
+        request,
+        result: Ok(EventId::new("$removal")),
+    });
+    // Removed: no longer marked, and the next tap reacts again.
+    assert!(!actions.reacted("+1"));
+    assert!(actions.toggle_reaction("+1", TransactionId::new("again")));
+    let Some(OperationCommand::Apply(request)) = actions.take_command() else {
+        panic!("again");
+    };
+    assert!(request.operation == Operation::React { key: "+1".into() });
 }
 
 #[test]

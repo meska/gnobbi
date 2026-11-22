@@ -765,9 +765,11 @@ pub(crate) async fn details(
         let (room, _, item) = locate(client, timelines, account, scope, &target, true).await?;
         let item = item.ok_or(OperationError::Unavailable)?;
         // A poll start is acted on like a message (EndPoll needs its redact right).
-        let body = match (item.content().as_message(), item.content().as_poll()) {
-            (Some(message), _) => message.body().to_owned(),
-            (None, Some(poll)) => poll.results().question,
+        let body = match (item.content().as_message(), item.content().as_poll(), item.content().as_sticker()) {
+            (Some(message), ..) => message.body().to_owned(),
+            (None, Some(poll), _) => poll.results().question,
+            // A sticker is replied to, reacted to and deleted like a message (never edited: `is_editable` is false for it).
+            (None, None, Some(sticker)) => sticker.content().body.clone(),
             _ => return Err(OperationError::Unavailable),
         };
         let user = client.user_id().ok_or(OperationError::Unavailable)?;
