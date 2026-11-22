@@ -589,6 +589,8 @@ impl eframe::App for App {
             self.prefs.debug = false;
             settings::persist(self.dirs.as_ref(), &self.prefs);
         }
+        // The overlay reads the preceding frame; clear it so a list without a composer reports n/a.
+        mobile::note_composer(0.);
         ctx.request_repaint_after(Duration::from_secs(60));
         if let Some((path, frame)) = &mut self.shot {
             let secs: u64 = std::env::var("GNOBBI_EGUI_SHOT_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(1);

@@ -276,6 +276,14 @@ pub fn target(desktop: f32) -> f32 {
     if touch() { desktop.max(TOUCH) } else { desktop }
 }
 
+/// Convert UIKit logical points to egui points, retaining fractional points until rendering.
+fn uikit_pt_to_egui(x: f32, ratio: f32) -> f32 { x * ratio }
+
+fn uikit_ratio(screen_width: f32, view_width: f64) -> f32 {
+    let ratio = screen_width / view_width as f32;
+    if ratio.is_finite() && ratio > 0. { ratio } else { 1. }
+}
+
 /// Bottom band the layout leaves free: the keyboard when it is up (it already covers the home indicator), else the home indicator.
 /// Never the sum, and never the safe inset above a keyboard: that was a blank band between the content and the keys.
 fn bottom_reserved(safe_bottom: f32, keyboard: f32) -> f32 {
@@ -304,6 +312,11 @@ impl Insets {
     /// Called from `raw_input_hook`. egui-winit sends the insets only with a window event (resize, rotation, focus): keep the last ones.
     /// Returns true when the screen just turned between portrait and landscape.
     pub fn apply(&mut self, raw: &mut egui::RawInput) -> bool {
+        let ratio = raw.screen_rect.zip(uikit_facts()).map_or(1., |(screen, kit)| uikit_ratio(screen.width(), kit.view.0));
+        self.apply_with_ratio(raw, ratio)
+    }
+
+    fn apply_with_ratio(&mut self, raw: &mut egui::RawInput, ratio: f32) -> bool {
         if let Some(real) = raw.safe_area_insets {
             self.0 = real;
         }
@@ -315,7 +328,12 @@ impl Insets {
         if landscape && all.0.left + all.0.right == 0. && all.0.top > 40. {
             (all.0.left, all.0.right, all.0.top, all.0.bottom) = (all.0.top, all.0.top, 0., LANDSCAPE_HOME);
         }
-        let keyboard = f32::from_bits(KEYBOARD.load(Ordering::Relaxed));
+        // egui-winit 0.37 forwards UIKit safeAreaInsets unscaled; keep the cached values in UIKit units.
+        all.0.top = uikit_pt_to_egui(all.0.top, ratio);
+        all.0.bottom = uikit_pt_to_egui(all.0.bottom, ratio);
+        all.0.left = uikit_pt_to_egui(all.0.left, ratio);
+        all.0.right = uikit_pt_to_egui(all.0.right, ratio);
+        let keyboard = uikit_pt_to_egui(f32::from_bits(KEYBOARD.load(Ordering::Relaxed)), ratio);
         let safe = all.0.bottom;
         all.0.bottom = bottom_reserved(safe, keyboard);
         APPLIED.store(all.0.bottom.to_bits(), Ordering::Relaxed);
@@ -515,11 +533,12 @@ pub fn rail_background(ui: &egui::Ui, fill: egui::Color32, dx: f32) {
 }
 
 /// Everything the keyboard overlay prints.
-pub struct Diag { pub screen: (f32, f32), pub content_bottom_inset: f32, pub kit: Option<UiKitFacts>, pub seen: Option<Seen>, pub keyboard: f32, pub applied: f32, pub composer_bottom: f32, pub now: std::time::Instant }
+pub struct Diag { pub screen: (f32, f32), pub content_bottom_inset: f32, pub kit: Option<UiKitFacts>, pub seen: Option<Seen>, pub keyboard: f32, pub applied: f32, pub composer_bottom: Option<f32>, pub now: std::time::Instant }
 
 /// Gap between the composer's bottom and the keyboard's top, in points (positive = empty band).
 fn keyboard_gap(keyboard_top: f64, composer_bottom: f32) -> f64 {
-    keyboard_top - composer_bottom as f64
+    let gap = keyboard_top - composer_bottom as f64;
+    if gap.abs() < 0.05 { 0. } else { gap }
 }
 
 fn diagnostic_text(d: &Diag) -> String {
@@ -529,7 +548,8 @@ fn diagnostic_text(d: &Diag) -> String {
         Some(k) => format!("win {:.0}x{:.0} view {:.0}x{:.0} y{:.0} safe t{:.0} b{:.0}", k.window.0, k.window.1, k.view.0, k.view.1, k.view_y, k.safe.0, k.safe.1),
         None => "win/view: n/a".into(),
     });
-    out.push(format!("kb {} applied {:.0} (pure fn)", if d.keyboard > 0. { "UP" } else { "down" }, d.applied));
+    let ratio = d.kit.map_or(1., |k| uikit_ratio(d.screen.0, k.view.0));
+    out.push(format!("kb {} UIKit {:.1} egui {:.1} ratio {:.5} applied {:.1}", if d.keyboard > 0. { "UP" } else { "down" }, d.keyboard, uikit_pt_to_egui(d.keyboard, ratio), ratio, d.applied));
     match d.seen {
         Some(s) => {
             out.push(format!("{} {}ms ago", s.source, d.now.saturating_duration_since(s.at).as_millis()));
@@ -537,12 +557,13 @@ fn diagnostic_text(d: &Diag) -> String {
             out.push(format!("win {}", rect(s.local)));
             let extra = quicktype_extra(s.min_height, s.local[3]);
             out.push(format!("quicktype {} (h {:.0} min {:.0})", if extra > 0. { format!("+{extra:.0}") } else { "not seen growing".into() }, s.local[3], s.min_height));
-            if d.keyboard > 0. {
-                out.push(format!("composer bottom {:.1} gap {:.1}", d.composer_bottom, keyboard_gap(s.local[1], d.composer_bottom)));
-            }
         }
         None => out.push("no keyboard notification yet".into()),
     }
+    out.push(match (d.seen, d.composer_bottom, d.keyboard > 0.) {
+        (Some(s), Some(bottom), true) => format!("composer bottom {bottom:.1} gap {:.1} egui pt", keyboard_gap(uikit_pt_to_egui(s.local[1] as f32, ratio) as f64, bottom)),
+        _ => "composer bottom n/a gap n/a".into(),
+    });
     out.join("\n")
 }
 
@@ -556,7 +577,7 @@ pub fn diagnostic_overlay(ctx: &egui::Context) -> bool {
         seen: *SEEN.lock().unwrap(),
         keyboard: f32::from_bits(KEYBOARD.load(Ordering::Relaxed)),
         applied: f32::from_bits(APPLIED.load(Ordering::Relaxed)),
-        composer_bottom: f32::from_bits(COMPOSER_BOTTOM.load(Ordering::Relaxed)),
+        composer_bottom: match f32::from_bits(COMPOSER_BOTTOM.swap(0, Ordering::Relaxed)) { b if b > 0. => Some(b), _ => None },
         now: std::time::Instant::now(),
     };
     let text = egui::RichText::new(diagnostic_text(&d)).monospace().size(9.).color(egui::Color32::from_gray(235));
@@ -588,6 +609,42 @@ mod tests {
 
     /// The keyboard height is a process-wide static: tests that set or read it run one at a time.
     static KEYBOARD_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn uikit_units_follow_egui_zoom_without_rounding() {
+        assert_eq!(uikit_pt_to_egui(347., 1.), 347.);
+        assert!((uikit_pt_to_egui(347., 383. / 440.) - 302.04773).abs() < 0.001);
+        assert!((uikit_pt_to_egui(1., 1. / 1.15) - 0.8695652).abs() < 0.00001);
+        assert_eq!(uikit_ratio(0., 0.), 1.);
+        assert_eq!(uikit_ratio(383., 0.), 1.);
+    }
+
+    #[test]
+    fn uikit_scaled_safe_area_and_keyboard_align_composer() {
+        let _one = KEYBOARD_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let ratio = 383. / 440.;
+        let mut insets = Insets::default();
+        let mut raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(383., 956. * ratio))), safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 62., bottom: 34., left: 3., right: 4. })), ..Default::default() };
+        set_keyboard(0.);
+        insets.apply_with_ratio(&mut raw, ratio);
+        let safe = raw.safe_area_insets.unwrap().0;
+        assert!((safe.top - 62. * ratio).abs() < 0.001);
+        assert!((safe.bottom - 34. * ratio).abs() < 0.001);
+        assert!((safe.left - 3. * ratio).abs() < 0.001);
+        set_keyboard(347.);
+        raw.safe_area_insets = None;
+        insets.apply_with_ratio(&mut raw, ratio);
+        let keyboard_top = uikit_pt_to_egui(609., ratio);
+        let mut composer_bottom = 0.;
+        let ctx = egui::Context::default();
+        let mut out = ctx.run_ui(raw, |ui| {
+            let mut ui = safe_ui(ui, egui::Color32::BLACK);
+            composer_bottom = crate::composer::panel(egui::Frame::NONE).show(&mut ui, |_| {}).response.rect.bottom();
+        });
+        out.textures_delta.clear();
+        assert!((keyboard_top - composer_bottom).abs() <= 1., "{keyboard_top} vs {composer_bottom}");
+        set_keyboard(0.);
+    }
 
     #[test]
     fn keyboard_replaces_the_home_indicator_band_instead_of_adding_to_it() {
@@ -871,9 +928,15 @@ mod tests {
         assert_eq!(keyboard_gap(556., 556.), 0.);
         let at = std::time::Instant::now();
         let seen = seen_after(None, "DidShow", at, [0., 556., 402., 318.], [0., 556., 402., 318.], (402., 874.), 318.);
-        let text = diagnostic_text(&Diag { screen: (402., 874.), content_bottom_inset: 318., kit: Some(UiKitFacts { window: (402., 874.), view: (402., 874.), view_y: 0., safe: (62., 34.) }), seen: Some(seen), keyboard: 318., applied: 318., composer_bottom: 507., now: at });
-        for want in ["egui 402x874 inset 318", "safe t62 b34", "DidShow 0ms ago", "scr 0,556 402x318", "gap 49.0", "quicktype not seen growing"] {
+        let mut diag = Diag { screen: (402., 874.), content_bottom_inset: 318., kit: Some(UiKitFacts { window: (402., 874.), view: (402., 874.), view_y: 0., safe: (62., 34.) }), seen: Some(seen), keyboard: 318., applied: 318., composer_bottom: Some(507.), now: at };
+        let text = diagnostic_text(&diag);
+        for want in ["egui 402x874 inset 318", "safe t62 b34", "DidShow 0ms ago", "scr 0,556 402x318", "gap 49.0", "quicktype not seen growing", "UIKit 318.0 egui 318.0 ratio 1.00000"] {
             assert!(text.contains(want), "{want} in {text}");
         }
+        diag.screen = (402. / 1.15, 874. / 1.15);
+        diag.composer_bottom = Some(556. / 1.15);
+        assert!(diagnostic_text(&diag).contains("gap 0.0 egui pt"));
+        diag.composer_bottom = None;
+        assert!(diagnostic_text(&diag).contains("composer bottom n/a gap n/a"));
     }
 }
