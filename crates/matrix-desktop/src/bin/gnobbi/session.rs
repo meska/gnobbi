@@ -171,6 +171,7 @@ pub struct Session {
     read_dirty: bool,
     /// The shown room was opened with unread messages: first-unread anchor and progressive reading.
     unread_open: Option<unread::UnreadOpen>,
+    pub unread_notice: Option<std::time::Instant>,
     /// People picked from the «@» list in the text being written.
     pub mentions: Vec<matrix_engine::sending::Mention>,
     pub aliases: Option<matrix_engine::alias::RoomAliases>,
@@ -352,6 +353,7 @@ impl Session {
             reading: (false, false, true),
             read_dirty: true,
             unread_open: None,
+            unread_notice: None,
             mentions: Vec::new(),
             aliases: None,
             aliases_requested: None,
@@ -811,7 +813,7 @@ impl Session {
                 if live { messages.refresh_server(events); } else { messages.prepend_server(events); }
                 changed = true;
             }
-            self.heights.restore_wait.0 = self.heights.restore_wait.0.saturating_add(1);
+            if !live { self.heights.restore_wait.0 = self.heights.restore_wait.0.saturating_add(1); }
         }
         if !self.unread_pending() && let (Some((id, _)), Some(messages)) = (&self.heights.restore, &self.messages) {
             let found = messages.events().iter().any(|e| e.id.id == TimelineId::Server(id.clone()));
@@ -832,7 +834,7 @@ impl Session {
             }
         }
         if self.pending.is_none() && self.messages.is_some() {
-            self.pending = self.history.load_older_near_top(if self.search_jump.is_some() { 0 } else { self.first_visible });
+            self.pending = if self.unread_pending() { self.unread_history_step() } else { self.history.load_older_near_top(if self.search_jump.is_some() { 0 } else { self.first_visible }) };
         }
         if let (Some(request), Some((tx, _))) = (self.pending.take(), &mut self.route) {
             if let Err(e) = tx.try_send(request) {

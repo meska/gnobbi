@@ -46,6 +46,7 @@ pub struct HistorySession {
     scope: Option<RoomScope>,
     next: Option<String>,
     status: HistoryStatus,
+    confirmed_start: bool,
     /// Body and thread reply count: a new reply must hand the root over again.
     seen: HashMap<EventId, SeenEvent>,
     live_views: ViewRequests,
@@ -73,6 +74,7 @@ impl HistorySession {
             scope: None,
             next: None,
             status: HistoryStatus::Empty,
+            confirmed_start: false,
             seen: HashMap::new(),
             live_views: ViewRequests::new(),
             live_pending: false,
@@ -104,6 +106,7 @@ impl HistorySession {
         self.next = None;
         self.seen.clear();
         self.status = HistoryStatus::Empty;
+        self.confirmed_start = false;
         let tag = self.views.start(scope?).ok()?;
         self.pagination_tag = Some(tag.clone());
         self.status = HistoryStatus::Loading;
@@ -119,6 +122,8 @@ impl HistorySession {
         }
         match result.page {
             Ok(page) if self.views.accepts(&page.tag) => {
+                // An empty projection has no cursor even when the SDK has not reached the start.
+                self.confirmed_start = page.next.is_none() && !page.events.is_empty();
                 self.next = page.next;
                 self.status = if self.next.is_some() {
                     HistoryStatus::More
@@ -267,6 +272,8 @@ impl HistorySession {
             self.status
         }
     }
+    pub fn confirmed_start(&self) -> bool { self.status() == HistoryStatus::Start && self.confirmed_start }
+
     /// Opaque lifecycle identity, never a server cursor or credential.
     pub fn pagination_tag(&self) -> Option<matrix_engine::RequestTag> {
         self.pagination_tag.clone()

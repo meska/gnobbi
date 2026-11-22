@@ -39,6 +39,7 @@ mod secret_clip;
 mod session;
 mod suspend;
 mod settings;
+mod status_pill;
 mod timeline;
 mod viewer;
 use session::Session;
@@ -1670,6 +1671,9 @@ impl App {
             if covered {
                 return;
             }
+            let timeline_view = ui.available_rect_before_wrap();
+            let scroll = ui.input(|i| i.pointer.hover_pos().is_some_and(|p| timeline_view.contains(p)) && (i.smooth_scroll_delta.y != 0. || (i.pointer.primary_down() && i.pointer.delta().y.abs() > 1.)));
+            if scroll && let Some(s) = &mut self.session { s.cancel_unread_search(); }
             let stale = self.session.as_ref().is_some_and(|s| s.messages.as_ref().is_some_and(|m| s.sidebar.selected().is_some_and(|r| r.scope != *m.scope())));
             if stale {
                 ui.ctx().request_repaint();
@@ -1727,6 +1731,19 @@ impl App {
                 if acts.open_link.is_some() {
                     self.pending_web = acts.open_link;
                 }
+            }
+            if !stale && let Some(s) = &mut self.session {
+                if s.unread_pending() {
+                    status_pill::show(ui, timeline_view, i18n::t("Loading messages…"), true, Duration::ZERO, t);
+                } else if let Some(at) = s.unread_notice {
+                    if status_pill::notice_alive(at.elapsed(), false) {
+                        status_pill::show(ui, timeline_view, i18n::t("Unread messages not found"), false, at.elapsed(), t);
+                    } else { s.unread_notice = None; }
+                }
+            }
+            #[cfg(debug_assertions)]
+            if std::env::var_os("GNOBBI_EGUI_FAKE_UNREAD_NOTICE").is_some() {
+                status_pill::show(ui, timeline_view, i18n::t("Unread messages not found"), false, Duration::from_secs(1), t);
             }
         }));
         // On the way the pages take no taps or scrolls: a shield on top of both swallows them (the finger that drags is already down).

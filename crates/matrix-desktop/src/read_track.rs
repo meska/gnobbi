@@ -74,16 +74,17 @@ pub enum Anchor {
     At { upto: usize },
     /// Nothing visible is unread: the usual position.
     Bottom,
-    /// Not found within the page budget: the bottom, with a line saying so.
+    /// A complete scan found no marker and there is no unread count to anchor by.
     NotFound,
 }
 
 /// Chooses the opening anchor from the markers, the loaded rows and the room list's unread count;
 /// `complete` = the room's start is loaded, `exhausted` = the page budget is spent, `context` = rows wanted above the anchor.
-pub fn locate<R: ReadRow>(rows: &[R], markers: &[impl AsRef<str>], unread: u64, (complete, exhausted): (bool, bool), context: usize) -> Anchor {
-    let give_up = if exhausted { Anchor::NotFound } else { Anchor::Wait };
+pub fn locate<R: ReadRow>(rows: &[R], markers: &[impl AsRef<str>], unread: u64, (complete, _exhausted): (bool, bool), context: usize) -> Anchor {
+    let give_up = Anchor::Wait;
     let upto = match marker_index(rows, markers) {
         Some(i) => read_upto(rows, Some(i)),
+        None if complete && unread == 0 && !markers.is_empty() => return Anchor::NotFound,
         // No marker at all (never read) or gone from the room (deleted): the count says where the unread begin.
         None if markers.is_empty() || complete => match nth_from_end(rows, unread) {
             Some(i) => read_upto(rows, Some(i.saturating_sub(1)).filter(|_| i > 0)),
@@ -94,7 +95,7 @@ pub fn locate<R: ReadRow>(rows: &[R], markers: &[impl AsRef<str>], unread: u64, 
     };
     if first_unread(rows, upto).is_none() {
         Anchor::Bottom
-    } else if upto < context && !complete && !exhausted {
+    } else if upto < context && !complete {
         Anchor::Wait
     } else {
         Anchor::At { upto }
@@ -169,10 +170,14 @@ mod tests {
         assert_eq!(unread_after(&r, 4), 3);
         // The newest of several markers wins; one that is not loaded is ignored.
         assert_eq!(loc(&["$1", "$3", "$99"], 3, false, false), Anchor::At { upto: 4 });
-        // Marker not loaded: wait for older pages, then give up with a line; once the room's start is loaded it is gone → count.
+        // Marker not loaded: wait through a spent chunk; once the room's start is loaded it is gone → count.
         assert_eq!(loc(&["$99"], 3, false, false), Anchor::Wait);
-        assert_eq!(loc(&["$99"], 3, false, true), Anchor::NotFound);
+        assert_eq!(loc(&["$99"], 3, false, true), Anchor::Wait);
         assert_eq!(loc(&["$99"], 3, true, false), Anchor::At { upto: 6 });
+        assert_eq!(loc(&["$99"], 0, true, false), Anchor::NotFound);
+        assert_eq!(loc(&["$99"], 0, false, true), Anchor::Wait);
+        // A redacted marker is still identifiable; count fallback skips hidden rows.
+        assert_eq!(loc(&["$5"], 3, false, false), Anchor::At { upto: 6 });
         // Never read: the count places it; fewer loaded than counted and start loaded: everything is unread.
         assert_eq!(loc(&[] as &[&str], 3, false, false), Anchor::At { upto: 6 });
         assert_eq!(loc(&[] as &[&str], 50, true, false), Anchor::At { upto: 0 });
@@ -181,10 +186,10 @@ mod tests {
         assert_eq!(loc(&["$8"], 0, false, false), Anchor::Bottom);
         // Only hidden rows after the marker: bottom.
         assert_eq!(locate(&rows("aasx"), &["$1"], 1, (false, false), 0), Anchor::Bottom);
-        // Too little above the first unread: more history first, unless the room's start or the page budget is reached.
+        // Too little above the first unread: more history first, including across a chunk boundary.
         assert_eq!(locate(&r, &["$3"], 3, (false, false), 10), Anchor::Wait);
         assert_eq!(locate(&r, &["$3"], 3, (true, false), 10), Anchor::At { upto: 4 });
-        assert_eq!(locate(&r, &["$3"], 3, (false, true), 10), Anchor::At { upto: 4 });
+        assert_eq!(locate(&r, &["$3"], 3, (false, true), 10), Anchor::Wait);
     }
 
     #[test]

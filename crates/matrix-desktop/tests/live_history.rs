@@ -42,6 +42,18 @@ fn page(
 }
 
 #[test]
+fn only_nonempty_start_page_confirms_scan() {
+    let mut view = HistorySession::new();
+    let first = view.select(Some(scope("!empty:test"))).unwrap();
+    view.apply(page(&first, &[], None));
+    assert_eq!(view.status() == HistoryStatus::Start, true);
+    assert!(!view.confirmed_start());
+    let second = view.select(Some(scope("!complete:test"))).unwrap();
+    view.apply(page(&second, &["$oldest"], None));
+    assert!(view.confirmed_start());
+}
+
+#[test]
 fn live_activity_refreshes_selected_room_without_replacing_older_cursor() {
     let mut view = HistorySession::new();
     let room = scope("!alpha:test");
