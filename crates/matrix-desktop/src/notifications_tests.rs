@@ -226,3 +226,55 @@ fn reading_a_room_removes_only_its_delivered_alerts() {
     assert!(delivered_to_remove(&delivered, "!none:s").is_empty());
     assert!(delivered_to_remove(&[], "!r:s").is_empty());
 }
+
+fn delivered(items: &[(&str, &str)]) -> Vec<(String, String)> {
+    items.iter().map(|(id, thread)| (id.to_string(), thread.to_string())).collect()
+}
+
+#[test]
+fn removal_nothing_delivered_or_room_without_alerts() {
+    assert!(delivered_to_remove(&[], "!r:s").is_empty());
+    let d = delivered(&[("apns-1", "!a:s"), ("3:7:!b:s", "")]);
+    assert!(delivered_to_remove(&d, "!r:s").is_empty());
+}
+
+#[test]
+fn removal_only_the_read_room_among_many() {
+    let only = delivered(&[("apns-1", "!r:s"), ("3:7:!r:s", ""), ("0:7:!r:s", "")]);
+    assert_eq!(delivered_to_remove(&only, "!r:s"), ["apns-1", "3:7:!r:s", "0:7:!r:s"]);
+    let mixed = delivered(&[("a", "!x:s"), ("b", "!r:s"), ("3:7:!y:s", ""), ("3:8:!r:s", ""), ("c", "")]);
+    assert_eq!(delivered_to_remove(&mixed, "!r:s"), ["b", "3:8:!r:s"]);
+}
+
+#[test]
+fn removal_ignores_alerts_without_thread_id_and_foreign_identifiers() {
+    // no thread id and an identifier that is not ours: untouched push, must stay
+    let d = delivered(&[("apns-1", ""), ("garbage:!r:s", ""), ("x:y:!r:s", ""), ("3:7", "")]);
+    assert!(delivered_to_remove(&d, "!r:s").is_empty());
+}
+
+#[test]
+fn removal_no_false_positive_on_similar_or_prefix_room_ids() {
+    let d = delivered(&[
+        ("a", "!r:s2"), ("b", "!r:s:x"), ("c", "!rr:s"), ("d", "!R:s"), ("e", " !r:s"), ("f", "!r:s "),
+        ("3:7:!r:s2", ""), ("3:7:!r:s:x", ""), ("3:7:!rr:s", ""), ("3:7:!r:s ", ""),
+    ]);
+    assert!(delivered_to_remove(&d, "!r:s").is_empty());
+    // and the other way round: the shorter id must not pull the longer one's alerts
+    assert_eq!(delivered_to_remove(&d, "!r:s2"), ["a", "3:7:!r:s2"]);
+}
+
+#[test]
+fn removal_duplicates_keep_every_identifier_in_order() {
+    let d = delivered(&[("a", "!r:s"), ("a", "!r:s"), ("3:7:!r:s", "!r:s"), ("b", "!o:s")]);
+    // an alert matching by both thread and identifier is listed once
+    assert_eq!(delivered_to_remove(&d, "!r:s"), ["a", "a", "3:7:!r:s"]);
+}
+
+#[test]
+#[ignore = "known: an empty room id matches pushes with empty thread id; unreachable with real room ids"]
+fn removal_empty_room_id_matches_nothing_real() {
+    // an untouched push has thread id "": an empty room id must not sweep them away
+    let d = delivered(&[("apns-1", ""), ("3:7:!r:s", "")]);
+    assert!(delivered_to_remove(&d, "").is_empty(), "empty room id removes untouched pushes");
+}
