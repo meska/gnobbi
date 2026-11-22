@@ -146,7 +146,14 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
         let emoji = icon_at(ui, rect, &format!("composer-emoji{salt}"), Icon::Smiley, 1., true, i18n::t("Emoji"));
         // Stays open on clicks inside (tabs, search, pack bar); a picked emoji or sticker closes it itself.
-        egui::Popup::menu(&emoji).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| crate::dir::popup(ui, |ui| {
+        let mut popup = egui::Popup::menu(&emoji).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        if !(stickers.is_some() && ui.data(|d| d.get_temp::<bool>(egui::Id::new(crate::stickers::TAB_ID))).unwrap_or(false)) {
+            let safe = ui.ctx().content_rect();
+            let width = (safe.width() - 24.).min(600. / ui.ctx().zoom_factor());
+            let x = (emoji.rect.center().x - width / 2.).clamp(safe.left() + 4., (safe.right() - width - 16.).max(safe.left() + 4.));
+            popup = popup.anchor(egui::Rect::from_min_max(egui::pos2(x, emoji.rect.top()), egui::pos2(x, emoji.rect.bottom())));
+        }
+        popup.show(|ui| crate::dir::popup(ui, |ui| {
             let tab = egui::Id::new(crate::stickers::TAB_ID);
             let mut sticker_tab = stickers.is_some() && ui.data(|d| d.get_temp::<bool>(tab)).unwrap_or(false);
             if stickers.is_some() {
@@ -160,16 +167,28 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
                 crate::stickers::show(ui, panel, textures, t);
                 return;
             }
-            egui::Grid::new(nid("emoji-grid")).show(ui, |ui| {
-                for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
-                    if ui.button(*emoji).on_hover_text(i18n::t(name)).clicked() {
-                        insert_emoji(ui.ctx(), id, draft, emoji);
-                        ui.close();
-                    }
-                    if i % 8 == 7 {
-                        ui.end_row();
-                    }
-                }
+            let zoom = ui.ctx().zoom_factor();
+            let width = (ui.ctx().content_rect().width() - 24.).min(600. / zoom);
+            let (columns, cell, margin) = emoji_grid_geometry(width * zoom, zoom);
+            let (cell, margin) = (cell / zoom, margin / zoom);
+            ui.set_width(width);
+            let glyph = egui::TextStyle::Body.resolve(ui.style()).size * 1.4;
+            let height = (ui.ctx().content_rect().height() * 0.5).min(400. / zoom);
+            ui.spacing_mut().scroll.floating = true;
+            egui::ScrollArea::vertical().id_salt(nid("emoji-scroll")).max_height(height).auto_shrink([false, true]).show(ui, |ui| {
+                ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+                ui.horizontal(|ui| {
+                    ui.add_space(margin);
+                    egui::Grid::new(nid("emoji-grid")).spacing(egui::Vec2::ZERO).show(ui, |ui| {
+                        for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
+                            if ui.add_sized([cell, cell.max(44. / zoom)], egui::Button::new(RichText::new(*emoji).size(glyph)).min_size(egui::Vec2::ZERO)).on_hover_text(i18n::t(name)).clicked() {
+                                insert_emoji(ui.ctx(), id, draft, emoji);
+                                ui.close();
+                            }
+                            if i % columns == columns - 1 { ui.end_row(); }
+                        }
+                    });
+                });
             });
         }));
         if !thread {
@@ -207,6 +226,12 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         return Some(std::mem::take(draft));
     }
     None
+}
+
+fn emoji_grid_geometry(width: f32, zoom: f32) -> (usize, f32, f32) {
+    let cell = 40. * zoom;
+    let columns = (((width - 24.) / cell).floor() as usize).max(1);
+    (columns, cell, (width - columns as f32 * cell) / 2.)
 }
 
 fn insert_emoji(ctx: &egui::Context, id: egui::Id, draft: &mut String, emoji: &str) {
@@ -446,6 +471,59 @@ fn wrap(text: &mut String, a: usize, b: usize, mark: &str) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::wrap;
+
+    #[test]
+    fn emoji_grid_geometry_fits_and_centres_at_each_text_scale() {
+        for width in [300_f32, 360., 402., 440., 600.] {
+            for zoom in [1_f32, 1.15, 1.34] {
+                let (columns, cell, margin) = super::emoji_grid_geometry(width, zoom);
+                assert_eq!(columns, (((width - 24.) / (40. * zoom)).floor() as usize).max(1));
+                assert!(columns >= 1 && margin >= 12., "width={width} zoom={zoom} columns={columns} margin={margin}");
+                assert!((width - margin - columns as f32 * cell - margin).abs() <= 1.);
+            }
+        }
+    }
+
+    #[test]
+    fn emoji_popup_paints_inside_the_safe_screen() {
+        use eframe::egui;
+        for zoom in [1., 1.15, 1.34] {
+            let ctx = crate::icons::test_context();
+            ctx.set_zoom_factor(zoom);
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(402. / zoom, 800. / zoom))), ..Default::default() };
+            let mut count = 0;
+            for frame in 0..6 {
+                let mut out = ctx.run_ui(input.clone(), |ui| {
+                    super::panel(egui::Frame::NONE).show(ui, |ui| {
+                        let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (String::new(), false, false, false, None, None, None);
+                        super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
+                    });
+                });
+                if frame == 0 {
+                    let button = ctx.read_response(egui::Id::new("composer-emoji")).unwrap();
+                    egui::Popup::open_id(&ctx, egui::Popup::default_response_id(&button));
+                }
+                if frame == 5 {
+                    let button = ctx.read_response(egui::Id::new("composer-emoji")).unwrap();
+                    let popup = ctx.read_response(egui::Popup::default_response_id(&button)).unwrap().rect;
+                    let safe = ctx.content_rect();
+                    assert!(popup.left() >= safe.left() && popup.right() <= safe.right(), "zoom={zoom} popup={popup:?} safe={safe:?}");
+                    for clipped in &out.shapes {
+                        if let egui::epaint::Shape::Text(text) = &clipped.shape {
+                            if matrix_desktop::EMOJI_SET.iter().any(|(_, emoji)| *emoji == text.galley.text()) && clipped.clip_rect.intersects(text.visual_bounding_rect()) {
+                                count += 1;
+                                let rect = text.visual_bounding_rect();
+                                assert!(rect.left() >= clipped.clip_rect.left() - 1. && rect.right() <= clipped.clip_rect.right() + 1., "zoom={zoom} rect={rect:?} clip={:?}", clipped.clip_rect);
+                                assert!(rect.left() >= ctx.content_rect().left() && rect.right() <= ctx.content_rect().right(), "zoom={zoom} rect={rect:?}");
+                            }
+                        }
+                    }
+                }
+                out.textures_delta.clear();
+            }
+            assert!(count > 0, "popup had no visible emoji at zoom {zoom}");
+        }
+    }
 
     /// Height of the composer bar after laying it out in a window `width` wide, reusing `ctx` so panel memory carries over.
     fn bar_height(ctx: &eframe::egui::Context, width: f32) -> f32 {
