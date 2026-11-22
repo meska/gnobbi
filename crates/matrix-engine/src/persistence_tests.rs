@@ -302,3 +302,17 @@ fn profile_made_before_event_cache_opens_with_its_data_and_cache_on() {
         );
     });
 }
+
+/// Contract with the iOS NSE: it re-implements the `session.sealed` reader, so the real writer must stay readable by it.
+#[test]
+fn sealed_session_is_readable_by_the_nse() {
+    let root = TestRoot::new("nse-contract");
+    let store = AccountStore::create(&root.0, AccountId::new(17)).unwrap();
+    let session = serde_json::json!({"user_id": "@a:x.test", "device_id": "DEV", "access_token": "synthetic-token"});
+    store
+        .seal(PASSPHRASE, &serde_json::json!({"homeserver": "https://hs.test/", "session": session}))
+        .unwrap();
+    let (homeserver, got) = gnobbi_nse::unseal(&store.path, PASSPHRASE).expect("NSE cannot read the app's session.sealed");
+    assert_eq!(homeserver, "https://hs.test/");
+    assert_eq!(serde_json::to_value(&got).unwrap(), session);
+}

@@ -3451,6 +3451,7 @@ dependencies = [
  "eyeball-im",
  "futures-util",
  "getrandom 0.4.3",
+ "gnobbi-nse",
  "image",
  "matrix-domain",
  "matrix-sdk",

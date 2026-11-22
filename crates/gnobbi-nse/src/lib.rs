@@ -69,7 +69,9 @@ pub fn store_path(tag: &str) -> Option<PathBuf> {
     Some(Path::new(dir).join(format!("account-{worker}")))
 }
 
-fn unseal(dir: &Path, pass: &str) -> Result<(String, MatrixSession), Fail> {
+/// Reads the app's `session.sealed` (written by matrix-engine `AccountStore::seal`); public only for the contract test.
+#[doc(hidden)]
+pub fn unseal(dir: &Path, pass: &str) -> Result<(String, MatrixSession), Fail> {
     let bytes = std::fs::read(dir.join("session.sealed")).map_err(|_| Fail::Store)?;
     let record: Value = serde_json::from_slice(&bytes).map_err(|_| Fail::Store)?;
     let exported: Vec<u8> =
