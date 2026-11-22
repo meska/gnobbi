@@ -2008,12 +2008,22 @@ impl App {
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
             let room = ui.available_height();
             // Scrolls when the keyboard (it shrinks the content rect) or a large text size leaves too little room.
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            // The keyboard shrinks `room` in the very frame it opens; a scroll applied after layout comes a frame late, the focused TextEdit is
+            // already clipped, stops asking for the IME and Android closes the keyboard (the show/hide loop). So the offset is fixed before layout.
+            let (height_id, focus_id, scroll_id) = (egui::Id::new("signin_height"), egui::Id::new("signin_focus"), egui::Id::new("signin_scroll"));
+            let (gap3, last) = (crate::metrics::get().gap * 3., ui.data(|d| d.get_temp::<f32>(height_id)).unwrap_or(0.));
+            let spacer = ((room - last) / 2.).max(gap3);
+            let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+            if let (Some((top, bottom)), Some(cur)) = (ui.data(|d| d.get_temp::<(f32, f32)>(focus_id)), ui.data(|d| d.get_temp::<f32>(scroll_id)))
+                && mobile::keyboard() > 0.
+            {
+                let want = keep_in_view(cur, spacer + top, spacer + bottom, room);
+                if want != cur { area = area.vertical_scroll_offset(want); }
+            }
+            let out = area.show(ui, |ui| {
                 let m = crate::metrics::get();
                 let width = (ui.available_width() - 2. * m.gap * 3.).clamp(200., 400.).min(ui.available_width()); // never wider than the screen at a huge text size
-                let height_id = egui::Id::new("signin_height");
-                let last = ui.data(|d| d.get_temp::<f32>(height_id)).unwrap_or(0.);
-                ui.add_space(((room - last) / 2.).max(m.gap * 3.));
+                ui.add_space(spacer);
                 let top = ui.cursor().top();
                 ui.vertical_centered(|ui| {
                     ui.allocate_ui_with_layout(egui::vec2(width, 0.), dir::col(), |ui| match &mut self.session {
@@ -2025,7 +2035,14 @@ impl App {
                 ui.add_space(m.gap * 3.);
                 let used = ui.cursor().top() - top;
                 ui.data_mut(|d| d.insert_temp(height_id, used));
+                // The focused field (any form: sign-in, unlock, recovery) relative to the form top, for the next frame.
+                let field = ui.memory(|mem| mem.focused()).and_then(|id| ui.ctx().read_response(id)).map(|r| r.rect).filter(|r| r.top() >= top);
+                ui.data_mut(|d| match field {
+                    Some(r) => { d.insert_temp(focus_id, (r.top() - top, r.bottom() - top)); }
+                    None => d.remove::<(f32, f32)>(focus_id),
+                });
             });
+            ui.data_mut(|d| d.insert_temp(scroll_id, out.state.offset().y));
         });
     }
 }
@@ -2180,6 +2197,11 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
 }
 
 /// The form for the flow the backend asked for: new profile (server, user, password) or unlock.
+/// Scroll offset that keeps the focused field `[top, bottom]` (content coordinates) inside a view `height` tall, moving as little as possible.
+fn keep_in_view(offset: f32, top: f32, bottom: f32, height: f32) -> f32 {
+    if bottom - top >= height || top < offset { top.max(0.) } else if bottom > offset + height { bottom - height } else { offset }
+}
+
 fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens, icon: matrix_desktop::IconChoice) {
     use matrix_engine::signin::SignInMode;
     if s.recovering() {
@@ -2724,6 +2746,14 @@ fn account_switch_effect(pick: Option<std::path::PathBuf>, active: &std::path::P
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keep_in_view_moves_only_when_the_field_leaves_the_view() {
+        assert_eq!(keep_in_view(0., 100., 150., 200.), 0.); // inside: untouched
+        assert_eq!(keep_in_view(0., 300., 350., 200.), 150.); // below the keyboard-shrunk view: field bottom on the view bottom
+        assert_eq!(keep_in_view(250., 100., 150., 200.), 100.); // above
+        assert_eq!(keep_in_view(0., 40., 300., 200.), 40.); // taller than the view: show its top
+    }
 
     #[test]
     fn signin_back_only_with_a_way_to_go() {
