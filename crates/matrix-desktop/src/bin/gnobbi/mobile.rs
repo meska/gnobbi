@@ -297,11 +297,13 @@ fn bottom_reserved(safe_bottom: f32, keyboard: f32) -> f32 {
 fn android_insets() -> Option<[f32; 5]> {
     use jni::{jni_sig, jni_str, objects::JObject};
     let ctx = std::panic::catch_unwind(ndk_context::android_context).ok()?;
+    // ndk_context holds the Application (android-activity 0.6), which has no getWindow: the Activity comes from the AndroidApp.
+    let activity_ptr = crate::ANDROID_APP.get()?.activity_as_ptr();
     // SAFETY: the VM pointer comes from android-activity; from_raw is idempotent.
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) };
-    vm.attach_current_thread(|env| -> Result<Option<[f32; 5]>, jni::errors::Error> {
+    let res = vm.attach_current_thread(|env| -> Result<Option<[f32; 5]>, jni::errors::Error> {
         // SAFETY: the activity is a global ref owned by android-activity; JObject has no Drop and is not kept.
-        let activity = unsafe { JObject::from_raw(env, ctx.context().cast()) };
+        let activity = unsafe { JObject::from_raw(env, activity_ptr.cast()) };
         let window = env.call_method(&activity, jni_str!("getWindow"), jni_sig!("()Landroid/view/Window;"), &[])?.l()?;
         let decor = env.call_method(&window, jni_str!("getDecorView"), jni_sig!("()Landroid/view/View;"), &[])?.l()?;
         let insets = env.call_method(&decor, jni_str!("getRootWindowInsets"), jni_sig!("()Landroid/view/WindowInsets;"), &[])?.l()?;
@@ -325,9 +327,15 @@ fn android_insets() -> Option<[f32; 5]> {
             .and_then(|i| env.get_field(&i, jni_str!("bottom"), jni_sig!("I"))).and_then(|v| v.i());
         out[4] = ime.unwrap_or(0) as f32;
         Ok(Some(out))
-    })
-    .ok()
-    .flatten()
+    });
+    // Log each distinct outcome once: this runs every frame and used to swallow errors silently.
+    static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+    let msg = format!("{res:?}");
+    if let Ok(mut last) = LAST.lock() && *last != msg {
+        log::info!("gnobbi insets: {msg}");
+        *last = msg;
+    }
+    res.ok().flatten()
 }
 
 /// The insets of the last window event, with the keyboard folded into the bottom one.
