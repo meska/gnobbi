@@ -112,11 +112,11 @@ pub fn safe_name(name: &str) -> String {
     if base.is_empty() { "file".to_owned() } else { base.to_owned() }
 }
 
-/// How the last share sheet ended: Some(true) an action finished, Some(false) it failed, None while open or cancelled.
-static SHARED: Mutex<Option<bool>> = Mutex::new(None);
+/// How the last share sheet ended: None while open, then Some(Some(true)) an action finished, Some(Some(false)) it failed, Some(None) cancelled.
+static SHARED: Mutex<Option<Option<bool>>> = Mutex::new(None);
 
-/// The outcome of the share sheet, once; cancelling gives nothing.
-pub fn shared() -> Option<bool> {
+/// The outcome of the share sheet, once it is closed.
+pub fn shared() -> Option<Option<bool>> {
     SHARED.lock().unwrap_or_else(|e| e.into_inner()).take()
 }
 
@@ -137,7 +137,7 @@ pub fn share(path: &Path) {
     let sheet = unsafe { UIActivityViewController::initWithActivityItems_applicationActivities(UIActivityViewController::alloc(mtm), &items, None) };
     *SHARED.lock().unwrap_or_else(|e| e.into_inner()) = None;
     let done = RcBlock::new(|_: *mut UIActivityType, completed: Bool, _: *mut NSArray, error: *mut NSError| {
-        *SHARED.lock().unwrap_or_else(|e| e.into_inner()) = if !error.is_null() { Some(false) } else { completed.as_bool().then_some(true) };
+        *SHARED.lock().unwrap_or_else(|e| e.into_inner()) = Some(if !error.is_null() { Some(false) } else { completed.as_bool().then_some(true) });
     });
     unsafe { sheet.setCompletionWithItemsHandler(&*done as *const _ as *mut _) };
     // Only the iPad shows the sheet as a popover (and traps without an anchor); on the iPhone an anchor displaces the standard bottom sheet.

@@ -765,11 +765,17 @@ impl Session {
             }
             changed = true;
         }
-        if self.sharing && let Some(ok) = crate::pick::shared() {
-            self.sharing = false;
-            self.notice_shown = None;
-            self.notice = Some(i18n::t(if ok { "Saved" } else { "Saving failed" }).to_owned());
-            changed = true;
+        if self.sharing {
+            // The sheet's answer arrives from UIKit, which does not wake egui: poll for it.
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            if let Some(result) = crate::pick::shared() {
+                self.sharing = false;
+                if let Some(ok) = result {
+                    self.notice_shown = None;
+                    self.notice = Some(i18n::t(if ok { "Saved" } else { "Saving failed" }).to_owned());
+                }
+                changed = true;
+            }
         }
         if let Some((id, result)) = self.media.take_audio() {
             match result {

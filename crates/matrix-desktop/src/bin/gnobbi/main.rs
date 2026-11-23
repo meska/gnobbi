@@ -1694,7 +1694,15 @@ impl App {
                 let mut voice_act = None;
                 let attachment = s.attachment.as_ref().map(|(n, data)| (n.as_str(), data.as_slice(), s.attachment_revision));
                 if let Some(remaining) = status_pill::expire_line(&mut s.notice, &mut s.notice_shown, i18n::t("Saved"), std::time::Instant::now()) {
-                    if let Some(notice) = &s.notice { ui.label(notice); }
+                    if let Some(notice) = &s.notice {
+                        // Above everything (the phone viewer covers the chat) and inside the safe area, never at the screen edge.
+                        let screen = ui.ctx().content_rect();
+                        egui::Area::new(egui::Id::new("notice-toast")).order(egui::Order::Foreground).interactable(false).pivot(egui::Align2::CENTER_BOTTOM)
+                            .fixed_pos(egui::pos2(screen.center().x, screen.bottom() - 88.)).show(ui.ctx(), |ui| {
+                                ui.set_max_width(screen.width() - 32.);
+                                egui::Frame::popup(ui.style()).show(ui, |ui| ui.label(notice));
+                            });
+                    }
                     ui.ctx().request_repaint_after(remaining);
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
