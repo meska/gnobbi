@@ -312,8 +312,9 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-/// The rail below the account picture. `account` is the catalog id the layout is stored under; `placed` the engine's answer to a move.
-pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline::Avatars, state: &mut State, account: u64, placed: Option<Result<(), OperationError>>, t: &DesignTokens) {
+/// The rail below the account picture. `account` is the catalog id the layout is stored under; `placed` the engine's answer to a move;
+/// `totals` the badges of «Non lette» (rooms) and «Tutte le chat» (messages), summed over every account.
+pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline::Avatars, state: &mut State, account: u64, placed: Option<Result<(), OperationError>>, totals: (u64, u64), t: &DesignTokens) {
     // Test hooks: GNOBBI_EGUI_VIEW=rail-open unfolds every parent space, rail-edit shows «Organizza spazi», rail-drag / rail-line also a held row.
     let view = matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
     if matches!(view.as_str(), "rail-edit" | "rail-drag" | "rail-line") {
@@ -323,8 +324,8 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
     settle(state, sidebar, &layout, placed);
     state.panel = Some(ui.max_rect());
     let rows = tree(sidebar, &layout, &state.open, view == "rail-open", state.moving.as_ref());
-    let all = sidebar.navigation_entries().first().map_or(0, |e| e.unread);
-    let (unread_rooms, unread_view, in_space) = (sidebar.unread_rooms() as u64, sidebar.unread_view(), sidebar.active_space().is_some());
+    let (unread_rooms, all) = totals;
+    let (unread_view, in_space) = (sidebar.unread_view(), sidebar.active_space().is_some());
     ui.spacing_mut().item_spacing.y = 0.;
     egui::ScrollArea::vertical().max_height(ui.available_height() - 2. * ITEM - 4.).auto_shrink(false).show(ui, |ui| {
         ui.add_space(4.);

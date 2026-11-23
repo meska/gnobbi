@@ -1418,6 +1418,11 @@ impl App {
         let mut list_only = false;
         let mut others = Vec::new();
         let (active_id, active_label, account) = self.account_rows(&mut others);
+        // The badges of «Non lette» and «Tutte le chat» count every account, the parked ones too (cached per sidebar, no walk of the rooms).
+        let totals = self.session.iter().chain(self.parked.iter().map(|p| &p.session)).fold((0u64, 0u64), |(r, m), s| {
+            let (rooms, messages) = s.sidebar.counts();
+            (r.saturating_add(rooms), m.saturating_add(messages))
+        });
         if let Some(session) = &mut self.session {
             if std::mem::take(&mut self.rail.feedback) {
                 session.send_feedback();
@@ -1428,7 +1433,7 @@ impl App {
             let ui: &mut egui::Ui = match &mut under { Some(layer) => layer, None => &mut *ui };
             if !single || show_list {
                 if single { mobile::rail_background(ui, chat_background(t), list_dx); }
-                pick_account = rail_panel(ui, session, &mut self.rail, account, &others, (&active_label, &active_id), t);
+                pick_account = rail_panel(ui, session, &mut self.rail, account, totals, &others, (&active_label, &active_id), t);
             }
             if !narrow || show_list {
                 // Narrow: the list takes the whole width left of the rail and the chat is not drawn; a tap on a row, the open one too, goes to the chat.
@@ -2835,7 +2840,7 @@ fn discard_new_profile(dirs: &AppDirs, dir: &std::path::Path) {
 }
 
 /// The spaces rail: the shown account on top (a click lists the others), then the spaces.
-fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::State, account: u64, others: &[(std::path::PathBuf, String, String, avatar::Avatar, Option<u64>)], (active_label, active_id): (&str, &str), t: &DesignTokens) -> Option<std::path::PathBuf> {
+fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::State, account: u64, totals: (u64, u64), others: &[(std::path::PathBuf, String, String, avatar::Avatar, Option<u64>)], (active_label, active_id): (&str, &str), t: &DesignTokens) -> Option<std::path::PathBuf> {
     let mut pick_account = None;
     dir::panel_start("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
         ui.add_space(8.);
@@ -2882,7 +2887,7 @@ fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::S
         }));
         resp.on_hover_text(name);
         let placed = session.space_placed.take();
-        rail::show(ui, &mut session.sidebar, &session.avatars, rail_state, account, placed, t);
+        rail::show(ui, &mut session.sidebar, &session.avatars, rail_state, account, placed, totals, t);
     });
     pick_account
 }

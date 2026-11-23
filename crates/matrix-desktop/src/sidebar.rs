@@ -114,6 +114,8 @@ pub struct Sidebar {
     /// A notification-mode write in flight: the room and the mode it had before.
     mode: Option<(RoomScope, matrix_domain::notifications::RoomNotifyMode)>,
     mode_error: Option<&'static str>,
+    /// Rooms in «Non lette» and unread messages of the unmuted rooms, kept up to date by `refresh_counts` (read every frame by the rail).
+    counts: (u64, u64),
 }
 
 impl Sidebar {
@@ -141,6 +143,7 @@ impl Sidebar {
             tag_error: None,
             mode: None,
             mode_error: None,
+            counts: (0, 0),
         }
     }
 
@@ -267,6 +270,7 @@ impl Sidebar {
             tag_error: None,
             mode: None,
             mode_error: None,
+            counts: (0, 0),
         }
     }
 
@@ -495,6 +499,7 @@ impl Sidebar {
         self.mode = Some((scope.clone(), room.info.notification_mode));
         self.mode_error = None;
         room.info.notification_mode = mode;
+        self.refresh_counts();
         true
     }
 
@@ -505,6 +510,7 @@ impl Sidebar {
             if let Some(room) = self.rooms.iter_mut().find(|r| r.scope == scope) {
                 room.info.notification_mode = before;
             }
+            self.refresh_counts();
             self.mode_error = Some(match e {
                 matrix_engine::operations::OperationError::Forbidden => i18n::t("Not allowed by the server"),
                 _ => i18n::t("Connection failed"),
@@ -606,6 +612,7 @@ impl Sidebar {
         match self.rooms.iter_mut().find(|room| room.scope == *scope) {
             Some(room) if room.unread != n => {
                 room.unread = n;
+                self.refresh_counts();
                 true
             }
             _ => false,
@@ -640,7 +647,18 @@ impl Sidebar {
 
     /// How many rooms «Non lette» holds (rooms, not messages, like Telegram's chat counter).
     pub fn unread_rooms(&self) -> usize {
-        self.rooms.iter().filter(|r| Self::in_unread_view(r)).count()
+        self.counts.0 as usize
+    }
+
+    /// (rooms in «Non lette», unread messages of the unmuted rooms): the account's two rail badges.
+    pub fn counts(&self) -> (u64, u64) {
+        self.counts
+    }
+
+    fn refresh_counts(&mut self) {
+        self.counts = self.rooms.iter().fold((0, 0), |(rooms, all), r| {
+            (rooms + u64::from(Self::in_unread_view(r)), if r.info.muted() { all } else { all.saturating_add(r.unread) })
+        });
     }
 
     pub fn unread_view(&self) -> bool {
@@ -661,6 +679,7 @@ impl Sidebar {
 
     /// Search room names locally; hidden selection is retained until explicit selection.
     pub fn set_query(&mut self, query: &str) {
+        self.refresh_counts();
         if self.query != query {
             self.retire_navigation();
         }
@@ -896,6 +915,12 @@ mod tests {
         }
         let all = &sidebar.navigation_entries()[0];
         assert_eq!((all.unread, all.mentions), (2, 2));
+        // The cached rail badges follow: «Non lette» counts rooms, «Tutte» messages, both without the muted room.
+        assert_eq!(sidebar.counts(), (1, 2));
+        assert!(sidebar.set_unread(&RoomScope { account_id: account, room_id: RoomId::new("!a:t.invalid") }, 7));
+        assert_eq!(sidebar.counts(), (1, 7));
+        assert!(sidebar.set_mode(&RoomScope { account_id: account, room_id: RoomId::new("!a:t.invalid") }, matrix_domain::notifications::RoomNotifyMode::Mute));
+        assert_eq!(sidebar.counts(), (0, 0));
     }
 
     #[test]
