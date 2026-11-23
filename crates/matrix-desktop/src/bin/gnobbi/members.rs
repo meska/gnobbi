@@ -209,7 +209,7 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
     if let Some(d) = &mut admin.dialog {
         let (verb, mut cancel) = (if d.ban { i18n::t("Ban") } else { i18n::t("Kick") }, false);
         egui::Window::new(verb).id(egui::Id::new("member-dialog")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-            ui.set_width(340.);
+            ui.set_width(crate::dir::fit(ui, 340.));
             ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&d.name)).strong()).truncate());
             ui.add_space(4.);
             ui.add_enabled_ui(!admin.busy, |ui| ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut d.reason).hint_text(i18n::t("Reason"))));
@@ -235,7 +235,7 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
     } else if admin.inviting {
         let mut open = true;
         egui::Window::new(i18n::t("Invite")).id(egui::Id::new("member-invite")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-            ui.set_width(340.);
+            ui.set_width(crate::dir::fit(ui, 340.));
             ui.add_enabled_ui(!admin.busy, |ui| {
                 if let Some(user) = crate::newchat::people(ui, s, t) {
                     send = Some((user, Moderation::Invite));

@@ -85,7 +85,7 @@ pub fn exit_window(ctx: &egui::Context, session: &mut crate::session::Session, t
     };
     let (mut leave, mut cancel) = (false, false);
     egui::Window::new(i18n::t("Leave space")).id(egui::Id::new("space-exit")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-        ui.set_width(340.);
+        ui.set_width(crate::dir::fit(ui, 340.));
         ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&space.name)).strong()).truncate());
         ui.add_space(4.);
         crate::settings::switch(ui, i18n::t("Forget"), forget, t);
@@ -129,7 +129,7 @@ pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session,
     if let Some((name, result)) = &session.space_report {
         let mut close = false;
         egui::Window::new(i18n::t("Delete space")).id(egui::Id::new("space-report")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-            ui.set_width(340.);
+            ui.set_width(crate::dir::fit(ui, 340.));
             ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(name)).strong()).truncate());
             match result {
                 Err(_) => drop(ui.colored_label(rgb(t.error), i18n::t("Failed, no change guaranteed: try again"))),
@@ -169,7 +169,7 @@ pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session,
     let (mut go, mut cancel) = (false, false);
     let busy = session.space_deleting;
     egui::Window::new(i18n::t("Delete space")).id(egui::Id::new("space-delete")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-        ui.set_width(340.);
+        ui.set_width(crate::dir::fit(ui, 340.));
         ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&space.name)).strong()).truncate());
         ui.add_space(4.);
         ui.label(i18n::t("Members who will be removed: {n}").replace("{n}", &people.to_string()));
@@ -253,7 +253,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
     let secondary = rgb(t.secondary);
     let (mut open, mut add, mut remove, mut member, mut promote) = (true, None, None, None, None);
     egui::Window::new(&space.name).id(egui::Id::new("space-view")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-        ui.set_width(340.);
+        ui.set_width(crate::dir::fit(ui, 340.));
         if view.members_page {
             ui.label(RichText::new(i18n::t("Members")).strong());
             match &view.members {
