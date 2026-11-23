@@ -796,13 +796,17 @@ impl EventLoopWaker {
     fn new(rl: CFRunLoopRef) -> EventLoopWaker {
         extern "C" fn wakeup_main_loop(_timer: CFRunLoopTimerRef, _info: *mut c_void) {}
         unsafe {
-            // Create a timer with a 0.1µs interval (1ns does not work) to mimic polling.
-            // It is initially setup with a first fire time really far into the
-            // future, but that gets changed to fire immediately in did_finish_launching
+            // Create a repeating timer (a one-shot one is invalidated after firing). It is
+            // initially setup with a first fire time really far into the future, but that
+            // gets changed to fire immediately in did_finish_launching. Polling re-arms it on
+            // every loop cycle (`start`), so the interval only has to be long: CoreFoundation
+            // catches a late repeating timer up one interval at a time, under the run loop lock,
+            // so a 0.1µs interval turned every suspension into a main-thread stall of
+            // (time suspended / 0.1µs) iterations on resume (watchdog 0x8BADF00D).
             let timer = CFRunLoopTimerCreate(
                 ptr::null_mut(),
                 f64::MAX,
-                0.000_000_1,
+                3600.0,
                 0,
                 0,
                 wakeup_main_loop,
