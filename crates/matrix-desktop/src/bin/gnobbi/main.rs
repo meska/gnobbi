@@ -2517,6 +2517,14 @@ pub fn android_main(app: android_activity::AndroidApp) {
     }
 }
 
+/// Desktop: room-open timings (no room content) go to `room-open.log` in the data dir, emptied at each start; `RUST_LOG` overrides the filter.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn room_open_log(dir: &std::path::Path) {
+    let Ok(file) = std::fs::File::create(dir.join("room-open.log")) else { return };
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("matrix_engine::room_sync=info"));
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).with_ansi(false).with_writer(std::sync::Mutex::new(file)).try_init();
+}
+
 fn main() -> eframe::Result {
     // iOS: stderr goes nowhere, so `log` goes to os_log (Console / `log stream`) and stderr is piped into it line by line.
     // Android is the same: stderr (panics included) goes to logcat through the `log` logger set up in android_main.
@@ -2553,6 +2561,8 @@ fn main() -> eframe::Result {
     if let Some(d) = &dirs {
         matrix_desktop::crash_log::report_previous(&d.data);
         matrix_desktop::crash_log::install(&d.data);
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        room_open_log(&d.data);
     }
     // iOS: an ambiguous migration must never fall back to a different store.
     #[cfg(all(target_os = "ios", not(target_abi = "sim")))]

@@ -38,6 +38,8 @@ eframe = { version = "0.37", default-features = false, features = ["accesskit"] 
 rpassword = "=7.4.0"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 arboard = { version = "=3.7.0", default-features = false }
+# `room-open.log` (room_open / paginate_backwards timings) in the data dir.
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
 eframe = { version = "0.37", default-features = false, features = ["wayland", "x11"] }
 
 # Android: NativeActivity entry (android_main in the binary); `log` goes to logcat.
