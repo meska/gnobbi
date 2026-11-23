@@ -19,6 +19,9 @@ mod tests;
 
 pub const DEBOUNCE: Duration = Duration::from_millis(275);
 pub use crate::message_match::MIN_CHARS;
+/// Wait after the index grew before the open answer is asked again (the SDK indexes a little after the cache).
+pub const REFRESH: Duration = Duration::from_millis(1500);
+pub const REFRESH_MAX: Duration = Duration::from_secs(6);
 pub const PAGE: usize = 20;
 pub const TIMEOUT: Duration = Duration::from_secs(20);
 /// One room's search: how long, and how many events, the history is paged back before the index is read.
@@ -219,10 +222,32 @@ impl MessageSearch {
         if term.chars().count() < MIN_CHARS {
             return;
         }
+        self.launch(term, gen_now, DEBOUNCE, None);
+    }
+
+    /// The index grew (backfill, new messages): the same term again, in place and without a spinner. Only when the
+    /// answer is a first page that nobody extended (what a user paged through stays).
+    /// shortcut: a refresh shows the first page again, upgrade when paging back needs to survive.
+    /// True: a search is still running, ask again later.
+    pub fn refresh(&mut self) -> bool {
+        let state = self.tx.borrow().clone();
+        let term = match &state {
+            MessageSearchState::NoResults { term, .. } => term.clone(),
+            MessageSearchState::Results { term, hits, more: MoreHits::None | MoreHits::Available, .. } if hits.len() <= PAGE => term.clone(),
+            MessageSearchState::Searching { .. } => return true,
+            _ => return false,
+        };
+        let gen_now = self.restart(|| state.clone());
+        self.launch(term, gen_now, Duration::ZERO, Some(state));
+        false
+    }
+
+    /// `keep`: what stays on screen when the search fails (a refresh must not turn a list into an error).
+    fn launch(&mut self, term: String, gen_now: u64, debounce: Duration, keep: Option<MessageSearchState>) {
         let (client, room_id, paging) = (self.client.clone(), self.room_id.clone(), self.paging.clone());
         let (generation, tx) = (self.generation.clone(), self.tx.clone());
         self.task = Some(tokio::spawn(async move {
-            tokio::time::sleep(DEBOUNCE).await;
+            tokio::time::sleep(debounce).await;
             // Decided on every query: a room can become encrypted. Unknown never reaches the server.
             let source = match &room_id {
                 Some(id) => source_of(&client, id).await,
@@ -242,7 +267,7 @@ impl MessageSearch {
             .await
             .unwrap_or(Err(()));
             let state = match first {
-                Err(()) => MessageSearchState::Error { term: term.clone() },
+                Err(()) => keep.unwrap_or(MessageSearchState::Error { term: term.clone() }),
                 Ok((hits, _)) if hits.is_empty() => MessageSearchState::NoResults { term: term.clone(), source },
                 Ok((mut hits, next)) => {
                     let mut p = Paging { term: term.clone(), source: Some(source), next, partial, ..Paging::default() };

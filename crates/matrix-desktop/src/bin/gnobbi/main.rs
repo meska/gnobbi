@@ -2576,11 +2576,14 @@ pub fn android_main(app: android_activity::AndroidApp) {
     }
 }
 
+/// The SDK's message index logs every indexed event (the text) at debug level: never, whatever `RUST_LOG` says.
+const NO_INDEX_LOG: &str = "matrix_sdk_search=off";
+
 /// Desktop: room-open timings (no room content) go to `room-open.log` in the data dir, emptied at each start; `RUST_LOG` overrides the filter.
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 fn room_open_log(dir: &std::path::Path) {
     let Ok(file) = std::fs::File::create(dir.join("room-open.log")) else { return };
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("matrix_engine::room_sync=info"));
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("matrix_engine::room_sync=info")).add_directive(NO_INDEX_LOG.parse().unwrap());
     let _ = tracing_subscriber::fmt().with_env_filter(filter).with_ansi(false).with_writer(std::sync::Mutex::new(file)).try_init();
 }
 
@@ -2600,7 +2603,7 @@ fn main() -> eframe::Result {
             std::thread::spawn(move || std::io::BufReader::new(rd).lines().map_while(Result::ok).for_each(|l| log::info!("{l}")));
         }
         if std::env::var_os("RUST_LOG").is_some() {
-            let _ = tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).with_writer(std::io::stderr).try_init();
+            let _ = tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive(NO_INDEX_LOG.parse().unwrap())).with_writer(std::io::stderr).try_init();
         }
     }
     // `gnobbi account …` is a console command: no window, no notifications, no single-instance gate.

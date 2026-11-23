@@ -31,8 +31,31 @@ pub(crate) enum Out {
     More,
 }
 
-/// Who wrote it, then the text on one line, the matched words in the accent colour.
-pub(crate) fn line(hit: &MessageHit, size: f32, who: Color32, text: Color32, mark: Color32, width: f32) -> LayoutJob {
+/// Where the visible text starts, as in Telegram: the beginning of the excerpt while the first matched word fits
+/// in `room` (a text width), else a little before that word, so the marked word is never cut off.
+fn first_match(hit: &MessageHit) -> Option<&std::ops::Range<usize>> {
+    hit.matches.iter().find(|r| r.start <= r.end && r.end <= hit.excerpt.len() && hit.excerpt.is_char_boundary(r.start) && hit.excerpt.is_char_boundary(r.end))
+}
+
+fn start_of(hit: &MessageHit, room: f32, measure: &dyn Fn(&str) -> f32) -> usize {
+    let Some(first) = first_match(hit) else { return 0 };
+    if measure(&hit.excerpt[..first.end]) <= room {
+        return 0;
+    }
+    // About a quarter of the line stays before the word (less when the word needs the room), behind the «…».
+    let keep = (room / 4.).min(room - measure(&hit.excerpt[first.clone()]));
+    let mut at = first.start;
+    for (i, _) in hit.excerpt[..first.start].char_indices().rev() {
+        if measure(&format!("…{}", &hit.excerpt[i..first.start])) > keep {
+            break;
+        }
+        at = i;
+    }
+    at
+}
+
+/// Who wrote it, then the text on one line, the matched words in the accent colour; `measure` is the width of a text.
+pub(crate) fn line(hit: &MessageHit, size: f32, who: Color32, text: Color32, mark: Color32, width: f32, measure: &dyn Fn(&str) -> f32) -> LayoutJob {
     let font = FontId::proportional(size);
     let mut job = LayoutJob { wrap: egui::text::TextWrapping::truncate_at_width(width), ..Default::default() };
     let mut add = |s: &str, color: Color32| {
@@ -40,8 +63,21 @@ pub(crate) fn line(hit: &MessageHit, size: f32, who: Color32, text: Color32, mar
             job.append(s, 0., TextFormat::simple(font.clone(), color));
         }
     };
-    add(&format!("{}: ", hit.sender_name), who);
-    let mut at = 0;
+    // The «…» the line ends with when cut takes room too: the marked word must fit before it.
+    let width = width - measure("…");
+    let mut sender = format!("{}: ", hit.sender_name);
+    // A long name must not push the marked word out: first name only, when the word would not fit with the whole name.
+    if let Some(m) = first_match(hit)
+        && measure(&sender) + measure("…") + measure(&hit.excerpt[m.clone()]) > width
+    {
+        sender = format!("{}: ", hit.sender_name.split_whitespace().next().unwrap_or_default());
+    }
+    add(&sender, who);
+    let start = start_of(hit, width - measure(&sender), &|s| measure(s));
+    if start > 0 {
+        add("…", text);
+    }
+    let mut at = start;
     for r in &hit.matches {
         if r.start < at || r.end > hit.excerpt.len() {
             continue;
@@ -75,7 +111,8 @@ fn row(ui: &mut egui::Ui, hit: &MessageHit, room: Option<&SidebarRoom>, avatars:
     if let Some(d) = &date {
         ui.painter().text(flip(egui::pos2(rect.right() - 12., rect.top() + 10.)), crate::dir::align(Align2::RIGHT_TOP), d, FontId::proportional(12.), rgb(t.secondary));
     }
-    let job = line(hit, 13., rgb(t.text), rgb(t.secondary), rgb(t.accent), (rect.right() - 12. - text_left).max(20.));
+    let measure = |s: &str| ui.painter().layout_no_wrap(s.to_owned(), FontId::proportional(13.), Color32::WHITE).size().x;
+    let job = line(hit, 13., rgb(t.text), rgb(t.secondary), rgb(t.accent), (rect.right() - 12. - text_left).max(20.), &measure);
     let body = ui.painter().layout_job(job);
     ui.painter().galley(place(egui::pos2(text_left, rect.top() + 29.), &body), body, rgb(t.secondary));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label(name, hit, date.as_deref())));
@@ -134,6 +171,11 @@ mod tests {
         MessageHit { room_id: "!r:s".into(), event_id: "$e".into(), sender: "@a:s".into(), sender_name: sender.into(), ts: 1, excerpt: excerpt.into(), matches, thread_root: None }
     }
 
+    /// Seven points a character.
+    fn chars(s: &str) -> f32 {
+        s.chars().count() as f32 * 7.
+    }
+
     fn pieces(job: &LayoutJob) -> Vec<(&str, Color32)> {
         job.sections.iter().map(|s| (&job.text[s.byte_range.start.0..s.byte_range.end.0], s.format.color)).collect()
     }
@@ -141,15 +183,36 @@ mod tests {
     #[test]
     fn the_matched_words_are_marked_and_the_rest_keeps_its_colour() {
         let (who, text, mark) = (Color32::RED, Color32::WHITE, Color32::BLUE);
-        let job = line(&hit("Anna", "ciao mondo bello", vec![0..4, 11..16]), 13., who, text, mark, 300.);
+        let job = line(&hit("Anna", "ciao mondo bello", vec![0..4, 11..16]), 13., who, text, mark, 300., &chars);
         assert_eq!(pieces(&job), [("Anna: ", who), ("ciao", mark), (" mondo ", text), ("bello", mark)]);
-        let job = line(&hit("Anna", "nessun segno", vec![]), 13., who, text, mark, 300.);
+        let job = line(&hit("Anna", "nessun segno", vec![]), 13., who, text, mark, 300., &chars);
         assert_eq!(pieces(&job), [("Anna: ", who), ("nessun segno", text)]);
     }
 
     #[test]
+    fn a_word_beyond_the_visible_part_starts_the_text_a_little_before_it() {
+        let (who, text, mark) = (Color32::RED, Color32::WHITE, Color32::BLUE);
+        let body = "uno due tre quattro cinque sei sette otto nove dieci";
+        let at = body.find("nove").unwrap();
+        // 150 points = 21 characters: «Anna: » and the first words fit, «nove» does not.
+        let job = line(&hit("Anna", body, vec![at..at + 4]), 13., who, text, mark, 150., &chars);
+        let shown = pieces(&job);
+        assert_eq!(shown.iter().find(|p| p.1 == mark).unwrap().0, "nove");
+        // The word is inside the width, as the screen measures it, after a «…» and a little of the words before.
+        let before: String = shown.iter().take_while(|p| p.1 != mark).map(|p| p.0).collect();
+        assert!(before.starts_with("Anna: …") && before.len() > "Anna: …".len(), "{before}");
+        assert!(chars(&format!("{before}nove")) <= 150., "{before}");
+        // Too narrow for the whole name and the word: the first name only.
+        let job = line(&hit("Anna Maria Rossi", body, vec![at..at + 4]), 13., who, text, mark, 100., &chars);
+        assert!(job.text.starts_with("Anna: …"), "{}", job.text);
+        // Fits from the start: no «…».
+        let job = line(&hit("Anna", body, vec![0..3]), 13., who, text, mark, 150., &chars);
+        assert_eq!(pieces(&job)[1], ("uno", mark));
+    }
+
+    #[test]
     fn a_range_outside_the_excerpt_is_ignored_not_a_panic() {
-        let job = line(&hit("Anna", "ciao", vec![2..40, 0..2]), 13., Color32::RED, Color32::WHITE, Color32::BLUE, 300.);
+        let job = line(&hit("Anna", "ciao", vec![2..40, 0..2]), 13., Color32::RED, Color32::WHITE, Color32::BLUE, 300., &chars);
         assert_eq!(job.text, "Anna: ciao");
     }
 

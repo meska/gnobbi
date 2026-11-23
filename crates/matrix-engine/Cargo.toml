@@ -51,6 +51,11 @@ getrandom = { version = "=0.4.3", optional = true }
 security-framework = { version = "=3.7.0", optional = true, default-features = false }
 getrandom = { version = "=0.4.3", optional = true }
 
+# File protection of the message index (src/search_index.rs); same versions as matrix-desktop.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "=0.6.5"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSString", "NSDictionary", "NSFileManager", "NSError"] }
+
 # Android: reqwest's platform verifier needs JNI and Java classes the NativeActivity app does not have, so TLS uses the embedded Mozilla roots.
 [target.'cfg(target_os = "android")'.dependencies]
 webpki-root-certs = "=1.0.10"

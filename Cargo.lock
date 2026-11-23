@@ -3638,6 +3638,8 @@ dependencies = [
  "matrix-sdk-ui",
  "mime_guess",
  "ndk-context",
+ "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
  "opus-pure",
  "pulldown-cmark",
  "reqwest",

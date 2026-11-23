@@ -431,6 +431,9 @@ impl RoomListWorker {
                         // Message search of all rooms (room list): one instance for the account's life.
                         let mut everywhere = crate::message_search::MessageSearch::everywhere(operation_client.clone());
                         let mut everywhere_rx = everywhere.subscribe();
+                        // The index grows with every event of the cache (sync, backfill): one refresh of the answer once the events pause (at most REFRESH_MAX after the first).
+                        let mut cache_updates = operation_client.event_cache().subscribe_to_room_generic_updates();
+                        let (mut refresh_at, mut refresh_since): (Option<tokio::time::Instant>, Option<tokio::time::Instant>) = (None, None);
                         let rooms_client = operation_client.clone();
                         let mut rooms = crate::search::Search::<(Option<String>, Option<crate::operations::DirectoryKind>), crate::operations::DirectoryRoom>::new(
                             (None, None),
@@ -490,6 +493,24 @@ impl RoomListWorker {
                                         )
                                         .await;
                                         clean &= matches!(sent, Some(Ok(())) | None);
+                                    }
+                                    continue;
+                                }
+                                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) = cache_updates.recv() => {
+                                    let now = tokio::time::Instant::now();
+                                    let since = *refresh_since.get_or_insert(now);
+                                    refresh_at = Some((now + crate::message_search::REFRESH).min(since + crate::message_search::REFRESH_MAX));
+                                    continue;
+                                }
+                                () = async {
+                                    match refresh_at {
+                                        Some(at) => tokio::time::sleep_until(at).await,
+                                        None => std::future::pending().await,
+                                    }
+                                } => {
+                                    (refresh_at, refresh_since) = (None, None);
+                                    if everywhere.refresh() {
+                                        refresh_at = Some(tokio::time::Instant::now() + crate::message_search::REFRESH);
                                     }
                                     continue;
                                 }

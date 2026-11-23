@@ -31,6 +31,27 @@ pub fn store_kind(dir: &Path, passphrase: &str) -> SearchIndexStoreKind {
     SearchIndexStoreKind::EncryptedDirectory(dir.to_owned(), passphrase.to_owned())
 }
 
+/// iOS: the index (and whatever the SDK creates in it later, files inherit the class of their directory) is readable only
+/// while the device is unlocked. Applied to the directory and what is already in it, at each start.
+#[cfg(target_os = "ios")]
+pub fn protect(dir: &Path) -> std::io::Result<()> {
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSDictionary, NSFileManager, NSFileProtectionComplete, NSFileProtectionKey, NSString};
+    let fail = |_| std::io::Error::other("file protection");
+    let attributes: objc2::rc::Retained<NSDictionary<NSString, AnyObject>> =
+        NSDictionary::from_slices(&[unsafe { NSFileProtectionKey }], &[AsRef::<AnyObject>::as_ref(unsafe { NSFileProtectionComplete })]);
+    let manager = NSFileManager::defaultManager();
+    let mut todo = vec![dir.to_owned()];
+    while let Some(path) = todo.pop() {
+        let name = NSString::from_str(path.to_str().ok_or_else(|| std::io::Error::other("path"))?);
+        unsafe { manager.setAttributes_ofItemAtPath_error(&attributes, &name) }.map_err(fail)?;
+        if path.is_dir() {
+            todo.extend(std::fs::read_dir(&path)?.filter_map(|e| Some(e.ok()?.path())));
+        }
+    }
+    Ok(())
+}
+
 /// Adds the events to the index of `room_id` (what is already there is skipped).
 pub async fn index_events(client: &Client, room_id: &RoomId, events: Vec<TimelineEvent>) -> bool {
     if events.is_empty() {

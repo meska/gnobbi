@@ -240,6 +240,8 @@ impl AccountStore {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Self::private_directory(&dir).map_err(|_| crate::auth::AuthError::Storage)?,
             Err(_) => return Err(crate::auth::AuthError::Storage),
         }
+        #[cfg(target_os = "ios")]
+        crate::search_index::protect(&dir).map_err(|_| crate::auth::AuthError::Storage)?;
         Ok(crate::search_index::store_kind(&dir, passphrase))
     }
 
