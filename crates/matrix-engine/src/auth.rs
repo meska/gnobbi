@@ -51,6 +51,8 @@ pub(crate) const DEVICE_NAME: &str = if cfg!(target_os = "macos") {
     "Gnobbi (Windows)"
 } else if cfg!(target_os = "ios") {
     "Gnobbi (iOS)"
+} else if cfg!(target_os = "android") {
+    "Gnobbi (Android)"
 } else {
     "Gnobbi (Linux)"
 };
@@ -231,7 +233,7 @@ impl AccountSession {
 mod device_name_tests {
     #[test]
     fn device_name_matches_os_without_user_or_host() {
-        let expected = if cfg!(target_os = "macos") { "Gnobbi (macOS)" } else if cfg!(target_os = "windows") { "Gnobbi (Windows)" } else if cfg!(target_os = "ios") { "Gnobbi (iOS)" } else { "Gnobbi (Linux)" };
+        let expected = if cfg!(target_os = "macos") { "Gnobbi (macOS)" } else if cfg!(target_os = "windows") { "Gnobbi (Windows)" } else if cfg!(target_os = "ios") { "Gnobbi (iOS)" } else if cfg!(target_os = "android") { "Gnobbi (Android)" } else { "Gnobbi (Linux)" };
         assert_eq!(super::DEVICE_NAME, expected);
     }
 }
