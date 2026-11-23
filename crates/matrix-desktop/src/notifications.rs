@@ -266,7 +266,7 @@ fn deliver_os(notification: Notification, picture: Option<Avatar>, click: &Click
 /// closed and the click launched it): the account and the room, as `<account>:<room id>`. Also the OS
 /// request identifier, so one room keeps one live alert across restarts. Worker ids repeat between
 /// profile folders, so the catalog id (0: unknown) comes first: `<catalog>:<worker>:<room id>`.
-#[cfg(any(target_os = "macos", target_os = "ios", test))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", test))]
 fn target_key(catalog: Option<AccountId>, scope: &RoomScope) -> String {
     format!("{}:{}:{}", catalog.map_or(0, |a| a.as_u64()), scope.account_id.as_u64(), scope.room_id.as_str())
 }
@@ -334,7 +334,9 @@ pub fn alerts_to_clear(rooms: &[(&RoomScope, u64)], alerted: &mut std::collectio
 pub fn clear_rooms(catalog: Option<AccountId>, rooms: Vec<RoomScope>) {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     macos::clear_rooms(catalog, rooms);
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(target_os = "android")]
+    android::clear_rooms(catalog, rooms);
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     let _ = (catalog, rooms);
 }
 
@@ -369,6 +371,62 @@ pub fn take_early_click(account: Option<AccountId>) -> Option<RoomScope> {
     {
         let _ = account;
         None
+    }
+}
+
+/// The room on screen in a focused window (catalog account, room), as the shown session last said; None when nothing is.
+#[cfg(any(target_os = "android", test))]
+static VISIBLE: Mutex<Option<(Option<AccountId>, RoomScope)>> = Mutex::new(None);
+
+/// Called every frame by the shown session (None: hidden, suspended or no room). Only Android reads it, for pushes.
+pub fn set_visible(room: Option<(Option<AccountId>, RoomScope)>) {
+    #[cfg(any(target_os = "android", test))]
+    {
+        *VISIBLE.lock().unwrap_or_else(|e| e.into_inner()) = room;
+    }
+    #[cfg(not(any(target_os = "android", test)))]
+    let _ = room;
+}
+
+/// True when the push for `account` (`<catalog>:<worker>:<dir>`) and `room` is for the room the user is reading right now.
+/// A malformed pair is not visible: the notification is shown.
+#[cfg(any(target_os = "android", test))]
+pub fn is_visible(account: &str, room: &str) -> bool {
+    let Some((catalog, scope)) = parse_remote(account, room) else { return false };
+    let visible = VISIBLE.lock().unwrap_or_else(|e| e.into_inner());
+    visible.as_ref().is_some_and(|(c, s)| *c == catalog && reading(true, Some(s), &scope))
+}
+
+/// Android: the delivered alerts are posted by the FCM service with tag `target_key` (same string as on Apple) and id 0.
+#[cfg(target_os = "android")]
+mod android {
+    use super::*;
+    use jni::{jni_sig, jni_str, objects::JObject, JValue};
+
+    pub fn clear_rooms(catalog: Option<AccountId>, rooms: Vec<RoomScope>) {
+        // Without the catalog id the tag cannot be built: the alert stays until its room is read again.
+        if rooms.is_empty() || catalog.is_none() {
+            return;
+        }
+        let Ok(ctx) = std::panic::catch_unwind(ndk_context::android_context) else { return };
+        // SAFETY: the VM pointer comes from android-activity; from_raw is idempotent.
+        let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) };
+        let res = vm.attach_current_thread(|env| -> Result<(), jni::errors::Error> {
+            // SAFETY: the context is a global ref owned by android-activity; JObject has no Drop and is not kept.
+            let context = unsafe { JObject::from_raw(env, ctx.context().cast()) };
+            let service = env.new_string("notification")?;
+            let nm = env
+                .call_method(&context, jni_str!("getSystemService"), jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"), &[JValue::from(&service)])?
+                .l()?;
+            for scope in &rooms {
+                let tag = env.new_string(target_key(catalog, scope))?;
+                env.call_method(&nm, jni_str!("cancel"), jni_sig!("(Ljava/lang/String;I)V"), &[JValue::from(&tag), JValue::Int(0)])?;
+            }
+            Ok(())
+        });
+        if let Err(e) = res {
+            log::warn!("gnobbi: clearing notifications failed: {e:?}");
+        }
     }
 }
 

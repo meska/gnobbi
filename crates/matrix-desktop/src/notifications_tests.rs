@@ -329,3 +329,19 @@ fn a_room_that_went_from_unread_to_zero_clears_once() {
     assert_eq!(alerts_to_clear(&[(&a, 0), (&b, 2)], &mut alerted), [a.clone()]);
     assert!(alerts_to_clear(&[(&a, 0), (&b, 2)], &mut alerted).is_empty());
 }
+
+#[test]
+fn push_is_silent_only_for_the_room_on_screen() {
+    let scope = RoomScope { account_id: AccountId::new(7), room_id: matrix_domain::RoomId::new("!r:fixture.invalid") };
+    let other = RoomScope { room_id: matrix_domain::RoomId::new("!x:fixture.invalid"), ..scope.clone() };
+    set_visible(None);
+    assert!(!is_visible("3:7:accounts/3", "!r:fixture.invalid"), "nothing on screen");
+    set_visible(Some((Some(AccountId::new(3)), scope.clone())));
+    assert!(is_visible("3:7:accounts/3", "!r:fixture.invalid"));
+    assert!(!is_visible("3:7:accounts/3", "!x:fixture.invalid"), "another room alerts");
+    assert!(!is_visible("4:7:accounts/4", "!r:fixture.invalid"), "another account alerts");
+    assert!(!is_visible("0:7:accounts/3", "!r:fixture.invalid") && !is_visible("3:7:accounts/3", "r"), "malformed: shown");
+    set_visible(Some((Some(AccountId::new(3)), other)));
+    assert!(!is_visible("3:7:accounts/3", "!r:fixture.invalid"));
+    set_visible(None);
+}

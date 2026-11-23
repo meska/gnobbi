@@ -37,8 +37,21 @@ final class Notifier {
                 .build();
     }
 
-    /** Returns false (nothing posted) when the user refused POST_NOTIFICATIONS or disabled notifications. */
-    static boolean show(Context ctx, PushPayload p) {
+    /**
+     * One notification per room, tagged like the engine's cancel in notifications.rs (target_key): "catalog:worker:room".
+     * The account extra is "catalog:worker:dir"; a malformed one falls back to itself so it still cannot collide across rooms.
+     */
+    static String tag(PushPayload p) {
+        String[] parts = p.account.split(":", 3);
+        return (parts.length == 3 ? parts[0] + ':' + parts[1] : p.account) + ':' + p.roomId;
+    }
+
+    /**
+     * Returns false (nothing posted) when the room is on screen in a focused window ({@code roomVisible}, asked to the engine),
+     * the user refused POST_NOTIFICATIONS or notifications are disabled.
+     */
+    static boolean show(Context ctx, PushPayload p, boolean roomVisible) {
+        if (roomVisible) return false;
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
         if (nm == null || !nm.areNotificationsEnabled()) return false;
         if (Build.VERSION.SDK_INT >= 33
@@ -47,7 +60,7 @@ final class Notifier {
         }
         nm.createNotificationChannel(new NotificationChannel(CHANNEL_ID,
                 ctx.getString(R.string.channel_messages), NotificationManager.IMPORTANCE_HIGH));
-        nm.notify((p.account + '\0' + p.roomId).hashCode(), build(ctx, p));
+        nm.notify(tag(p), 0, build(ctx, p));
         return true;
     }
 }

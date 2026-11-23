@@ -10,6 +10,18 @@ final class Native {
 
     private static native void nativeOnOpen(String account, String room);
 
+    private static native boolean nativeIsRoomVisible(String account, String room);
+
+    /** True when the user is reading that room right now; false (show the notification) when the engine is not loaded. */
+    static boolean isRoomVisible(String account, String room) {
+        try {
+            System.loadLibrary("gnobbi");
+            return nativeIsRoomVisible(account, room);
+        } catch (UnsatisfiedLinkError e) {
+            return false;
+        }
+    }
+
     /** Hands the FCM token to the engine (first token and every onNewToken); a missing library must not crash the service. */
     static void onToken(String token) {
         try {

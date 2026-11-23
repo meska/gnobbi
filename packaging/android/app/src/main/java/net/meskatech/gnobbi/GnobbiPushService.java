@@ -12,6 +12,6 @@ public final class GnobbiPushService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(RemoteMessage message) {
         PushPayload p = PushPayload.parse(message.getData());
-        if (p != null) Notifier.show(this, p);
+        if (p != null) Notifier.show(this, p, Native.isRoomVisible(p.account, p.roomId));
     }
 }

@@ -497,6 +497,7 @@ impl eframe::App for App {
             self.restart_accounts();
         }
         if suspend::is_suspended() {
+            matrix_desktop::notifications::set_visible(None);
             ctx.request_repaint_after(Duration::from_millis(100));
             return;
         }
@@ -546,6 +547,7 @@ impl eframe::App for App {
             }
         }
         session.poll(ctx, self.prefs.notifications, self.prefs.message_preview);
+        matrix_desktop::notifications::set_visible(session.reading.0.then(|| session.sidebar.selected().map(|r| (session.catalog_id, r.scope.clone()))).flatten());
         // The other accounts keep syncing: unread counts and notifications go on, read markers do not.
         let mut wake = None;
         for (i, p) in self.parked.iter_mut().enumerate() {

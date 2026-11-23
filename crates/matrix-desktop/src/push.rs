@@ -75,6 +75,18 @@ mod android {
         .resolve::<LogErrorAndDefault>()
     }
 
+    /// True when the user is reading that room in a focused window: the FCM service then posts nothing.
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_net_meskatech_gnobbi_Native_nativeIsRoomVisible<'l>(mut env: EnvUnowned<'l>, _: JClass<'l>, account: JString<'l>, room: JString<'l>) -> jni::sys::jboolean {
+        let visible = env
+            .with_env(|env| -> jni::errors::Result<bool> {
+                let (account, room) = (text(env, &account)?, text(env, &room)?);
+                Ok(crate::notifications::is_visible(&account, &room))
+            })
+            .resolve::<LogErrorAndDefault>();
+        visible as jni::sys::jboolean
+    }
+
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_net_meskatech_gnobbi_Native_nativeOnOpen<'l>(mut env: EnvUnowned<'l>, _: JClass<'l>, account: JString<'l>, room: JString<'l>) {
         env.with_env(|env| -> jni::errors::Result<()> {
