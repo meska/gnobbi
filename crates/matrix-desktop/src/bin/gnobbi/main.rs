@@ -79,6 +79,7 @@ fn visuals(t: &DesignTokens, dark: bool) -> Visuals {
     v.widgets.active.weak_bg_fill = rgb(t.accent);
     v.widgets.open.bg_fill = rgb(t.selected);
     v.window_corner_radius = CornerRadius::same(10);
+    v.menu_corner_radius = CornerRadius::same(10);
     v
 }
 
@@ -2204,32 +2205,37 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     let fresh = std::mem::take(&mut s.menu_fresh);
     if fresh { ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new(touch_menu::MORE_ID))); }
     let entries = touch_menu::entries(s);
+    let readers = touch_menu::readers(s);
     let mut react: Option<&'static str> = None;
     let own = |key: &str| s.reacted(key);
-    let (mut picked, mut cancel) = (None, false);
-    let area = egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
-        egui::Frame::popup(ui.style()).fill(rgb(t.surface)).show(ui, |ui| dir::popup(ui, |ui| {
-            ui.set_min_width(160.);
-            let Some((p, items)) = &entries else {
-                ui.spinner();
-                return;
-            };
-            if p.react {
-                react = touch_menu::reaction_rows(ui, &own, t);
-            }
-            for (action, confirm) in items {
-                let label = RichText::new(action.label(*confirm));
-                if ui.button(if *action == touch_menu::Action::Delete { label.color(rgb(t.error)) } else { label }).clicked() {
-                    picked = Some(*action);
-                }
-                if *action == touch_menu::Action::EndPoll && *confirm && ui.button(i18n::t("Cancel")).clicked() { cancel = true; }
-            }
-            if !p.react && items.is_empty() {
-                ui.label("—");
-            }
-        }));
-    });
-    if cancel { s.confirm_end_poll = false; }
+    let mut picked = None;
+    // Two cards with the look of the room list's menu: the reactions as a pill, the entries under it. Opens at the click, pushed back inside the window.
+    let area = egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(pos).constrain_to(ctx.content_rect().shrink(8.)).show(ctx, |ui| dir::popup(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 6.;
+        let card = egui::Frame::menu(ui.style()).fill(rgb(t.surface));
+        // Both shadows go under both cards: the second one's would darken the first.
+        let shadows = [ui.painter().add(egui::Shape::Noop), ui.painter().add(egui::Shape::Noop)];
+        let cast = |ui: &egui::Ui, n: usize, rect: egui::Rect, radius: CornerRadius| ui.painter().set(shadows[n], card.shadow.as_shape(rect, radius));
+        let card = card.shadow(egui::Shadow::NONE);
+        let Some((p, items)) = &entries else {
+            card.show(ui, |ui| ui.spinner());
+            return;
+        };
+        if p.react {
+            let radius = CornerRadius::same(if touch_menu::more_open(ui.ctx()) { 16 } else { 28 });
+            let pill = card.corner_radius(radius).show(ui, |ui| react = touch_menu::reaction_rows(ui, &own, t));
+            cast(ui, 0, pill.response.rect, radius);
+        }
+        if !items.is_empty() || !readers.is_empty() {
+            let list = card.show(ui, |ui| {
+                ui.set_width(touch_menu::width(ui, items));
+                picked = touch_menu::body(ui, items, &readers, &s.avatars, touch_menu::row_height(), t);
+            });
+            cast(ui, 1, list.response.rect, card.corner_radius);
+        } else if !p.react {
+            card.show(ui, |ui| ui.label("—"));
+        }
+    }));
     match (picked, react) {
         (Some(action), _) => touch_menu::apply(ctx, s, action),
         (None, Some(key)) => s.react(key),

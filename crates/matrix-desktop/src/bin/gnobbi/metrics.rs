@@ -168,13 +168,17 @@ mod tests {
 
     #[test]
     fn reaction_menu_shows_the_hand_on_every_clickable_part() {
-        let side = crate::metrics::button().max(32.);
+        let gap = crate::touch_menu::QUICK_GAP;
+        let ctx = crate::icons::test_context();
+        let mut side = 0.;
+        let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(436., 600.))), ..Default::default() }, |ui| side = crate::touch_menu::quick_side(ui));
+        out.textures_delta.clear();
         // first quick emoji, the expand button (last cell of the row), a grid cell once expanded, the plain entry under the grid
         let (_, closed) = menu_cursor(egui::pos2(0., 0.), false, 1.);
         let row_y = side / 2. + 8.;
         assert_eq!(menu_cursor(egui::pos2(side / 2. + 8., row_y), false, 1.).0, egui::CursorIcon::PointingHand);
-        assert_eq!(menu_cursor(egui::pos2(6. * (side + 8.) + side / 2., row_y), false, 1.).0, egui::CursorIcon::PointingHand);
-        assert_eq!(menu_cursor(egui::pos2(side / 2. + 8., row_y + side + 8.), true, 1.).0, egui::CursorIcon::PointingHand);
+        assert_eq!(menu_cursor(egui::pos2(8. + 6. * (side + gap) + side / 2., row_y), false, 1.).0, egui::CursorIcon::PointingHand);
+        assert_eq!(menu_cursor(egui::pos2(side / 2. + 8., row_y + side + gap), true, 1.).0, egui::CursorIcon::PointingHand);
         let below = closed.unwrap().bottom() + 12.;
         assert_eq!(menu_cursor(egui::pos2(20., below), false, 1.).0, egui::CursorIcon::PointingHand);
         assert_eq!(menu_cursor(egui::pos2(420., 590.), false, 1.).0, egui::CursorIcon::Default);

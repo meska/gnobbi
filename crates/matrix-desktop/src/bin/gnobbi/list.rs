@@ -102,7 +102,7 @@ fn mode_label(mode: matrix_domain::notifications::RoomNotifyMode) -> &'static st
 }
 
 /// Thin line between the groups of the room menu; with a title it is the group label (bell icon, secondary colour) and the line sits above it.
-fn menu_divider(ui: &mut egui::Ui, title: Option<&str>, t: &DesignTokens) {
+pub fn menu_divider(ui: &mut egui::Ui, title: Option<&str>, t: &DesignTokens) {
     ui.add_space(2.);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.min_rect().width().max(1.), 1.), Sense::hover()); // the widest entry so far: the line must not stretch the menu
     ui.painter().hline(rect.x_range(), rect.center().y, egui::Stroke::new(1., rgb(t.secondary).gamma_multiply(0.4)));

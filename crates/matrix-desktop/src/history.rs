@@ -710,6 +710,19 @@ impl DemoHistory {
         rows
     }
 
+    /// Who read the own message `id`: every peer whose marker sits on it or on a later row, oldest read first, once each.
+    pub fn readers_of(&self, id: &ScopedTimelineId, receipts: &[matrix_engine::receipts::PublicReadReceipt]) -> Vec<matrix_engine::history::HistorySender> {
+        let Some(row) = self.events.iter().position(|e| e.id == *id && e.outgoing && matches!(e.id.id, TimelineId::Server(_))) else { return Vec::new() };
+        let mut out = Vec::<matrix_engine::history::HistorySender>::new();
+        for r in receipts {
+            if !self.events[row..].iter().any(|e| matches!(&e.id.id, TimelineId::Server(id) if *id == r.event_id)) { continue }
+            for u in &r.users {
+                if !out.iter().any(|o| o.id == u.id) { out.push(u.clone()); }
+            }
+        }
+        out
+    }
+
     pub fn events(&self) -> &[DemoEvent] {
         &self.events
     }
@@ -919,5 +932,13 @@ mod reader_circle_tests {
         let rows = h.readers_by_row(&[at("$a", &["@x:t", "@y:t", "@y:t"]), at("$c", &["@x:t"])]);
         assert_eq!(rows.get(&2).map(|v| v.iter().map(|s| s.id.as_str()).collect::<Vec<_>>()), Some(vec!["@x:t"]));
         assert_eq!(rows.get(&0).map(|v| v.iter().map(|s| s.id.as_str()).collect::<Vec<_>>()), Some(vec!["@y:t"]));
+
+        // The message menu: everyone at or past the own message, once; nothing for a foreign message or one nobody reached.
+        let receipts = [at("$a", &["@x:t"]), at("$b", &["@y:t", "@x:t"]), at("$c", &["@z:t"])];
+        let ids = |i: usize| h.readers_of(&h.events[i].id, &receipts).iter().map(|s| s.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(0), ["@x:t", "@y:t", "@z:t"]);
+        assert_eq!(ids(1), [""; 0], "someone else's message");
+        assert_eq!(ids(2), ["@z:t"]);
+        assert!(h.readers_of(&h.events[0].id, &[at("$zz", &["@w:t"])]).is_empty());
     }
 }

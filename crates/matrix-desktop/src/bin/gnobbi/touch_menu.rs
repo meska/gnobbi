@@ -96,6 +96,8 @@ pub enum Action {
     Edit,
     Sticker,
     EndPoll,
+    /// Takes back the first tap on «Close poll».
+    Cancel,
     Delete,
 }
 
@@ -108,6 +110,7 @@ impl Action {
             Action::Edit => Icon::PencilSimple,
             Action::Sticker => Icon::Sticker,
             Action::EndPoll => Icon::ChartBarHorizontal,
+            Action::Cancel => Icon::X,
             Action::Delete => Icon::Trash,
         }
     }
@@ -122,6 +125,7 @@ impl Action {
             (Action::Sticker, _) => i18n::t("Add to my stickers"),
             (Action::EndPoll, false) => i18n::t("Close poll"),
             (Action::EndPoll, true) => i18n::t("Confirm closing"),
+            (Action::Cancel, _) => i18n::t("Cancel"),
             (Action::Delete, false) => i18n::t("Delete"),
             (Action::Delete, true) => i18n::t("Confirm deletion"),
         }
@@ -154,7 +158,127 @@ pub fn entries(s: &Session) -> Option<(MessagePermissions, Vec<(Action, bool)>)>
     let e = selected(s);
     let text = e.is_some_and(|e| !e.redacted && e.poll.is_none() && !e.text.trim().is_empty());
     let list = actions(p, text, picture(s).is_some(), s.ops.can_end_poll(e.and_then(|e| e.poll.as_ref())));
-    Some((p, list.into_iter().map(|a| (a, (a == Action::Delete && s.confirm_delete) || (a == Action::EndPoll && s.confirm_end_poll))).collect()))
+    Some((p, with_state(list, s.confirm_delete, s.confirm_end_poll)))
+}
+
+/// Each entry with its «waiting for the second tap» state; a poll waiting to be closed gets «Cancel» right under it.
+fn with_state(list: Vec<Action>, confirm_delete: bool, confirm_end_poll: bool) -> Vec<(Action, bool)> {
+    let mut out = Vec::with_capacity(list.len() + 1);
+    for a in list {
+        out.push((a, (a == Action::Delete && confirm_delete) || (a == Action::EndPoll && confirm_end_poll)));
+        if a == Action::EndPoll && confirm_end_poll { out.push((Action::Cancel, false)); }
+    }
+    out
+}
+
+/// Who read the selected message (an own one), from the read markers the room already has.
+pub fn readers(s: &Session) -> Vec<matrix_engine::history::HistorySender> {
+    #[cfg(debug_assertions)]
+    if let Some(n) = matrix_desktop::hooks::var("GNOBBI_DEBUG_READERS_FIXTURE").ok().and_then(|v| v.parse::<usize>().ok()) && selected(s).is_some_and(|e| e.outgoing) {
+        // Test hook: made-up readers, no server.
+        return ["Bruno Ferri", "Carla", "Dario", "Elena", "Fabio"].iter().take(n).map(|name| matrix_engine::history::HistorySender::new(&format!("@{}:example.org", name.to_lowercase()), Some(*name))).collect();
+    }
+    match (s.ops.selection(), s.messages.as_ref(), s.sidebar.selected()) {
+        (Some(id), Some(m), Some(room)) => m.readers_of(id, &room.info.public_read_receipts),
+        _ => Vec::new(),
+    }
+}
+
+/// Row height of the right-click menu (44 on touch); the long-press menu uses `ROW`.
+pub fn row_height() -> f32 {
+    crate::mobile::target(36.)
+}
+
+/// Where the icon and the label of a row `h` tall start.
+fn columns(h: f32) -> (f32, f32) {
+    if h >= CELL { (24., 52.) } else { (18., 44.) }
+}
+
+/// Width of the right-click menu: its widest label (the «confirm» wordings too, so a first tap does not resize it).
+pub fn width(ui: &egui::Ui, items: &[(Action, bool)]) -> f32 {
+    let font = egui::FontId::proportional(crate::metrics::get().body);
+    let text = items.iter().flat_map(|(a, _)| [a.label(false), a.label(true)]).map(|l| ui.painter().layout_no_wrap(l.to_owned(), font.clone(), Color32::WHITE).size().x).fold(0., f32::max);
+    crate::dir::fit(ui, (columns(row_height()).1 + text + 20.).max(200.))
+}
+
+/// The thin line and the air around it.
+const DIVIDER: f32 = 9.;
+/// Avatars of the «read by» row.
+const READ_MAX: usize = 3;
+const READ_SIZE: f32 = 20.;
+
+fn line(ui: &mut egui::Ui, t: &DesignTokens) {
+    ui.add_space(2.);
+    crate::list::menu_divider(ui, None, t);
+    ui.add_space(2.);
+}
+
+/// Height `body` takes for these entries.
+fn body_height(items: &[(Action, bool)], readers: usize, row: f32) -> f32 {
+    let split = items.len() > 1 && items.iter().any(|(a, _)| *a == Action::Delete);
+    items.len() as f32 * row + if split { DIVIDER } else { 0. } + if readers == 0 { 0. } else { row + if items.is_empty() { 0. } else { DIVIDER } }
+}
+
+/// The body of the message menu, right click and long press alike: full-width rows `row` tall (icon in the secondary colour, label),
+/// Delete in red after a thin line, and at the end who read the message. Returns the entry chosen.
+pub fn body(ui: &mut egui::Ui, items: &[(Action, bool)], readers: &[matrix_engine::history::HistorySender], avatars: &crate::avatar::Avatars, row: f32, t: &DesignTokens) -> Option<Action> {
+    ui.spacing_mut().item_spacing = Vec2::ZERO;
+    let mut pick = None;
+    for (i, (action, confirm)) in items.iter().enumerate() {
+        if *action == Action::Delete && i > 0 { line(ui, t); }
+        if entry(ui, row, *action, *confirm, t) { pick = Some(*action); }
+    }
+    if !readers.is_empty() {
+        if !items.is_empty() { line(ui, t); }
+        read_row(ui, row, readers, avatars, t);
+    }
+    pick
+}
+
+/// One entry: the whole row lights up under the pointer; waiting for the second tap it is a filled destructive button.
+fn entry(ui: &mut egui::Ui, h: f32, action: Action, confirm: bool, t: &DesignTokens) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
+    let resp = crate::metrics::clickable(resp);
+    let label = action.label(confirm);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    let (ink, icon_ink) = if confirm { (t.on_accent, t.on_accent) } else if action == Action::Delete { (t.error, t.error) } else { (t.text, t.secondary) };
+    let radius = ui.visuals().widgets.hovered.corner_radius;
+    if confirm {
+        ui.painter().rect_filled(rect, radius, rgb(t.error));
+    } else if resp.is_pointer_button_down_on() || resp.hovered() || resp.has_focus() {
+        ui.painter().rect_filled(rect, radius, rgb(t.selected));
+    }
+    let (m, big, (icon_x, text_x)) = (crate::metrics::get(), h >= CELL, columns(h));
+    crate::icons::paint(ui.painter(), crate::dir::flip_pos(rect, pos2(rect.left() + icon_x, rect.center().y)), action.icon(), false, m.icon + if big { 2. } else { 0. }, rgb(icon_ink));
+    let galley = ui.painter().layout_no_wrap(label.to_owned(), egui::FontId::proportional(m.body + if big { 1. } else { 0. }), rgb(ink));
+    let at = crate::dir::place(rect, pos2(rect.left() + text_x, rect.center().y - galley.size().y / 2.), galley.size().x);
+    ui.painter().galley(at, galley, rgb(ink));
+    resp.clicked()
+}
+
+/// Who read the message: the name of a single reader or how many they are, their small avatars at the far end. Not an entry: nothing to tap.
+fn read_row(ui: &mut egui::Ui, h: f32, readers: &[matrix_engine::history::HistorySender], avatars: &crate::avatar::Avatars, t: &DesignTokens) {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+    let name = |r: &matrix_engine::history::HistorySender| r.name.clone().unwrap_or_else(|| r.id.clone());
+    let names = readers.iter().map(name).collect::<Vec<_>>().join(", ");
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, i18n::t("Read by {names}").replace("{names}", &names)));
+    let (m, big, (icon_x, text_x)) = (crate::metrics::get(), h >= CELL, columns(h));
+    crate::icons::paint(ui.painter(), crate::dir::flip_pos(rect, pos2(rect.left() + icon_x, rect.center().y)), Icon::Eye, false, m.icon + if big { 2. } else { 0. }, rgb(t.secondary));
+    let shown = readers.len().min(READ_MAX);
+    let step = READ_SIZE * 0.7;
+    let faces = READ_SIZE + (shown - 1) as f32 * step;
+    for (i, r) in readers.iter().take(READ_MAX).enumerate() {
+        let c = crate::dir::flip_pos(rect, pos2(rect.right() - 10. - READ_SIZE / 2. - (shown - 1 - i) as f32 * step, rect.center().y));
+        let initials: String = name(r).trim_start_matches('@').chars().take(1).collect::<String>().to_uppercase();
+        ui.painter().circle_filled(c, READ_SIZE / 2. + 1.5, rgb(t.surface)); // a ring of the menu's colour parts the overlapping faces
+        crate::avatar::paint(ui, c, READ_SIZE, rgb(matrix_desktop::AVATAR_FALLBACK), &crate::avatar::lookup(avatars, r.avatar.as_deref()), &initials, 10., rgb(t.avatar_text));
+    }
+    let text = if readers.len() == 1 { names } else { readers.len().to_string() };
+    let mut job = egui::text::LayoutJob::simple_singleline(text, egui::FontId::proportional(m.body + if big { 1. } else { 0. }), rgb(t.text));
+    job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - text_x - faces - 20.).max(0.));
+    let galley = ui.painter().layout_job(job);
+    let at = crate::dir::place(rect, pos2(rect.left() + text_x, rect.center().y - galley.size().y / 2.), galley.size().x);
+    ui.painter().galley(at, galley, rgb(t.text));
 }
 
 /// Runs a chosen entry. Delete and «close poll» act on the second tap.
@@ -188,6 +312,7 @@ pub fn apply(ctx: &egui::Context, s: &mut Session, action: Action) {
         }
         Action::EndPoll if s.confirm_end_poll => s.end_poll(),
         Action::EndPoll => s.confirm_end_poll = true,
+        Action::Cancel => s.confirm_end_poll = false,
         Action::Delete if s.confirm_delete => s.delete(),
         Action::Delete => s.confirm_delete = true,
     }
@@ -249,11 +374,12 @@ pub struct Lift {
     react: bool,
     own: [bool; QUICK.len()],
     items: Vec<(Action, bool)>,
+    readers: Vec<matrix_engine::history::HistorySender>,
 }
 
 impl Lift {
     pub fn new(id: matrix_domain::ScopedTimelineId, rect: Rect, view: Rect) -> Self {
-        Self { id, rect, view, opened: Instant::now(), shown: None, closing: None, picker: false, react: false, own: [false; QUICK.len()], items: Vec::new() }
+        Self { id, rect, view, opened: Instant::now(), shown: None, closing: None, picker: false, react: false, own: [false; QUICK.len()], items: Vec::new(), readers: Vec::new() }
     }
 
     fn alpha(&self, now: Instant) -> f32 {
@@ -273,8 +399,8 @@ pub fn lift_layer() -> egui::LayerId {
 
 /// A rounded card of the menu on its own layer; returns what `add` returns.
 /// Its shadow goes on `under` (the scrim's layer): on the card's own layer it would darken the other card and the lifted bubble next to it.
-fn card<R>(ctx: &egui::Context, under: &egui::Painter, name: &'static str, rect: Rect, alpha: f32, to_global: egui::emath::TSTransform, t: &DesignTokens, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    let radius = CornerRadius::same(RADIUS);
+fn card<R>(ctx: &egui::Context, under: &egui::Painter, name: &'static str, rect: Rect, radius: u8, alpha: f32, to_global: egui::emath::TSTransform, t: &DesignTokens, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let radius = CornerRadius::same(radius);
     under.add(egui::Shadow { offset: [0, 6], blur: 24, spread: 0, color: Color32::from_black_alpha((56. * alpha) as u8) }.as_shape(rect, radius));
     let area = egui::Area::new(egui::Id::new(name)).order(egui::Order::Tooltip).fixed_pos(rect.min).constrain(false).sense(Sense::hover()).show(ctx, |ui| {
         ui.set_opacity(alpha);
@@ -289,46 +415,72 @@ fn card<R>(ctx: &egui::Context, under: &egui::Painter, name: &'static str, rect:
     area.inner
 }
 
-/// One emoji button of `size`; `on` = the user's own reaction, shown on an accent disc.
+/// One emoji button of `size`; `on` = the user's own reaction, shown on an accent disc. Under the pointer or the finger the emoji grows a little.
 fn emoji_cell(ui: &mut egui::Ui, size: Vec2, name: &str, emoji: &str, on: bool, t: &DesignTokens) -> bool {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let resp = crate::metrics::clickable(resp);
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, i18n::t(name)));
-    let disc = rect.width().min(rect.height()) / 2. - 2.;
+    let disc = rect.width().min(rect.height()) / 2. - 1.;
     if on {
         ui.painter().circle_filled(rect.center(), disc, rgb(t.accent).gamma_multiply(0.3));
-    } else if resp.is_pointer_button_down_on() || resp.hovered() || resp.has_focus() {
+    } else if resp.has_focus() {
         ui.painter().circle_filled(rect.center(), disc, rgb(t.selected));
     }
-    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, emoji, egui::FontId::proportional(24.), rgb(t.text));
+    let font = (rect.width().min(rect.height()) * 0.68).clamp(22., 30.);
+    let hot = resp.is_pointer_button_down_on() || resp.hovered();
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, emoji, egui::FontId::proportional(if hot { (font * 1.18).round() } else { font.round() }), rgb(t.text));
+    resp.clicked()
+}
+
+/// The round chevron that unfolds the full emoji grid: down, up once it is open.
+fn more_button(ui: &mut egui::Ui, rect: Rect, id: egui::Id, open: bool, label: &str, t: &DesignTokens) -> bool {
+    let resp = crate::metrics::clickable(ui.interact(rect, id, Sense::click()));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, label));
+    let hot = resp.hovered() || resp.has_focus() || resp.is_pointer_button_down_on();
+    let r = (rect.width().min(rect.height()) / 2. - 5.).min(15.);
+    ui.painter().circle_filled(rect.center(), r, rgb(if hot { t.selected } else { t.input }));
+    if resp.has_focus() {
+        ui.painter().circle_stroke(rect.center(), r, ui.visuals().selection.stroke);
+    }
+    crate::icons::paint(ui.painter(), rect.center(), if open { Icon::CaretUp } else { Icon::CaretDown }, false, r * 1.1, rgb(if hot { t.text } else { t.secondary }));
     resp.clicked()
 }
 
 /// State of the expand button; the menu clears it each time it opens.
 pub const MORE_ID: &str = "message-menu-react-more";
+/// Space between the emoji of the right-click menu.
+pub const QUICK_GAP: f32 = 2.;
 
-/// The reactions of the desktop message menu: the quick row always shown, ending in a button that opens the full grid in place.
+/// The full grid is unfolded under the quick row.
+pub fn more_open(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::new(MORE_ID))).unwrap_or(false) || (cfg!(debug_assertions) && matrix_desktop::hooks::var_os("GNOBBI_DEBUG_REACTIONS_MORE").is_some())
+}
+
+/// Side of an emoji of the right-click menu, cut down so eight of them fit a narrow phone screen.
+pub fn quick_side(ui: &egui::Ui) -> f32 {
+    let wanted = crate::metrics::button().max(38.);
+    wanted.min((crate::dir::fit(ui, 8. * wanted + 7. * QUICK_GAP) - 7. * QUICK_GAP) / 8.)
+}
+
+/// The reactions of the desktop message menu: the quick row always shown, ending in a chevron that opens the full grid in place.
 /// `own` tells which emoji the user already reacted with. Returns the emoji tapped.
 pub fn reaction_rows(ui: &mut egui::Ui, own: &dyn Fn(&str) -> bool, t: &DesignTokens) -> Option<&'static str> {
-    let gap = ui.spacing().item_spacing.x;
-    let wanted = crate::metrics::button().max(32.);
-    // Eight cells per line, cut down so the menu stays inside a narrow phone screen.
-    let side = wanted.min((crate::dir::fit(ui, 8. * wanted + 7. * gap) - 7. * gap) / 8.);
+    ui.spacing_mut().item_spacing = Vec2::splat(QUICK_GAP);
+    let side = quick_side(ui);
     let id = egui::Id::new(MORE_ID);
-    let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false) || (cfg!(debug_assertions) && matrix_desktop::hooks::var_os("GNOBBI_DEBUG_REACTIONS_MORE").is_some());
+    let open = more_open(ui.ctx());
     let (cell, mut pick) = (vec2(side, side), None);
     ui.horizontal(|ui| {
         for (name, emoji) in QUICK {
             if emoji_cell(ui, cell, name, emoji, own(emoji), t) { pick = Some(emoji); }
         }
         let (rect, _) = ui.allocate_exact_size(cell, Sense::hover());
-        let icon = if open { Icon::CaretUp } else { Icon::Plus };
-        if crate::icons::button_at(ui, rect, id.with("button"), icon, false, crate::metrics::get().icon, i18n::t("More reactions"), Some(rgb(t.secondary)), true, 1.).clicked() {
+        if more_button(ui, rect, id.with("button"), open, i18n::t("More reactions"), t) {
             ui.data_mut(|d| d.insert_temp(id, !open));
         }
     });
     if open {
-        egui::Grid::new("reaction-emoji-grid").min_col_width(side).min_row_height(side).show(ui, |ui| {
+        egui::Grid::new("reaction-emoji-grid").spacing(Vec2::splat(QUICK_GAP)).min_col_width(side).min_row_height(side).show(ui, |ui| {
             for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
                 if emoji_cell(ui, cell, name, emoji, own(emoji), t) { pick = Some(*emoji); }
                 if i % 8 == 7 { ui.end_row(); }
@@ -361,7 +513,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
         return reset(ctx);
     }
     if open && let Some((p, items)) = entries(s) {
-        (lift.react, lift.items) = (p.react, items);
+        (lift.react, lift.items, lift.readers) = (p.react, items, readers(s));
         lift.own = QUICK.map(|(_, emoji)| s.reacted(emoji));
         lift.shown.get_or_insert(now);
     }
@@ -393,7 +545,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
         // Room for the menu: the timeline's viewport inside the safe area; when that is too short (keyboard up) it may cover the composer.
         let safe = ctx.content_rect();
         let columns = (((WIDTH.min(safe.width() - 2. * MARGIN) - 2. * PAD) / CELL).floor() as usize).max(1);
-        let rows = if lift.picker { matrix_desktop::EMOJI_SET.len().div_ceil(columns) as f32 * CELL } else { lift.items.len() as f32 * ROW };
+        let rows = if lift.picker { matrix_desktop::EMOJI_SET.len().div_ceil(columns) as f32 * CELL } else { body_height(&lift.items, lift.readers.len(), ROW) };
         let bar_size = if lift.react { vec2((QUICK.len() + 1) as f32 * CELL + 2. * PAD, CELL + 2. * PAD) } else { Vec2::ZERO };
         let list_size = if rows > 0. { vec2(WIDTH, rows + 2. * PAD) } else { Vec2::ZERO };
         let mut area = lift.view.intersect(safe).shrink2(vec2(MARGIN, GAP));
@@ -411,7 +563,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
         let pivot = pos2(if lift.rect.center().x > area.center().x { bar.right() } else { bar.left() }, lift.rect.center().y.clamp(area.top(), area.bottom()));
         let spring = egui::emath::TSTransform::new(pivot.to_vec2() * (1. - scale), scale);
         if lift.react {
-            card(ctx, &under, "message-reactions", bar, alpha, spring, t, |ui| {
+            card(ctx, &under, "message-reactions", bar, (bar.height() / 2.) as u8, alpha, spring, t, |ui| {
                 ui.horizontal(|ui| {
                     let size = vec2(ui.available_width() / (QUICK.len() + 1) as f32, CELL);
                     for ((name, emoji), on) in QUICK.into_iter().zip(lift.own) {
@@ -420,14 +572,14 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                         }
                     }
                     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-                    if crate::icons::button_at(ui, rect, ui.id().with("more"), Icon::Plus, lift.picker, crate::metrics::get().icon, i18n::t("Emoji"), Some(rgb(t.secondary)), true, 1.).clicked() {
+                    if more_button(ui, rect, ui.id().with("more"), lift.picker, i18n::t("Emoji"), t) {
                         pick = Some(Pick::Picker);
                     }
                 });
             });
         }
         if rows > 0. {
-            card(ctx, &under, "message-actions", list, alpha, spring, t, |ui| {
+            card(ctx, &under, "message-actions", list, RADIUS, alpha, spring, t, |ui| {
                 let mine: Vec<String> = s.selected_reactions().into_iter().filter(|r| r.mine).map(|r| r.key).collect();
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if lift.picker {
@@ -443,27 +595,8 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                         }
                         return;
                     }
-                    for (action, confirm) in &lift.items {
-                        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
-                        let label = action.label(*confirm);
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
-                        let danger = *action == Action::Delete;
-                        // Waiting for the second tap: the row turns into a filled destructive button.
-                        let ink = if *confirm { rgb(t.on_accent) } else if danger { rgb(t.error) } else { rgb(t.text) };
-                        let radius = CornerRadius::same(RADIUS - PAD as u8);
-                        if *confirm {
-                            ui.painter().rect_filled(rect, radius, rgb(t.error));
-                        } else if resp.is_pointer_button_down_on() || resp.hovered() || resp.has_focus() {
-                            ui.painter().rect_filled(rect, radius, rgb(t.selected));
-                        }
-                        let m = crate::metrics::get();
-                        crate::icons::paint(ui.painter(), crate::dir::flip_pos(rect, pos2(rect.left() + 24., rect.center().y)), action.icon(), false, m.icon + 2., ink);
-                        let galley = ui.painter().layout_no_wrap(label.to_owned(), egui::FontId::proportional(m.body + 1.), ink);
-                        let at = crate::dir::place(rect, pos2(rect.left() + 52., rect.center().y - galley.size().y / 2.), galley.size().x);
-                        ui.painter().galley(at, galley, ink);
-                        if resp.clicked() {
-                            pick = Some(Pick::Do(*action));
-                        }
+                    if let Some(action) = body(ui, &lift.items, &lift.readers, &s.avatars, ROW, t) {
+                        pick = Some(Pick::Do(action));
                     }
                 });
             });
@@ -626,6 +759,63 @@ mod tests {
         // Read-only room, deleted message.
         assert_eq!(actions(none, false, false, false), []);
         assert_eq!(actions(none, true, false, false), [Copy]);
+    }
+
+    #[test]
+    fn delete_is_always_the_last_entry_and_nothing_repeats() {
+        // Every mix of permissions and message kind (text, picture or sticker, own poll).
+        for bits in 0..128u32 {
+            let on = |n: u32| bits & (1 << n) != 0;
+            let p = MessagePermissions { reply: on(0), edit: on(1), redact: on(2), react: on(3) };
+            let list = actions(p, on(4), on(5), on(6));
+            assert_eq!(list.contains(&Action::Delete), p.redact);
+            assert!(list.iter().position(|a| *a == Action::Delete).is_none_or(|i| i == list.len() - 1), "{list:?}");
+            assert!(list.iter().all(|a| list.iter().filter(|b| *b == a).count() == 1), "{list:?}");
+            // The states of the second tap keep the order: «Cancel» only right under a poll waiting to be closed.
+            for (delete, poll) in [(false, false), (true, false), (false, true), (true, true)] {
+                let rows = with_state(list.clone(), delete, poll);
+                assert_eq!(rows.iter().map(|(a, _)| *a).filter(|a| *a != Action::Cancel).collect::<Vec<_>>(), list);
+                assert_eq!(rows.last().map(|(a, c)| (*a, *c)).filter(|(a, _)| *a == Action::Delete), p.redact.then_some((Action::Delete, delete)));
+                let cancel = rows.iter().position(|(a, _)| *a == Action::Cancel);
+                assert_eq!(cancel.is_some(), poll && on(6));
+                assert!(cancel.is_none_or(|i| rows[i - 1] == (Action::EndPoll, true)));
+            }
+        }
+    }
+
+    #[test]
+    fn entries_by_kind_of_message() {
+        use Action::*;
+        let own = MessagePermissions { reply: true, edit: true, redact: true, react: true };
+        let theirs = MessagePermissions { reply: true, edit: false, redact: false, react: true };
+        // (permissions, text to copy, picture or sticker) as `entries` reads them from the message.
+        assert_eq!(actions(own, true, false, false), [Reply, Thread, Copy, Edit, Delete], "own text");
+        assert_eq!(actions(theirs, true, false, false), [Reply, Thread, Copy], "someone else's text");
+        assert_eq!(actions(MessagePermissions { edit: false, ..own }, false, true, false), [Reply, Thread, Sticker, Delete], "own sticker");
+        assert_eq!(actions(theirs, false, true, false), [Reply, Thread, Sticker], "someone else's sticker");
+    }
+
+    #[test]
+    fn the_body_is_as_tall_as_its_rows_lines_and_readers() {
+        let rows = |n: usize, delete: bool| (0..n).map(|i| (if delete && i == n - 1 { Action::Delete } else { Action::Reply }, false)).collect::<Vec<_>>();
+        assert_eq!(body_height(&rows(3, false), 0, 36.), 108.);
+        assert_eq!(body_height(&rows(3, true), 0, 36.), 108. + DIVIDER, "a line before Delete");
+        assert_eq!(body_height(&rows(1, true), 0, 36.), 36., "Delete alone: no line");
+        assert_eq!(body_height(&rows(3, true), 2, 48.), 4. * 48. + 2. * DIVIDER, "readers: a line and a row");
+        assert_eq!(body_height(&[], 1, 48.), 48.);
+        // What is drawn takes exactly that (the long-press card is sized from it).
+        let ctx = crate::icons::test_context();
+        let readers = [matrix_engine::history::HistorySender::new("@b:t", Some("Bruno"))];
+        for (items, readers) in [(rows(3, true), &readers[..]), (rows(2, false), &[][..]), (rows(1, true), &readers[..])] {
+            let mut h = 0.;
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400., 600.))), ..Default::default() }, |ui| {
+                let top = ui.cursor().top();
+                body(ui, &items, readers, &Default::default(), 36., &matrix_desktop::DARK);
+                h = ui.cursor().top() - top;
+            });
+            out.textures_delta.clear();
+            assert_eq!(h, body_height(&items, readers.len(), 36.));
+        }
     }
 
     #[test]

@@ -789,7 +789,11 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
                 }
                 let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, label.as_deref(), (glued(i), glued(i + 1)), members > 2, history.day_separator(i).as_deref(), readers.get(&i).map_or(&[][..], Vec::as_slice), t);
                 #[cfg(debug_assertions)]
-                let opened = if hooked { acts.held = acts.lift_rect; acts.lift_rect.map(|r| r.center()) } else { opened };
+                let opened = if hooked {
+                    // GNOBBI_DEBUG_MENU_DESKTOP: the right-click menu at the bubble instead of the long-press one.
+                    if matrix_desktop::hooks::var_os("GNOBBI_DEBUG_MENU_DESKTOP").is_none() { acts.held = acts.lift_rect; }
+                    acts.lift_rect.map(|r| r.center())
+                } else { opened };
                 // Touch menu: the same row once more on a layer above the dimmed chat, where the bubble already is (the menu scales that layer); taps go through it.
                 if let Some(lift) = acts.lift.clone().filter(|(id, _)| *id == e.id) && let Some(rect) = acts.lift_rect {
                     let (style, line) = (ui.style().clone(), ui.max_rect());
