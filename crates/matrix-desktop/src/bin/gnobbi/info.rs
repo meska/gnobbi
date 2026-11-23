@@ -144,6 +144,40 @@ mod topic_tests {
     }
 
     #[test]
+    fn each_address_copy_button_copies_its_own_address() {
+        use eframe::egui::{self, Event, Modifiers, PointerButton};
+        let data = matrix_engine::alias::RoomAliases {
+            canonical: matrix_engine::alias::Canonical { main: Some("#a:x.org".into()), alts: vec!["#bb:x.org".into()] },
+            local: vec!["#ccc:x.org".into()],
+            can_edit_aliases: true,
+            server: "x.org".into(),
+        };
+        let mut copied = std::collections::BTreeSet::new();
+        for y in (0..260).step_by(6) {
+            let ctx = crate::icons::test_context();
+            for step in 0..4 {
+                let pos = egui::pos2(270., y as f32);
+                let events = match step {
+                    2 => vec![Event::PointerMoved(pos), Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }],
+                    3 => vec![Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }],
+                    _ => vec![],
+                };
+                let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 300.))), events, ..Default::default() };
+                let mut input_text = String::new();
+                let mut view = super::AliasView { data: Some(&data), error: None, input: &mut input_text, action: None };
+                let mut out = ctx.run_ui(input, |ui| super::addresses(ui, &mut view, &matrix_desktop::LIGHT));
+                out.textures_delta.clear();
+                for c in &out.platform_output.commands {
+                    if let egui::OutputCommand::CopyText(text) = c {
+                        copied.insert(text.clone());
+                    }
+                }
+            }
+        }
+        assert_eq!(copied, ["#a:x.org", "#bb:x.org", "#ccc:x.org"].map(String::from).into());
+    }
+
+    #[test]
     fn duplicate_member_row_opens_on_click() {
         use eframe::egui::{self, Event, Modifiers, PointerButton};
         let ctx = egui::Context::default();
@@ -537,16 +571,27 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
             ui.set_max_width(ui.available_width() - 16.);
             ui.label(RichText::new(i18n::t("Addresses")).strong());
             for alias in &list {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(alias);
-                    if data.canonical.main.as_deref() == Some(alias) {
-                        ui.label(RichText::new(i18n::t("main")).size(11.).color(rgb(t.secondary)));
-                    } else if data.can_edit_aliases && ui.small_button(i18n::t("Main")).clicked() {
-                        view.action = Some(AliasAction::SetCanonical { alias: alias.clone() });
-                    }
-                    if data.can_edit_aliases && crate::info::close_icon(ui, i18n::t("Remove address")).clicked() {
-                        view.action = Some(AliasAction::Remove { alias: alias.clone() });
-                    }
+                // Own id scope per address: the icon buttons derive their ids from the parent scope and their label.
+                ui.push_id(alias, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
+                            if copy_icon(ui).clicked() {
+                                ui.ctx().copy_text(alias.clone());
+                            }
+                            if data.can_edit_aliases && crate::info::close_icon(ui, i18n::t("Remove address")).clicked() {
+                                view.action = Some(AliasAction::Remove { alias: alias.clone() });
+                            }
+                            if data.canonical.main.as_deref() == Some(alias) {
+                                ui.label(RichText::new(i18n::t("main")).size(11.).color(rgb(t.secondary)));
+                            } else if data.can_edit_aliases && ui.small_button(i18n::t("Main")).clicked() {
+                                view.action = Some(AliasAction::SetCanonical { alias: alias.clone() });
+                            }
+                            // The address takes what is left and is cut with … when it does not fit.
+                            ui.with_layout(crate::dir::row(egui::Align::Center), |ui| {
+                                ui.add(egui::Label::new(alias).truncate());
+                            });
+                        });
+                    });
                 });
             }
             if data.can_edit_aliases {
