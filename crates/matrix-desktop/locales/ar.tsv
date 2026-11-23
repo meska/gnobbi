@@ -306,7 +306,6 @@ menu	Bring All to Front	إحضار الكل إلى المقدمة
 	Conversations	المحادثات
 	Users	المستخدمون
 	Public rooms	الغرف العامة
-	React	إضافة تفاعل
 	Confirm closing	تأكيد الإغلاق
 	Close poll	إغلاق الاستطلاع
 	Confirm deletion	تأكيد الحذف
@@ -600,3 +599,4 @@ menu	Bring All to Front	إحضار الكل إلى المقدمة
 @plural	{n} unread	{n} غير مقروء|{n} غير مقروء|{n} غير مقروءين|{n} غير مقروءة|{n} غير مقروءة|{n} غير مقروء
 @plural	Gnobbi, {n} unread	Gnobbi، {n} غير مقروء|Gnobbi، {n} غير مقروء|Gnobbi، {n} غير مقروءين|Gnobbi، {n} غير مقروءة|Gnobbi، {n} غير مقروءة|Gnobbi، {n} غير مقروء
 	Clear search	مسح البحث
+	More reactions	مزيد من التفاعلات

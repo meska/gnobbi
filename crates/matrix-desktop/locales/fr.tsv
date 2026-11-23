@@ -341,7 +341,6 @@ menu	Bring All to Front	Tout ramener au premier plan
 	Conversations	Conversations
 	Users	Utilisateurs
 	Public rooms	Salons publics
-	React	Réagir
 	Confirm closing	Confirmer la clôture
 	Close poll	Clore le sondage
 	Confirm deletion	Confirmer la suppression
@@ -600,3 +599,4 @@ menu	Bring All to Front	Tout ramener au premier plan
 	Sign out inactive	Déconnecter les inactifs
 	helper out of place	assistant mal placé
 	Clear search	Effacer la recherche
+	More reactions	Plus de réactions

@@ -306,7 +306,6 @@ menu	Bring All to Front	העברת הכול לחזית
 	Conversations	שיחות
 	Users	משתמשים
 	Public rooms	חדרים ציבוריים
-	React	הוספת תגובה
 	Confirm closing	אישור סגירה
 	Close poll	סגירת סקר
 	Confirm deletion	אישור מחיקה
@@ -600,3 +599,4 @@ menu	Bring All to Front	העברת הכול לחזית
 @plural	{n} unread	הודעה אחת לא נקראה ({n})|{n} הודעות לא נקראו|{n} הודעות לא נקראו
 @plural	Gnobbi, {n} unread	Gnobbi, הודעה אחת לא נקראה ({n})|Gnobbi, {n} הודעות לא נקראו|Gnobbi, {n} הודעות לא נקראו
 	Clear search	נקה חיפוש
+	More reactions	עוד תגובות

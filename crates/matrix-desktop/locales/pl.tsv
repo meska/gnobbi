@@ -340,7 +340,6 @@ menu	Bring All to Front	Przesuń wszystko na wierzch
 	Conversations	Rozmowy
 	Users	Użytkownicy
 	Public rooms	Pokoje publiczne
-	React	Zareaguj
 	Confirm closing	Potwierdź zamknięcie
 	Close poll	Zamknij ankietę
 	Confirm deletion	Potwierdź usunięcie
@@ -599,3 +598,4 @@ menu	Bring All to Front	Przesuń wszystko na wierzch
 	Sign out inactive	Wyloguj nieaktywne
 	helper out of place	pomocnik w niewłaściwym miejscu
 	Clear search	Wyczyść wyszukiwanie
+	More reactions	Więcej reakcji

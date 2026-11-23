@@ -341,7 +341,6 @@ menu	Bring All to Front	Összes előtérbe hozása
 	Conversations	Beszélgetések
 	Users	Felhasználók
 	Public rooms	Nyilvános szobák
-	React	Reagálás
 	Confirm closing	Bezárás megerősítése
 	Close poll	Szavazás lezárása
 	Confirm deletion	Törlés megerősítése
@@ -600,3 +599,4 @@ menu	Bring All to Front	Összes előtérbe hozása
 	Sign out inactive	Inaktívak kijelentkeztetése
 	helper out of place	a segéd rossz helyen van
 	Clear search	Keresés törlése
+	More reactions	További reakciók

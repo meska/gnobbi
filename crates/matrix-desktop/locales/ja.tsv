@@ -340,7 +340,6 @@ menu	Bring All to Front	すべてを手前に移動
 	Conversations	会話
 	Users	ユーザー
 	Public rooms	公開ルーム
-	React	リアクション
 	Confirm closing	終了の確認
 	Close poll	投票を終了
 	Confirm deletion	削除の確認
@@ -599,3 +598,4 @@ menu	Bring All to Front	すべてを手前に移動
 	Sign out inactive	非アクティブをサインアウト
 	helper out of place	ヘルパーの位置が正しくありません
 	Clear search	検索をクリア
+	More reactions	その他のリアクション

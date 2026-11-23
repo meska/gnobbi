@@ -140,6 +140,40 @@ mod tests {
         assert_eq!(cursor_over(egui::Sense::hover()), egui::CursorIcon::Default);
     }
 
+    /// The cursor after a few frames with the pointer at `at` over the reaction menu (quick row open or expanded) and an egui button.
+    fn menu_cursor(at: egui::Pos2, expanded: bool, size: f32) -> (egui::CursorIcon, Option<egui::Rect>) {
+        let ctx = crate::icons::test_context();
+        crate::metrics::apply(&ctx, &Preferences::default(), size);
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(crate::touch_menu::MORE_ID), expanded));
+        let t = matrix_desktop::DARK;
+        let (mut cursor, mut bottom) = (egui::CursorIcon::Default, None);
+        for _ in 0..3 {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(436., 600.))), events: vec![egui::Event::PointerMoved(at)], ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                crate::touch_menu::reaction_rows(ui, &|_| false, &t);
+                bottom = Some(ui.min_rect());
+                ui.button("Reply");
+            });
+            out.textures_delta.clear();
+            cursor = out.platform_output.cursor_icon;
+        }
+        (cursor, bottom)
+    }
+
+    #[test]
+    fn reaction_menu_shows_the_hand_on_every_clickable_part() {
+        let side = crate::metrics::button().max(32.);
+        // first quick emoji, the expand button (last cell of the row), a grid cell once expanded, the plain entry under the grid
+        let (_, closed) = menu_cursor(egui::pos2(0., 0.), false, 1.);
+        let row_y = side / 2. + 8.;
+        assert_eq!(menu_cursor(egui::pos2(side / 2. + 8., row_y), false, 1.).0, egui::CursorIcon::PointingHand);
+        assert_eq!(menu_cursor(egui::pos2(6. * (side + 8.) + side / 2., row_y), false, 1.).0, egui::CursorIcon::PointingHand);
+        assert_eq!(menu_cursor(egui::pos2(side / 2. + 8., row_y + side + 8.), true, 1.).0, egui::CursorIcon::PointingHand);
+        let below = closed.unwrap().bottom() + 12.;
+        assert_eq!(menu_cursor(egui::pos2(20., below), false, 1.).0, egui::CursorIcon::PointingHand);
+        assert_eq!(menu_cursor(egui::pos2(420., 590.), false, 1.).0, egui::CursorIcon::Default);
+    }
+
     #[test]
     fn clear_button_empties_the_search_only_when_there_is_text() {
         let ctx = crate::icons::test_context();

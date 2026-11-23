@@ -341,7 +341,6 @@ menu	Bring All to Front	Prebaci sve naprijed
 	Conversations	Razgovori
 	Users	Korisnici
 	Public rooms	Javne sobe
-	React	Reaguj
 	Confirm closing	Potvrdi zatvaranje
 	Close poll	Zatvori anketu
 	Confirm deletion	Potvrdi brisanje
@@ -600,3 +599,4 @@ menu	Bring All to Front	Prebaci sve naprijed
 	Sign out inactive	Odjavi neaktivne
 	helper out of place	pomoćnik na pogrešnom mjestu
 	Clear search	Obriši pretragu
+	More reactions	Više reakcija

@@ -291,6 +291,7 @@ fn card<R>(ctx: &egui::Context, under: &egui::Painter, name: &'static str, rect:
 /// One emoji button of `size`; `on` = the user's own reaction, shown on an accent disc.
 fn emoji_cell(ui: &mut egui::Ui, size: Vec2, name: &str, emoji: &str, on: bool, t: &DesignTokens) -> bool {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let resp = crate::metrics::clickable(resp);
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, i18n::t(name)));
     let disc = rect.width().min(rect.height()) / 2. - 2.;
     if on {
@@ -300,6 +301,40 @@ fn emoji_cell(ui: &mut egui::Ui, size: Vec2, name: &str, emoji: &str, on: bool, 
     }
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, emoji, egui::FontId::proportional(24.), rgb(t.text));
     resp.clicked()
+}
+
+/// State of the expand button; the menu clears it each time it opens.
+pub const MORE_ID: &str = "message-menu-react-more";
+
+/// The reactions of the desktop message menu: the quick row always shown, ending in a button that opens the full grid in place.
+/// `own` tells which emoji the user already reacted with. Returns the emoji tapped.
+pub fn reaction_rows(ui: &mut egui::Ui, own: &dyn Fn(&str) -> bool, t: &DesignTokens) -> Option<&'static str> {
+    let gap = ui.spacing().item_spacing.x;
+    let wanted = crate::metrics::button().max(32.);
+    // Eight cells per line, cut down so the menu stays inside a narrow phone screen.
+    let side = wanted.min((crate::dir::fit(ui, 8. * wanted + 7. * gap) - 7. * gap) / 8.);
+    let id = egui::Id::new(MORE_ID);
+    let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false) || (cfg!(debug_assertions) && matrix_desktop::hooks::var_os("GNOBBI_DEBUG_REACTIONS_MORE").is_some());
+    let (cell, mut pick) = (vec2(side, side), None);
+    ui.horizontal(|ui| {
+        for (name, emoji) in QUICK {
+            if emoji_cell(ui, cell, name, emoji, own(emoji), t) { pick = Some(emoji); }
+        }
+        let (rect, _) = ui.allocate_exact_size(cell, Sense::hover());
+        let icon = if open { Icon::CaretUp } else { Icon::Plus };
+        if crate::icons::button_at(ui, rect, id.with("button"), icon, false, crate::metrics::get().icon, i18n::t("More reactions"), Some(rgb(t.secondary)), true, 1.).clicked() {
+            ui.data_mut(|d| d.insert_temp(id, !open));
+        }
+    });
+    if open {
+        egui::Grid::new("reaction-emoji-grid").min_col_width(side).min_row_height(side).show(ui, |ui| {
+            for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
+                if emoji_cell(ui, cell, name, emoji, own(emoji), t) { pick = Some(*emoji); }
+                if i % 8 == 7 { ui.end_row(); }
+            }
+        });
+    }
+    pick
 }
 
 /// What a tap in the menu chose.

@@ -369,7 +369,6 @@ menu	Bring All to Front	ყველა წინ
 	Conversations	საუბრები
 	Users	მომხმარებლები
 	Public rooms	საჯარო ოთახები
-	React	რეაქცია
 	Confirm closing	დახურვის დადასტურება
 	Close poll	გამოკითხვის დახურვა
 	Confirm deletion	წაშლის დადასტურება
@@ -685,3 +684,4 @@ menu	Bring All to Front	ყველა წინ
 # update
 	helper out of place	დამხმარე არასწორ ადგილასაა
 	Clear search	ძიების გასუფთავება
+	More reactions	მეტი რეაქცია

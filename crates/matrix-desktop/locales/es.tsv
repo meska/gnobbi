@@ -341,7 +341,6 @@ menu	Bring All to Front	Traer todo al frente
 	Conversations	Conversaciones
 	Users	Usuarios
 	Public rooms	Salas públicas
-	React	Reaccionar
 	Confirm closing	Confirmar cierre
 	Close poll	Cerrar encuesta
 	Confirm deletion	Confirmar eliminación
@@ -600,3 +599,4 @@ menu	Bring All to Front	Traer todo al frente
 	Sign out inactive	Cerrar sesión de los inactivos
 	helper out of place	asistente fuera de lugar
 	Clear search	Borrar búsqueda
+	More reactions	Más reacciones

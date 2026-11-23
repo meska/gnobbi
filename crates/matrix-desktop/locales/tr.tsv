@@ -341,7 +341,6 @@ menu	Bring All to Front	Tümünü öne getir
 	Conversations	Sohbetler
 	Users	Kullanıcılar
 	Public rooms	Herkese açık odalar
-	React	Tepki ver
 	Confirm closing	Kapatmayı onayla
 	Close poll	Anketi kapat
 	Confirm deletion	Silmeyi onayla
@@ -600,3 +599,4 @@ menu	Bring All to Front	Tümünü öne getir
 	Sign out inactive	Etkin olmayanların oturumunu kapat
 	helper out of place	yardımcı yanlış yerde
 	Clear search	Aramayı temizle
+	More reactions	Daha fazla tepki

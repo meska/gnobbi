@@ -369,7 +369,6 @@ menu	Bring All to Front	全部置于前面
 	Conversations	对话
 	Users	用户
 	Public rooms	公开房间
-	React	回应
 	Confirm closing	确认关闭
 	Close poll	结束投票
 	Confirm deletion	确认删除
@@ -685,3 +684,4 @@ menu	Bring All to Front	全部置于前面
 # update
 	helper out of place	辅助程序位置不当
 	Clear search	清除搜索
+	More reactions	更多回应

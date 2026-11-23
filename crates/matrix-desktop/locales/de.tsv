@@ -369,7 +369,6 @@ menu	Bring All to Front	Alle nach vorne bringen
 	Conversations	Unterhaltungen
 	Users	Nutzer
 	Public rooms	Öffentliche Räume
-	React	Reagieren
 	Confirm closing	Schließen bestätigen
 	Close poll	Umfrage beenden
 	Confirm deletion	Löschen bestätigen
@@ -685,3 +684,4 @@ menu	Bring All to Front	Alle nach vorne bringen
 # update
 	helper out of place	Helper am falschen Ort
 	Clear search	Suche löschen
+	More reactions	Weitere Reaktionen

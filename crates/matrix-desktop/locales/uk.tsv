@@ -369,7 +369,6 @@ menu	Bring All to Front	Усі вікна на передній план
 	Conversations	Розмови
 	Users	Користувачі
 	Public rooms	Публічні кімнати
-	React	Відреагувати
 	Confirm closing	Підтвердьте закриття
 	Close poll	Закрити опитування
 	Confirm deletion	Підтвердьте видалення
@@ -685,3 +684,4 @@ menu	Bring All to Front	Усі вікна на передній план
 # update
 	helper out of place	помічник не на місці
 	Clear search	Очистити пошук
+	More reactions	Більше реакцій

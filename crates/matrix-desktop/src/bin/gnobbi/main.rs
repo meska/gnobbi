@@ -2129,8 +2129,10 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     if s.lift.is_some() { return; }
     let Some(pos) = s.menu else { return };
     let fresh = std::mem::take(&mut s.menu_fresh);
+    if fresh { ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new(touch_menu::MORE_ID))); }
     let entries = touch_menu::entries(s);
     let mut react: Option<&'static str> = None;
+    let own = |key: &str| s.reacted(key);
     let (mut picked, mut cancel) = (None, false);
     let area = egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         egui::Frame::popup(ui.style()).fill(rgb(t.surface)).show(ui, |ui| dir::popup(ui, |ui| {
@@ -2140,16 +2142,7 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 return;
             };
             if p.react {
-                ui.collapsing(i18n::t("React"), |ui| {
-                    egui::Grid::new("reaction-emoji-grid").show(ui, |ui| {
-                        for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
-                            if ui.button(*emoji).on_hover_text(matrix_desktop::i18n::t(name)).clicked() {
-                                react = Some(*emoji);
-                            }
-                            if i % 8 == 7 { ui.end_row(); }
-                        }
-                    });
-                });
+                react = touch_menu::reaction_rows(ui, &own, t);
             }
             for (action, confirm) in items {
                 let label = RichText::new(action.label(*confirm));

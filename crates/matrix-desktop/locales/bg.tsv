@@ -369,7 +369,6 @@ menu	Bring All to Front	Всички най-отпред
 	Conversations	Разговори
 	Users	Потребители
 	Public rooms	Публични стаи
-	React	Реагирай
 	Confirm closing	Потвърдете затварянето
 	Close poll	Затвори анкетата
 	Confirm deletion	Потвърдете изтриването
@@ -685,3 +684,4 @@ menu	Bring All to Front	Всички най-отпред
 # update
 	helper out of place	помощникът е на грешно място
 	Clear search	Изчисти търсенето
+	More reactions	Още реакции

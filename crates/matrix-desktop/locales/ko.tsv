@@ -341,7 +341,6 @@ menu	Bring All to Front	모두 앞으로 가져오기
 	Conversations	대화
 	Users	사용자
 	Public rooms	공개 방
-	React	반응
 	Confirm closing	닫기 확인
 	Close poll	투표 종료
 	Confirm deletion	삭제 확인
@@ -600,3 +599,4 @@ menu	Bring All to Front	모두 앞으로 가져오기
 	Sign out inactive	비활성 기기 로그아웃
 	helper out of place	도우미 위치 오류
 	Clear search	검색어 지우기
+	More reactions	리액션 더 보기

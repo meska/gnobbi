@@ -369,7 +369,6 @@ menu	Bring All to Front	Lägg alla överst
 	Conversations	Konversationer
 	Users	Användare
 	Public rooms	Offentliga rum
-	React	Reagera
 	Confirm closing	Bekräfta stängning
 	Close poll	Avsluta omröstning
 	Confirm deletion	Bekräfta radering
@@ -685,3 +684,4 @@ menu	Bring All to Front	Lägg alla överst
 # update
 	helper out of place	hjälpprogrammet ligger på fel plats
 	Clear search	Rensa sökning
+	More reactions	Fler reaktioner
