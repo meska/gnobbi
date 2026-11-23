@@ -1455,3 +1455,136 @@ fn cache_over_the_size_limit_is_pruned_and_a_small_one_is_kept() {
         );
     });
 }
+
+/// A big, busy room reopened after a restart: ms to the first page with the server answering,
+/// with it hung (connection accepted, never answered), and the same after more messages arrived
+/// while the app was away. `BIG_TOTAL` messages first, `BIG_AWAY` more while away.
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn big_room_reopens_from_the_cache_before_any_network_answer() {
+    let total: usize = std::env::var("BIG_TOTAL").ok().and_then(|v| v.parse().ok()).unwrap_or(150);
+    let away: usize = std::env::var("BIG_AWAY").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
+    let id = 330;
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
+    let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let url = config["url"].as_str().unwrap().to_owned();
+    let root = std::path::PathBuf::from(env("CACHE_PROBE_ROOT"));
+    let http = || {
+        crate::auth::secure_http_builder()
+            .add_root_certificate(reqwest::Certificate::from_pem(&ca).unwrap())
+            .build()
+            .unwrap()
+    };
+    // Accepts and holds connections: a network that does not answer.
+    let hung = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let hung_url = format!("https://localhost:{}/", hung.local_addr().unwrap().port());
+    let held = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let keep = held.clone();
+    std::thread::spawn(move || {
+        for stream in hung.incoming().flatten() {
+            keep.lock().unwrap().push(stream);
+        }
+    });
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let bob = matrix_sdk::Client::builder()
+            .homeserver_url(&url)
+            .add_root_certificates(vec![reqwest::Certificate::from_pem(&ca).unwrap()])
+            .request_config(matrix_sdk::config::RequestConfig::new().timeout(Duration::from_secs(120)))
+            .build()
+            .await
+            .unwrap();
+        bob.matrix_auth()
+            .login_username("@bob:matrix-desktop.test", config["bob_password"].as_str().unwrap())
+            .send()
+            .await
+            .unwrap();
+        let mut request = CreateRoom::new();
+        request.invite = vec!["@alice:matrix-desktop.test".try_into().unwrap()];
+        let room_id = bob.create_room(request).await.unwrap().room_id().to_owned();
+        let bob_room = bob.get_room(&room_id).unwrap();
+        let mut sent = 0;
+        let mut send = async |n: usize| {
+            // One at a time: concurrent sends make the disposable server drop connections.
+            for _ in 0..n {
+                bob_room.send(RoomMessageEventContent::text_plain(format!("m{sent}"))).await.unwrap();
+                sent += 1;
+            }
+            println!("BIG sent {sent}");
+        };
+        let store = AccountStore::create(&root, AccountId::new(id)).unwrap();
+        let session = store
+            .password_login_with_http(
+                HomeserverUrl::parse(&url).unwrap(),
+                "@alice:matrix-desktop.test",
+                config["alice_password"].as_str().unwrap(),
+                PASSPHRASE,
+                http(),
+            )
+            .await
+            .unwrap();
+        let alice = session.client.clone().unwrap();
+        let invited = eventually("invite", || async {
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
+            alice.get_room(&room_id)
+        })
+        .await;
+        invited.join().await.unwrap();
+        // Joined first: joining a room that already holds hundreds of events times out on a loaded CT.
+        send(total).await;
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        drop((invited, alice, session));
+
+        let scope = RoomScope { account_id: AccountId::new(id), room_id: RoomId::new(room_id.as_str()) };
+        // One app start: restore on `server`, optionally sync once (as the running app does), open the room
+        // as the app does; returns (ms to first page, rows in it, ms until the open request is done).
+        let open = async |server: &str, sync: bool, label: &str| {
+            let store = AccountStore::open(&root, AccountId::new(id)).unwrap();
+            let value = store.unseal(PASSPHRASE).unwrap();
+            let sdk_session: matrix_sdk::authentication::matrix::MatrixSession =
+                serde_json::from_value(value["session"].clone()).unwrap();
+            let client =
+                store.client(&HomeserverUrl::parse(server).unwrap(), PASSPHRASE, http()).await.unwrap();
+            client.restore_session(sdk_session).await.unwrap();
+            client.event_cache().subscribe().unwrap();
+            if sync {
+                crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
+            }
+            let timelines = crate::room_sync::Timelines::default();
+            let (mut out, mut results) = crate::bounded(std::num::NonZeroUsize::new(4).unwrap());
+            let mut views = ViewRequests::new();
+            let request = crate::history::HistoryRequest {
+                tag: views.start(scope.clone()).unwrap(),
+                before: None,
+                open: OPEN,
+            };
+            let started = std::time::Instant::now();
+            let (_, first) = tokio::join!(
+                crate::room_sync::serve_history(&client, &timelines, AccountId::new(id), request, &mut out),
+                async {
+                    let first = results.recv().await.expect("a result");
+                    (started.elapsed().as_millis(), first.page.map(|p| p.events.len()).unwrap_or(0))
+                }
+            );
+            println!("BIG {label}: first_page_ms={} rows={} done_ms={}", first.0, first.1, started.elapsed().as_millis());
+            // Let the cache writes land and the old client's tasks end before the next start.
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            first
+        };
+        let (_, rows) = open(&url, true, "cold cache, server answers").await;
+        assert!(rows > 0);
+        // The user scrolls up a little: the room is "seen".
+        let (_, rows) = open(&url, false, "warm cache, server answers").await;
+        assert!(rows > 0);
+        let (_, rows) = open(&hung_url, false, "warm cache, server hung").await;
+        assert!(rows > 0, "cache must show without the server");
+        send(away).await;
+        let (_, rows) = open(&url, true, "warm cache + missed messages, server answers").await;
+        assert!(rows > 0);
+        let (ms, rows) = open(&hung_url, false, "warm cache after a gap, server hung").await;
+        assert!(rows > 0, "cache must show without the server");
+        assert!(ms < 1000, "first page took {ms} ms with the server hung");
+    });
+}
