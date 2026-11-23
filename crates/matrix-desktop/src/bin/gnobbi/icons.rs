@@ -70,6 +70,7 @@ icons! {
     Trash = 0xe4a6 "trash",
     ArrowUp = 0xe08e "arrow-up",
     FolderSimple = 0xe25a "folder-simple",
+    Bell = 0xe0ce "bell",
 }
 
 static REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Phosphor-subset.ttf");

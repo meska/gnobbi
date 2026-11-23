@@ -35,6 +35,14 @@ mod mark_tests {
     }
 
     #[test]
+    fn menu_offers_read_only_while_unread() {
+        let (read, unread) = (i18n::t("Mark as read"), i18n::t("Mark as unread"));
+        assert_eq!(mark_read_entry(3, false), read);
+        assert_eq!(mark_read_entry(0, true), read);
+        assert_eq!(mark_read_entry(0, false), unread);
+    }
+
+    #[test]
     fn mark_and_badge_both_reserve_their_own_width() {
         assert_eq!(right_reserved(false, None), 0.);
         assert_eq!(right_reserved(true, None), 28.);
@@ -91,6 +99,23 @@ fn mode_label(mode: matrix_domain::notifications::RoomNotifyMode) -> &'static st
         MentionsAndKeywordsOnly => i18n::t("Mentions only"),
         Mute => i18n::t("Muted"),
     }
+}
+
+/// Thin line between the groups of the room menu; with a title it is the group label (bell icon, secondary colour) and the line sits above it.
+fn menu_divider(ui: &mut egui::Ui, title: Option<&str>, t: &DesignTokens) {
+    ui.add_space(2.);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.min_rect().width().max(1.), 1.), Sense::hover()); // the widest entry so far: the line must not stretch the menu
+    ui.painter().hline(rect.x_range(), rect.center().y, egui::Stroke::new(1., rgb(t.secondary).gamma_multiply(0.4)));
+    let Some(title) = title else { return ui.add_space(2.) };
+    let mut job = crate::icons::with_label(crate::icons::Icon::Bell, title);
+    for section in &mut job.sections { section.format.color = rgb(t.secondary); }
+    let label = ui.add(egui::Label::new(job).selectable(false));
+    label.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
+}
+
+/// The one read/unread entry: «Mark as read» while the room counts as unread (badge count or the manual flag), else «Mark as unread».
+fn mark_read_entry(unread: u64, marked_unread: bool) -> &'static str {
+    if unread > 0 || marked_unread { i18n::t("Mark as read") } else { i18n::t("Mark as unread") }
 }
 
 fn draw_mark(ui: &egui::Ui, id: egui::Id, m: Mark, center: egui::Pos2, t: &DesignTokens) {
@@ -244,7 +269,8 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                 }
                 menu.show(|ui| crate::dir::popup(ui, |ui| {
                     use crate::session::RoomAction;
-                    for (label, choice) in [(i18n::t("Mark as read"), RoomAction::Mark(true)), (i18n::t("Mark as unread"), RoomAction::Mark(false)), (if sidebar.is_favourite(&room.scope) { i18n::t("Unpin") } else { i18n::t("Pin to top") }, RoomAction::Tag("m.favourite")), (if sidebar.has_tag(&room.scope, "m.lowpriority") { i18n::t("Remove from low priority") } else { i18n::t("Mark as low priority") }, RoomAction::Tag("m.lowpriority"))] {
+                    ui.spacing_mut().item_spacing.y = 2.;
+                    for (label, choice) in [(mark_read_entry(room.unread, room.info.marked_unread), RoomAction::Mark(room.unread > 0 || room.info.marked_unread)),(if sidebar.is_favourite(&room.scope) { i18n::t("Unpin") } else { i18n::t("Pin to top") }, RoomAction::Tag("m.favourite")), (if sidebar.has_tag(&room.scope, "m.lowpriority") { i18n::t("Remove from low priority") } else { i18n::t("Mark as low priority") }, RoomAction::Tag("m.lowpriority"))] {
                         if ui.button(label).clicked() { action = Some((room.scope.clone(), choice)); ui.close(); }
                     }
                     if let Some((asked, Some(choices))) = &session.space_choices && asked == &room.scope {
@@ -254,12 +280,19 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                             if ui.button(i18n::t("Remove from {name}").replace("{name}", &space.name)).clicked() { action = Some((room.scope.clone(), RoomAction::RemoveFrom(space.scope.clone()))); ui.close(); }
                         }
                     }
-                    for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
-                        let label = if sidebar.notify_mode(&room.scope) == mode { crate::icons::with_label(crate::icons::Icon::Check, mode_label(mode)) } else { egui::text::LayoutJob::simple_singleline(mode_label(mode).to_owned(), FontId::proportional(crate::metrics::get().body), Color32::PLACEHOLDER) };
-                        if ui.button(label).clicked() { action = Some((room.scope.clone(), RoomAction::Mode(mode))); ui.close(); }
-                    }
+                    menu_divider(ui, Some(i18n::t("Notifications")), t);
+                    ui.scope(|ui| {
+                        ui.style_mut().visuals.indent_has_left_vline = false;
+                        ui.indent("notify-modes", |ui| {
+                            for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
+                                let label = if sidebar.notify_mode(&room.scope) == mode { crate::icons::with_label(crate::icons::Icon::Check, mode_label(mode)) } else { egui::text::LayoutJob::simple_singleline(mode_label(mode).to_owned(), FontId::proportional(crate::metrics::get().body), Color32::PLACEHOLDER) };
+                                if ui.button(label).clicked() { action = Some((room.scope.clone(), RoomAction::Mode(mode))); ui.close(); }
+                            }
+                        });
+                    });
+                    menu_divider(ui, None, t);
                     let label = if session.confirm_leave.as_ref() == Some(&room.scope) { i18n::t("Leave?") } else { i18n::t("Leave") };
-                    if ui.button(label).clicked() && confirm_leave(&mut session.confirm_leave, &room.scope) {
+                    if ui.button(egui::RichText::new(label).color(rgb(t.error))).clicked() && confirm_leave(&mut session.confirm_leave, &room.scope) {
                         action = Some((room.scope.clone(), RoomAction::Leave));
                         ui.close();
                     }
