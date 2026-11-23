@@ -4,15 +4,14 @@ Minimal Android app over the UniFFI bridge in `crates/matrix-mobile`: sign in, s
 message. Colours and measures come only from the generated design tokens
 (`crates/matrix-domain/design/generated/DesignTokens.kt`).
 
-- `android/`: Kotlin + Compose, Gradle (AGP 8.11, Kotlin 2.2, compileSdk 36, minSdk 24).
 - `fixture/servers.py`: disposable Synapse + Tuwunel (docker) behind one TLS proxy, accounts `gnobbi-test-a/b`,
   three rooms each. Random passwords and a throw-away CA live in `fixture/.run/` (git-ignored). `down` removes everything.
 
 ## Build and run
 
     python3 apps/fixture/servers.py up          # prints the path of fixture.json (urls, passwords, CA)
-    
-Android: `apps/android/stage.sh && (cd apps/android && ./gradlew assembleDebug)` and `apps/android/run-emulator.sh <label>`.
+
+Android: build libgnobbi.so with cargo-ndk, then `packaging/android/build-apk.sh` (Gradle shell, NativeActivity).
 
 Test servers use a private CA: both apps accept it in debug builds only, from `GNOBBI_TEST_CA` (iOS env) / the `ca_b64` intent extra (Android).
 Debug builds also take `GNOBBI_TEST_HOMESERVER/USER/PASSWORD/SEND` (iOS env) or the `homeserver/user/password/send`

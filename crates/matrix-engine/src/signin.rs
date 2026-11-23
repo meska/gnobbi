@@ -50,7 +50,7 @@ pub enum VaultError {
     Locked,
 }
 
-#[cfg(any(test, all(feature = "ios-vault", target_os = "ios")))]
+#[cfg(any(test, all(feature = "ios-vault", target_os = "ios"), all(feature = "android-vault", target_os = "android")))]
 pub(crate) fn ios_profile_item(path: &std::path::Path) -> Option<String> {
     let worker = path.file_name()?.to_str()?.strip_prefix("account-")?.parse::<u64>().ok()?;
     let root = path.parent()?;
@@ -489,6 +489,8 @@ pub fn platform_source() -> Option<Box<dyn ProtectionSource + Send + Sync>> {
     return Some(Box::new(crate::keychain::MacKeychain));
     #[cfg(all(feature = "ios-vault", target_os = "ios"))]
     return Some(Box::new(crate::keychain::IosKeychain));
+    #[cfg(all(feature = "android-vault", target_os = "android"))]
+    return Some(Box::new(crate::android_vault::AndroidKeystore));
     #[cfg(all(feature = "windows-vault", windows))]
     return Some(Box::new(crate::wincred::CredentialManager));
     #[allow(unreachable_code)]
@@ -510,6 +512,11 @@ pub fn forget_secrets(id: AccountId, stores: &[PathBuf]) -> Result<(), VaultErro
         let keychain = crate::keychain::AccountKeychain::new();
         stores.iter().try_for_each(|s| keychain.delete_profile_store(s))
     }
+    #[cfg(all(feature = "android-vault", target_os = "android"))]
+    {
+        let _ = id;
+        stores.iter().try_for_each(|s| crate::android_vault::delete_profile_store(s))
+    }
     #[cfg(all(feature = "mac-vault", target_os = "macos"))]
     {
         let keychain = crate::keychain::AccountKeychain::new();
@@ -527,6 +534,7 @@ pub fn forget_secrets(id: AccountId, stores: &[PathBuf]) -> Result<(), VaultErro
         all(feature = "linux-vault", target_os = "linux"),
         all(feature = "mac-vault", target_os = "macos"),
         all(feature = "ios-vault", target_os = "ios"),
+        all(feature = "android-vault", target_os = "android"),
         all(feature = "windows-vault", windows)
     )))]
     {

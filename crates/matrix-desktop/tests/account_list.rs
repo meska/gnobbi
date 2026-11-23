@@ -67,7 +67,7 @@ fn login_on_next_root_registers_without_touching_others() {
 fn login_fills_the_adopted_legacy_entry_in_place() {
     let d = dirs();
     std::fs::create_dir_all(d.data.join("profile/account-1")).unwrap();
-    std::fs::write(d.data.join("profile/account-1/s"), b"x").unwrap();
+    std::fs::write(d.data.join("profile/account-1/session.sealed"), b"x").unwrap();
     let mut c = AccountCatalog::default();
     assert!(c.migrate_legacy(&d));
     assert!(account_rows(&c, None, &Default::default()).is_empty());

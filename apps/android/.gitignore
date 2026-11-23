@@ -1,6 +1,0 @@
-.gradle/
-build/
-local.properties
-app/src/main/jniLibs/
-app/src/main/kotlin/uniffi/
-app/src/main/kotlin/chat/gnobbi/design/

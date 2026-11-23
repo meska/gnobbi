@@ -11,6 +11,7 @@ default = []
 linux-vault = ["sdk", "dep:secret-service", "dep:getrandom"]
 mac-vault = ["sdk", "dep:security-framework", "dep:getrandom"]
 ios-vault = ["sdk", "dep:security-framework", "dep:getrandom"]
+android-vault = ["sdk", "dep:jni", "dep:ndk-context", "dep:getrandom"]
 windows-vault = ["sdk", "dep:windows", "dep:getrandom"]
 sdk = ["dep:tracing", "dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "dep:serde_json", "dep:matrix-sdk-store-encryption", "dep:image", "dep:mime_guess", "dep:matrix-sdk-crypto", "dep:matrix-sdk-ui", "dep:eyeball-im", "dep:futures-util", "dep:pulldown-cmark"]
 
@@ -51,6 +52,9 @@ getrandom = { version = "=0.4.3", optional = true }
 # Android: reqwest's platform verifier needs JNI and Java classes the NativeActivity app does not have, so TLS uses the embedded Mozilla roots.
 [target.'cfg(target_os = "android")'.dependencies]
 webpki-root-certs = "=1.0.10"
+jni = { version = "=0.22.4", optional = true }
+ndk-context = { version = "=0.1.1", optional = true }
+getrandom = { version = "=0.4.3", optional = true }
 
 [[test]]
 name = "sdk_smoke"

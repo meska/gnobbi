@@ -136,12 +136,14 @@ impl AccountCatalog {
         self.accounts.iter().find(|a| a.id == id)
     }
 
-    /// Adopt a pre-catalog single-account install (`<data>/profile` with content) as the
+    /// Adopt a pre-catalog single-account install (`<data>/profile` holding a saved session) as the
     /// first entry, in place: no files move, so the existing user sees no change.
+    /// A sign-in killed before it saved a session leaves only a store: that is not an account.
     /// Returns true when the catalog changed (the caller saves it).
     pub fn migrate_legacy(&mut self, dirs: &AppDirs) -> bool {
-        let used = std::fs::read_dir(dirs.data.join(LEGACY_DIR))
-            .is_ok_and(|mut entries| entries.next().is_some());
+        let used = std::fs::read_dir(dirs.data.join(LEGACY_DIR)).is_ok_and(|entries| {
+            entries.flatten().any(|e| e.path().join("session.sealed").exists())
+        });
         if self.damaged || !self.accounts.is_empty() || !used {
             return false;
         }

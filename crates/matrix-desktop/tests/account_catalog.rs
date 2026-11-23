@@ -76,6 +76,10 @@ fn fresh_install_and_empty_profile_are_not_migrated() {
     assert!(!c.migrate_legacy(&d));
     std::fs::create_dir_all(d.data.join("profile")).unwrap();
     assert!(!c.migrate_legacy(&d));
+    // an interrupted sign-in leaves a store but no saved session: no phantom entry
+    std::fs::create_dir_all(d.data.join("profile/account-1")).unwrap();
+    std::fs::write(d.data.join("profile/account-1/db"), b"x").unwrap();
+    assert!(!c.migrate_legacy(&d));
 }
 
 #[test]
