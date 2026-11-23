@@ -1044,6 +1044,8 @@ pub enum IMEPurpose {
     Url,
     /// Password of a sign-in form: a secret like [`Self::Password`] that the OS may fill from its saved credentials.
     LoginPassword,
+    /// A search field: the OS must not change its text by itself (iOS: no autocorrection, spell checking, autocapitalisation).
+    Search,
 }
 
 impl IMEPurpose {

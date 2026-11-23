@@ -91,11 +91,17 @@ pub fn line(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
     egui::TextEdit::singleline(text).align(crate::dir::align(egui::Align2::LEFT_CENTER))
 }
 
+/// A single-line search field: the OS must not autocorrect it (the results come from its text, which iOS changed when the field
+/// lost the focus). Every search field goes through this, directly or via `search`.
+pub fn search_line(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
+    line(text).ime_purpose(egui::IMEPurpose::Search)
+}
+
 /// A search field of `size` with a clear button (the X, a button-sized square) inside its end edge, shown while there is text.
 /// The margin is always there so the text never runs under the X; a click on it empties `text` and reports the field as changed.
 pub fn search(ui: &mut egui::Ui, size: [f32; 2], text: &mut String, hint: &str) -> egui::Response {
     let margin = if crate::dir::rtl() { egui::Margin { left: size[1] as i8, right: 8, top: 0, bottom: 0 } } else { egui::Margin { left: 8, right: size[1] as i8, top: 0, bottom: 0 } };
-    let mut r = ui.add_sized(size, line(text).hint_text(hint).margin(margin));
+    let mut r = ui.add_sized(size, search_line(text).hint_text(hint).margin(margin));
     if !text.is_empty() {
         let side = size[1];
         let rect = crate::dir::flip(r.rect, egui::Rect::from_center_size(egui::pos2(r.rect.right() - side / 2., r.rect.center().y), egui::vec2(side, side)));

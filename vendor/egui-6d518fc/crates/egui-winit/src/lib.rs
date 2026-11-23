@@ -4683,6 +4683,7 @@ fn to_winit_ime_purpose(purpose: egui::IMEPurpose) -> winit::window::ImePurpose 
         egui::IMEPurpose::Message => winit::window::ImePurpose::Message,
         egui::IMEPurpose::Password => winit::window::ImePurpose::Password,
         egui::IMEPurpose::Terminal => winit::window::ImePurpose::Terminal,
+        egui::IMEPurpose::Search => winit::window::ImePurpose::Search,
         // Only the iOS view tells these apart; every other platform sees the plain secret / terminal field.
         #[cfg(target_os = "ios")]
         egui::IMEPurpose::Username => winit::window::ImePurpose::Username,

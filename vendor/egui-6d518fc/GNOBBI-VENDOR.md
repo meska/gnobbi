@@ -15,5 +15,5 @@ Dropped: demos, plots, web, kittest, inspection, extras, examples, tests. The ro
 Drop it when egui-winit/winit handle this upstream.
 
 ## Local patch: IME purposes for sign-in AutoFill
-- `IMEPurpose::{Username, Url, LoginPassword}` and `IMEPurpose::is_secret()` (Password and LoginPassword are secrets: used in `ime_context.rs`, `ime_surrounding.rs`, web `text_agent.rs`). `TextEdit::ime_purpose()` sets the purpose without changing how the text is drawn (the eye toggle of the sign-in password keeps `LoginPassword`).
+- `IMEPurpose::{Username, Url, LoginPassword, Search}` (Search: winit `ImePurpose::Search`, no OS autocorrection on iOS) and `IMEPurpose::is_secret()` (Password and LoginPassword are secrets: used in `ime_context.rs`, `ime_surrounding.rs`, web `text_agent.rs`). `TextEdit::ime_purpose()` sets the purpose without changing how the text is drawn (the eye toggle of the sign-in password keeps `LoginPassword`).
 - egui-winit: off iOS the new purposes map to Terminal/Password; on iOS to the winit ones. On iOS the purpose is sent BEFORE `set_ime_allowed(true)` so the traits are in place when the keyboard comes up, and `take_egui_input` moves `winit::platform::ios::take_autofill_credentials()` into egui's data store (`Id::new("winit_autofill_credentials")`, `(Option<String>, Option<String>)`).

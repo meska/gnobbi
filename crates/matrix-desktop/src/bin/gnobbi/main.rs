@@ -2059,7 +2059,7 @@ fn quick_search(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     let modal = egui::Modal::new(egui::Id::unique("quick-search")).show(ctx, |ui| dir::scope(ui, |ui| {
         ui.set_min_width(crate::dir::fit(ui, 360.));
         ui.heading(i18n::t("Search"));
-        if ui.add(crate::metrics::line(&mut s.new_term).id(egui::Id::unique("quick-search-field")).hint_text(i18n::t("Search"))).changed() {
+        if ui.add(crate::metrics::search_line(&mut s.new_term).id(egui::Id::unique("quick-search-field")).hint_text(i18n::t("Search"))).changed() {
             s.users = SearchState::Idle;
             s.public_rooms = matrix_engine::search::SearchState::Idle;
             s.quick_sel = 0;
