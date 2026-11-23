@@ -71,6 +71,11 @@ pub fn set(settings: Option<PushSettings>) {
     channel().send_if_modified(|current| std::mem::replace(current, settings.clone()) != settings);
 }
 
+/// The settings now published (what the platform layer last handed over).
+pub fn current() -> Option<PushSettings> {
+    channel().borrow().clone()
+}
+
 /// Pure: the pusher Sygnal turns into a visible APNs alert (`default_payload` is merged under room_id/event_id).
 /// `worker` is the store's account id (folder `account-<worker>`, Keychain item, second part of the click key).
 pub fn pusher(s: &PushSettings, device_name: &str, tag: &AccountTag, worker: AccountId) -> Pusher {
@@ -102,17 +107,28 @@ pub(crate) async fn keep_registered(client: Client, device_name: &'static str, r
     let Some(root) = root else { return };
     let mut rx = channel().subscribe();
     let mut tag_rx = tags().subscribe();
+    let mut registered: Option<PusherIds> = None;
     loop {
         let current = rx.borrow_and_update().clone();
         let tag = tag_rx.borrow_and_update().get(&root).cloned();
         let retry = match current.zip(tag) {
-            Some((s, tag)) => match client.pusher().set(pusher(&s, device_name, &tag, worker), false).await {
-                Ok(()) => false,
-                Err(_) => {
-                    eprintln!("Gnobbi: push registration failed");
-                    true
+            Some((s, tag)) => {
+                // Token rotation: `set(.., false)` keeps the old pushkey of this user, so Sygnal would keep pushing to a dead token.
+                let ids = ids_of(&s);
+                if let Some(old) = registered.take_if(|o| (&o.pushkey, &o.app_id) != (&ids.pushkey, &ids.app_id)) {
+                    let _ = tokio::time::timeout(Duration::from_secs(10), client.pusher().delete(old)).await;
                 }
-            },
+                match client.pusher().set(pusher(&s, device_name, &tag, worker), false).await {
+                    Ok(()) => {
+                        registered = Some(ids);
+                        false
+                    }
+                    Err(_) => {
+                        eprintln!("Gnobbi: push registration failed");
+                        true
+                    }
+                }
+            }
             None => false,
         };
         tokio::select! {

@@ -270,7 +270,7 @@ fn deliver_os(notification: Notification, picture: Option<Avatar>, click: &Click
 fn target_key(catalog: Option<AccountId>, scope: &RoomScope) -> String {
     format!("{}:{}:{}", catalog.map_or(0, |a| a.as_u64()), scope.account_id.as_u64(), scope.room_id.as_str())
 }
-#[cfg(any(target_os = "macos", target_os = "ios", test))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", test))]
 fn parse_target(key: &str) -> Option<(Option<AccountId>, RoomScope)> {
     let (catalog, rest) = key.split_once(':')?;
     let (account, room) = rest.split_once(':')?;
@@ -281,7 +281,7 @@ fn parse_target(key: &str) -> Option<(Option<AccountId>, RoomScope)> {
 
 /// A tap on a remote push the extension did not rewrite: the payload carries `gnobbi_account` (`<catalog>:<worker>:<dir>`,
 /// see `matrix_engine::push`) and Sygnal's `room_id`.
-#[cfg(any(target_os = "macos", target_os = "ios", test))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", test))]
 fn parse_remote(account: &str, room: &str) -> Option<(Option<AccountId>, RoomScope)> {
     let mut parts = account.splitn(3, ':');
     let (catalog, worker) = (parts.next()?, parts.next()?);
@@ -354,27 +354,36 @@ pub fn set_badge(unread: u64, active: bool) {
 }
 
 /// A click that reached the process before (or without) the session that owns it: kept here until that account polls.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", test))]
 static EARLY_CLICK: Mutex<Option<(Option<AccountId>, RoomScope)>> = Mutex::new(None);
 
 /// The alert clicked while no live session knew it (a click that launched the app), if it belongs to the
 /// catalog account `account`. An alert with no catalog id (unknown) goes to the first asker.
 pub fn take_early_click(account: Option<AccountId>) -> Option<RoomScope> {
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", test))]
     {
         let mut early = EARLY_CLICK.lock().ok()?;
         return early.take_if(|(owner, _)| owner.is_none() || *owner == account).map(|(_, scope)| scope);
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android", test)))]
     {
         let _ = account;
         None
     }
 }
 
+/// Android: a tap on a local notification reaches the process as intent extras (`gnobbi_account`, `room_id`), also when the
+/// app was closed. Same slot and validation as an iOS tap on a remote push; false when the extras are malformed.
+#[cfg(any(target_os = "android", test))]
+pub fn open_from_push(account: &str, room: &str) -> bool {
+    let Some(target) = parse_remote(account, room) else { return false };
+    *EARLY_CLICK.lock().unwrap_or_else(|e| e.into_inner()) = Some(target);
+    true
+}
+
 /// True (and the click dropped) when the pending early click names a catalog account that is not in `known`.
 pub fn drop_early_click_of_gone_account(known: &[AccountId]) -> bool {
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", test))]
     if let Ok(mut early) = EARLY_CLICK.lock() {
         return early.take_if(|(owner, _)| owner.is_some_and(|o| !known.contains(&o))).is_some();
     }

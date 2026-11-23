@@ -212,6 +212,21 @@ fn tap_on_a_plain_remote_push_opens_that_account_and_room() {
     }
 }
 
+#[test]
+fn android_tap_reaches_the_account_that_owns_the_room_and_malformed_extras_are_dropped() {
+    assert!(!open_from_push("0:7:profile", "!r:fixture.invalid"));
+    assert!(!open_from_push("3:7:accounts/3", "notaroom"));
+    assert_eq!(take_early_click(Some(AccountId::new(3))), None);
+    assert!(open_from_push("3:7:accounts/3", "!r:fixture.invalid"));
+    // Another account's session does not take it; the owner does, once.
+    assert_eq!(take_early_click(Some(AccountId::new(4))), None);
+    assert_eq!(take_early_click(Some(AccountId::new(3))).map(|s| s.room_id.as_str().to_owned()), Some("!r:fixture.invalid".into()));
+    assert_eq!(take_early_click(Some(AccountId::new(3))), None);
+    // A tap for an account that is gone is dropped.
+    assert!(open_from_push("9:7:accounts/9", "!r:fixture.invalid"));
+    assert!(drop_early_click_of_gone_account(&[AccountId::new(3)]));
+}
+
 /// `(identifier, thread id, gnobbi key)`: an empty key or thread is an absent one.
 fn delivered(items: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
     items.iter().map(|(id, thread, key)| (id.to_string(), thread.to_string(), key.to_string())).collect()

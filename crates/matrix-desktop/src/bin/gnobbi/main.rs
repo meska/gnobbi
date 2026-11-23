@@ -184,7 +184,7 @@ impl App {
     fn new(dirs: Option<&AppDirs>, root: std::path::PathBuf, trust: Option<Vec<u8>>, link: Option<matrix_domain::MatrixLink>, multi: bool) -> App {
         let prefs = dirs.map(Preferences::load).unwrap_or_else(Preferences::default);
         matrix_desktop::i18n::apply(prefs.language, None);
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "android"))]
         if let Some(dirs) = dirs {
             matrix_desktop::push::init(dirs);
         }
