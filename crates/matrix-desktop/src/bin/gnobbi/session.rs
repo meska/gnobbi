@@ -275,6 +275,7 @@ pub struct Session {
     pub attachment_revision: u64,
     /// Short result line for the last save or refused attachment.
     pub notice: Option<String>,
+    pub notice_shown: Option<(String, std::time::Instant)>,
     pub confirm_delete: bool,
     pub confirm_end_poll: bool,
     /// The menu opened this frame: the click that opened it must not close it.
@@ -436,6 +437,7 @@ impl Session {
             attachment: None,
             attachment_revision: 0,
             notice: None,
+            notice_shown: None,
             confirm_delete: false,
             confirm_end_poll: false,
             menu_fresh: false,
@@ -731,6 +733,7 @@ impl Session {
         }
         if let Some((name, ok)) = self.media.take_saved().map(|(_, r)| (String::new(), r.is_ok())) {
             let _ = name;
+            self.notice_shown = None;
             self.notice = Some(if ok { i18n::t("Saved").to_owned() } else { i18n::t("Saving failed").to_owned() });
             // iOS: the file sits in a private folder until the share sheet takes it (no-op on desktop).
             if ok && cfg!(target_os = "ios") { crate::pick::share(&std::mem::take(&mut self.share_after)); }

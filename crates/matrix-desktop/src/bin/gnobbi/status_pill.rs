@@ -16,6 +16,15 @@ fn position(view: Rect, size: Vec2) -> egui::Pos2 {
 
 pub fn notice_alive(age: Duration, dismissed: bool) -> bool { !dismissed && age < LIFE }
 
+pub fn expire_line(notice: &mut Option<String>, shown: &mut Option<(String, std::time::Instant)>, saved: &str, now: std::time::Instant) -> Option<Duration> {
+    let Some(text) = notice.as_ref() else { *shown = None; return None; };
+    let since = match shown { Some((previous, since)) if previous == text => *since, _ => now };
+    let life = Duration::from_secs(if text == saved { 3 } else { 6 });
+    if now.duration_since(since) >= life { *notice = None; *shown = None; return None; }
+    *shown = Some((text.clone(), since));
+    Some(life - now.duration_since(since))
+}
+
 pub fn show(ui: &mut egui::Ui, view: Rect, text: &str, age: Duration, t: &DesignTokens) {
     let alpha = opacity(age, false);
     if alpha <= 0. { ui.ctx().request_repaint_after(Duration::from_millis(16)); return; }
@@ -47,6 +56,26 @@ mod tests {
         assert!(!notice_alive(Duration::ZERO, true));
         assert!(opacity(Duration::from_secs(1), false) > 0.9);
         assert_eq!(opacity(Duration::from_secs(4), false), 0.);
+    }
+    #[test]
+    fn confirmation_notice_expires_after_three_seconds() {
+        let now = std::time::Instant::now();
+        let mut notice = Some("Saved".to_owned());
+        let mut shown = None;
+        expire_line(&mut notice, &mut shown, "Saved", now);
+        expire_line(&mut notice, &mut shown, "Saved", now + Duration::from_secs(3));
+        assert!(notice.is_none());
+    }
+    #[test]
+    fn error_notice_lasts_six_seconds() {
+        let now = std::time::Instant::now();
+        let mut notice = Some("Saving failed".to_owned());
+        let mut shown = None;
+        expire_line(&mut notice, &mut shown, "Saved", now);
+        expire_line(&mut notice, &mut shown, "Saved", now + Duration::from_secs(3));
+        assert!(notice.is_some());
+        expire_line(&mut notice, &mut shown, "Saved", now + Duration::from_secs(6));
+        assert!(notice.is_none());
     }
     #[test]
     fn geometry_stays_inside_the_timeline_above_composer() {

@@ -1635,8 +1635,9 @@ impl App {
                 let mut pasted_image = None;
                 let mut voice_act = None;
                 let attachment = s.attachment.as_ref().map(|(n, data)| (n.as_str(), data.as_slice(), s.attachment_revision));
-                if let Some(notice) = &s.notice {
-                    ui.label(notice);
+                if let Some(remaining) = status_pill::expire_line(&mut s.notice, &mut s.notice_shown, i18n::t("Saved"), std::time::Instant::now()) {
+                    if let Some(notice) = &s.notice { ui.label(notice); }
+                    ui.ctx().request_repaint_after(remaining);
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
                 let recording = s.recording(false);
