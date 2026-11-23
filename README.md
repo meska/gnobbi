@@ -53,6 +53,8 @@ Avvio: `target/debug/gnobbi` (o `cargo run --locked -p matrix-desktop --features
 
 Per login, logout, verifica della sessione e gestione della chiave di recupero, anche in script e CI, vedi la [guida alla CLI account](ACCOUNT_CLI.md).
 
+Per cosa è in programma vedi la [roadmap](ROADMAP.md) (in inglese).
+
 ## Come contribuire
 
 Vedi [CONTRIBUTING](CONTRIBUTING.md). Per segnalare vulnerabilità: [SECURITY](SECURITY.md).
