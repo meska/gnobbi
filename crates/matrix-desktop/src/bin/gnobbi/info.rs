@@ -600,9 +600,9 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
                             } else if data.can_edit_aliases && ui.small_button(i18n::t("Main")).clicked() {
                                 view.action = Some(AliasAction::SetCanonical { alias: alias.clone() });
                             }
-                            // The address takes what is left and is cut with … when it does not fit.
+                            // The address takes what is left and wraps at any character (aliases have no spaces): never cut.
                             ui.with_layout(crate::dir::row(egui::Align::Center), |ui| {
-                                ui.add(egui::Label::new(alias).truncate());
+                                ui.add(egui::Label::new(alias).wrap_mode(egui::TextWrapMode::Wrap));
                             });
                         });
                     });
