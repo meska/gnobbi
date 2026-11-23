@@ -5,7 +5,6 @@
 //! generation moved. The platform observer (mobile.rs) calls `suspend`/`resume` from the main thread.
 use matrix_engine::WorkerControl;
 use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
-use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State { Foreground, Grace, Released }
@@ -36,17 +35,16 @@ pub fn register(control: WorkerControl) {
     all.push(control);
 }
 
-/// Stops every worker and waits up to `wait` for their threads to end. False: some still run (the caller decides; the lock stays held).
-// shortcut: a fixed wait; a worker stuck in a long SDK call keeps its lock until the OS ends the background grace period.
-pub fn suspend(wait: Duration) -> bool {
+/// Asks every worker to stop; returns at once (the main thread must never wait for them, see `all_released`).
+pub fn stop_all() {
     SUSPENDED.store(true, Ordering::Release);
     let all: Vec<WorkerControl> = CONTROLS.lock().unwrap_or_else(|e| e.into_inner()).clone();
     all.iter().for_each(WorkerControl::stop);
-    let end = Instant::now() + wait;
-    while !all.iter().all(WorkerControl::is_done) && Instant::now() < end {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    all.iter().all(WorkerControl::is_done)
+}
+
+/// True once every worker thread has ended (client, store and `.lock` dropped). False: some still run, the lock stays held.
+pub fn all_released() -> bool {
+    CONTROLS.lock().unwrap_or_else(|e| e.into_inner()).iter().all(WorkerControl::is_done)
 }
 
 pub fn background() {
@@ -65,7 +63,7 @@ pub fn is_suspended() -> bool {
 
 /// True once per resume: the window must restart its accounts.
 pub fn take_resumed() -> bool {
-    if !RESUMED.load(Ordering::Acquire) || !CONTROLS.lock().unwrap_or_else(|e| e.into_inner()).iter().all(WorkerControl::is_done) {
+    if !RESUMED.load(Ordering::Acquire) || !all_released() {
         return false;
     }
     SUSPENDED.store(false, Ordering::Release);
@@ -99,13 +97,17 @@ mod tests {
 
     // One test: the registry and flags are process-wide.
     #[test]
-    fn suspend_stops_waits_for_every_worker_and_resume_signals_once() {
+    fn stop_all_returns_at_once_and_resume_signals_once() {
+        use std::time::{Duration, Instant};
         let (a, a_stop, a_done) = control();
         register(a);
-        // a worker that ends a little after the stop is waited for
-        std::thread::spawn(move || { std::thread::sleep(Duration::from_millis(100)); a_done.store(true, Ordering::Release) });
-        assert!(suspend(Duration::from_secs(2)));
-        assert!(a_stop.load(Ordering::Acquire) && is_suspended());
+        // a worker that ends a little after the stop: stop_all must not wait for it (the main thread calls it)
+        std::thread::spawn(move || { std::thread::sleep(Duration::from_millis(300)); a_done.store(true, Ordering::Release) });
+        let t = Instant::now();
+        stop_all();
+        assert!(t.elapsed() < Duration::from_millis(100), "stop_all must not block");
+        assert!(a_stop.load(Ordering::Acquire) && is_suspended() && !all_released());
+        while !all_released() { std::thread::sleep(Duration::from_millis(10)); }
         resume();
         assert!(is_suspended(), "stay paused until restart is taken");
         assert!(take_resumed() && !take_resumed(), "one signal per resume");
@@ -114,7 +116,8 @@ mod tests {
         assert!(!take_resumed(), "a resume without a suspend signals nothing");
         let (b, _, b_done) = control(); // never ends until explicitly released
         register(b);
-        assert!(!suspend(Duration::from_millis(60)), "a worker that does not end is reported");
+        stop_all();
+        assert!(!all_released(), "a worker that does not end is reported");
         resume();
         assert!(!take_resumed() && is_suspended(), "never reopen a locked store");
         background();

@@ -123,6 +123,7 @@ pub fn observe_lifecycle(ctx: &egui::Context) {
     use crate::suspend::{Action, Event, State, transition};
     use std::cell::RefCell;
     use std::ffi::c_void;
+    use std::time::{Duration, Instant};
 
     thread_local! { static LIFE: RefCell<(State, usize, Option<usize>)> = const { RefCell::new((State::Foreground, 0, None)) }; }
     unsafe extern "C" {
@@ -146,15 +147,30 @@ pub fn observe_lifecycle(ctx: &egui::Context) {
         });
         if !do_release { return; }
         eprintln!("Gnobbi lifecycle: release");
-        if crate::suspend::suspend(std::time::Duration::from_secs(8)) {
-            end(mtm);
-        } else {
-            // Keeping the task open lets iOS terminate rather than suspend with a shared-store lock.
-            eprintln!("Gnobbi lifecycle: worker did not release its lock");
-            if LIFE.with(|l| l.borrow().2 == Some(unsafe { UIBackgroundTaskInvalid })) {
-                std::process::abort();
-            }
+        crate::suspend::stop_all();
+        released(generation, Instant::now() + Duration::from_secs(8), mtm);
+    }
+    // Never sleep on the main thread (a late timer or the expiration handler runs here, and a block of 10 s is a watchdog kill):
+    // look again every 50 ms until every worker has dropped its stores.
+    fn released(generation: usize, deadline: Instant, mtm: MainThreadMarker) {
+        if crate::suspend::all_released() {
+            return end(mtm);
         }
+        if Instant::now() < deadline {
+            let again = Box::into_raw(Box::new((generation, deadline))) as *mut c_void;
+            unsafe { dispatch_after_f(dispatch_time(0, 50_000_000), &raw const _dispatch_main_q as *const c_void, again, poll); }
+            return;
+        }
+        // Keeping the task open lets iOS terminate rather than suspend with a shared-store lock.
+        eprintln!("Gnobbi lifecycle: worker did not release its lock");
+        if LIFE.with(|l| l.borrow().2 == Some(unsafe { UIBackgroundTaskInvalid })) {
+            std::process::abort();
+        }
+    }
+    extern "C" fn poll(context: *mut c_void) {
+        // SAFETY: `context` is the Box leaked by `released` for exactly this call.
+        let (generation, deadline) = *unsafe { Box::from_raw(context as *mut (usize, Instant)) };
+        if let Some(mtm) = MainThreadMarker::new() { released(generation, deadline, mtm); }
     }
     extern "C" fn timer(context: *mut c_void) {
         if let Some(mtm) = MainThreadMarker::new() { release(context as usize, mtm); }
