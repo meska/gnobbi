@@ -314,13 +314,34 @@ fn delivered_to_remove<'a>(delivered: &'a [(String, String, String)], catalog: O
     delivered.iter().filter(|(id, thread, key)| belongs(id, thread, key)).map(|(id, _, _)| id.as_str()).collect()
 }
 
-/// The room was read (here or on another device): its alerts leave the Notification Center. `catalog` is the catalog id of the
-/// account that read it (None: unknown). Best effort, async.
-pub fn clear_room(catalog: Option<AccountId>, room: &RoomScope) {
+/// Rooms whose delivered alerts must go. `rooms`: `(scope, unread)` as the sidebar shows them; `alerted`: rooms seen unread
+/// (a room back at zero is read here or elsewhere). A zero never seen above zero is not enough: it may be the cache's.
+pub fn alerts_to_clear(rooms: &[(&RoomScope, u64)], alerted: &mut std::collections::HashSet<String>) -> Vec<RoomScope> {
+    let mut clear = Vec::new();
+    for (scope, unread) in rooms {
+        let id = scope.room_id.as_str();
+        if *unread > 0 {
+            alerted.insert(id.to_owned());
+        } else if alerted.remove(id) {
+            clear.push((*scope).clone());
+        }
+    }
+    clear
+}
+
+/// These rooms were read (here or on another device): their alerts leave the Notification Center, with one read of the
+/// delivered list for all of them. `catalog` is the catalog id of the account that read them (None: unknown). Best effort, async.
+pub fn clear_rooms(catalog: Option<AccountId>, rooms: Vec<RoomScope>) {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    macos::clear_room(catalog, room.clone());
+    macos::clear_rooms(catalog, rooms);
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-    let _ = (catalog, room);
+    let _ = (catalog, rooms);
+}
+
+/// Back from the background: the next `set_badge` writes the total even if unchanged (a push may have set the badge meanwhile).
+pub fn reset_badge() {
+    #[cfg(target_os = "ios")]
+    macos::reset_badge();
 }
 
 /// The app icon's badge: unread messages over all accounts. iOS only (macOS keeps its dock tile untouched).
@@ -468,8 +489,8 @@ mod macos {
         })));
     }
 
-    pub fn clear_room(catalog: Option<AccountId>, room: RoomScope) {
-        if NSBundle::mainBundle().bundleIdentifier().is_none() {
+    pub fn clear_rooms(catalog: Option<AccountId>, rooms: Vec<RoomScope>) {
+        if rooms.is_empty() || NSBundle::mainBundle().bundleIdentifier().is_none() {
             return;
         }
         UNUserNotificationCenter::currentNotificationCenter().getDeliveredNotificationsWithCompletionHandler(&RcBlock::new(move |list: std::ptr::NonNull<NSArray<UNNotification>>| {
@@ -479,7 +500,7 @@ mod macos {
                 let key = content.userInfo().objectForKey(&NSString::from_str(KEY)).and_then(|v| v.downcast::<NSString>().ok()).map(|k| k.to_string());
                 (n.request().identifier().to_string(), content.threadIdentifier().to_string(), key.unwrap_or_default())
             }).collect();
-            let ids: Vec<Retained<NSString>> = delivered_to_remove(&delivered, catalog, &room).into_iter().map(NSString::from_str).collect();
+            let ids: Vec<Retained<NSString>> = rooms.iter().flat_map(|room| delivered_to_remove(&delivered, catalog, room)).map(NSString::from_str).collect();
             if !ids.is_empty() {
                 UNUserNotificationCenter::currentNotificationCenter().removeDeliveredNotificationsWithIdentifiers(&NSArray::from_retained_slice(&ids));
             }
@@ -489,6 +510,11 @@ mod macos {
     /// Set when the permission (Badge included) was just granted: the cached total may never have reached the icon.
     #[cfg(target_os = "ios")]
     static RESET_BADGE: AtomicBool = AtomicBool::new(false);
+
+    #[cfg(target_os = "ios")]
+    pub fn reset_badge() {
+        RESET_BADGE.store(true, Ordering::Relaxed);
+    }
 
     #[cfg(target_os = "ios")]
     pub fn set_badge(unread: u64, active: bool) {

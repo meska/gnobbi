@@ -291,3 +291,26 @@ fn a_push_delivered_while_the_app_was_closed_goes_once_the_room_is_read() {
     let d = delivered(&[("p1", "!r:s", "3:7:!r:s"), ("p2", "!r:s", ""), ("p3", "!q:s", "3:7:!q:s")]);
     assert_eq!(removed(&d, "!r:s"), ["p1", "p2"]);
 }
+
+fn scope(room: &str) -> RoomScope {
+    RoomScope { account_id: AccountId::new(7), room_id: RoomId::new(room) }
+}
+
+#[test]
+fn a_zero_never_seen_above_zero_clears_nothing() {
+    // Cached zeros (also of rooms with an unread push, not yet recounted) are no reason to remove an alert.
+    let (a, b) = (scope("!a:s"), scope("!b:s"));
+    let mut alerted = Default::default();
+    for _ in 0..2 {
+        assert!(alerts_to_clear(&[(&a, 0), (&b, 0)], &mut alerted).is_empty());
+    }
+}
+
+#[test]
+fn a_room_that_went_from_unread_to_zero_clears_once() {
+    let (a, b) = (scope("!a:s"), scope("!b:s"));
+    let mut alerted = Default::default();
+    assert!(alerts_to_clear(&[(&a, 3), (&b, 1)], &mut alerted).is_empty());
+    assert_eq!(alerts_to_clear(&[(&a, 0), (&b, 2)], &mut alerted), [a.clone()]);
+    assert!(alerts_to_clear(&[(&a, 0), (&b, 2)], &mut alerted).is_empty());
+}

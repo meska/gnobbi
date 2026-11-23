@@ -35,22 +35,12 @@ impl Session {
         self.unread_open = Some(UnreadOpen { scope, unread0, saved, markers: None, retry_at: None, anchored: false, read_id: None, tracker: ReadTracker::default() });
     }
 
-    /// A room that had unread messages and has none now (read here, or by a receipt synced from another device): its delivered alerts go.
-    /// Once, when the sync is first ready, every room at zero is swept too: an alert pushed while the app was closed and read
-    /// elsewhere never showed a count above zero here. Not before: until then a zero may be a placeholder.
+    /// A room that had unread messages and has none now (read here, or by a receipt synced from another device, also after
+    /// coming back from the background): its delivered alerts go. A zero never seen above zero is the cache's word: left alone.
     pub(super) fn clear_read_alerts(&mut self) {
-        let sweep = !self.alerts_swept && self.sync == Some(RoomSyncStatus::Ready);
-        self.alerts_swept |= sweep;
-        for room in self.sidebar.rooms() {
-            let id = room.scope.room_id.as_str();
-            if room.unread > 0 {
-                if !self.alerted_unread.contains(id) {
-                    self.alerted_unread.insert(id.to_owned());
-                }
-            } else if self.alerted_unread.remove(id) || sweep {
-                matrix_desktop::notifications::clear_room(self.catalog_id, &room.scope);
-            }
-        }
+        let rooms: Vec<_> = self.sidebar.rooms().iter().map(|r| (&r.scope, r.unread)).collect();
+        let clear = matrix_desktop::notifications::alerts_to_clear(&rooms, &mut self.alerted_unread);
+        matrix_desktop::notifications::clear_rooms(self.catalog_id, clear);
     }
 
     /// Unread messages of the account's unmuted rooms, for the app icon badge.

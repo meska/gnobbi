@@ -492,6 +492,8 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Back from the background: the workers were ended (store and locks released); start them again.
         if suspend::take_resumed() {
+            // The window focus does not follow the app lifecycle on iOS: do not wait for it to rewrite the badge.
+            matrix_desktop::notifications::reset_badge();
             self.restart_accounts();
         }
         if suspend::is_suspended() {
