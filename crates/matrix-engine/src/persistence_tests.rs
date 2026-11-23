@@ -325,3 +325,24 @@ fn sealed_session_is_readable_by_the_nse() {
     fs::write(&file, serde_json::to_vec(&record).unwrap()).unwrap();
     assert!(gnobbi_nse::unseal(&store.path, PASSPHRASE).is_err());
 }
+
+#[test]
+fn message_index_is_private_per_account_and_forgotten_at_logout() {
+    let root = TestRoot::new("search-index");
+    let (a, b) = (AccountStore::create(&root.0, AccountId::new(1)).unwrap(), AccountStore::create(&root.0, AccountId::new(2)).unwrap());
+    assert_ne!(a.search_dir(), b.search_dir());
+    for store in [&a, &b] {
+        assert!(store.search_store(PASSPHRASE).is_ok());
+        let mode = fs::metadata(store.search_dir()).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "the index is owner-only");
+        // What the SDK leaves in it: a directory per room, files inside.
+        let room = store.search_dir().join("!room:example.org");
+        fs::create_dir(&room).unwrap();
+        fs::write(room.join("meta.json"), b"x").unwrap();
+    }
+    // A second call finds the directory again; it is not an error.
+    assert!(a.search_store(PASSPHRASE).is_ok());
+    a.forget().unwrap();
+    assert!(!a.search_dir().exists(), "logout removes the index");
+    assert!(b.search_dir().join("!room:example.org/meta.json").exists(), "another account keeps its own");
+}

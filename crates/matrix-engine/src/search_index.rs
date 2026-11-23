@@ -102,6 +102,14 @@ impl Markers {
 /// a pause between rooms, ends at once when `stop` is set (account closing, or the app going to
 /// the background on iOS, which stops the whole worker). Returns how many rooms it worked on.
 pub async fn backfill(client: &Client, dir: Option<&Path>, stop: &AtomicBool) -> usize {
+    // Open each room's index now, so the first search of the user does not pay for it (one key derivation per room).
+    for room in client.joined_rooms() {
+        if stop.load(Ordering::Acquire) {
+            return 0;
+        }
+        let _ = room.search("a", 1, None).await;
+        tokio::task::yield_now().await;
+    }
     let mut markers = Markers::open(dir);
     let mut rooms: Vec<_> = client.joined_rooms().into_iter().map(|r| (r.recency_stamp().map_or(0, u64::from), r.room_id().to_owned())).collect();
     rooms.sort_by_key(|(recency, _)| std::cmp::Reverse(*recency));

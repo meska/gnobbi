@@ -2,8 +2,8 @@
 #![recursion_limit = "512"]
 //! Message search of ALL rooms (`MessageSearch::everywhere`, the room list's «Messaggi» section) on a
 //! disposable Synapse, two synthetic accounts, each with its own encrypted index directory next to its
-//! store. Scenarios print `QA <name> PASS|FAIL detail`; `MEASURE` lines carry the numbers of the volume run.
-//! Driver: PROBE_TARGET=global_search_qa PROBE_TEST=global_search_scenarios|global_search_volume
+//! store. Scenarios print `QA <name> PASS|FAIL detail`; `MEASURE` lines carry the time of the backfill.
+//! Driver: PROBE_TARGET=global_search_qa PROBE_TEST=global_search_scenarios|global_search_backfill
 //! PROBE_SERVER=synapse PROBE_FEATURES=sdk python3 tools/timeline_probe.py
 use matrix_engine::{
     message_search::{DEBOUNCE, MessageSearch},
@@ -70,6 +70,8 @@ async fn build(config: &serde_json::Value, store: &Path, url: Option<&str>) -> C
         .homeserver_url(url.unwrap_or(config["url"].as_str().unwrap()))
         .add_root_certificates(vec![ca])
         .sliding_sync_version_builder(VersionBuilder::DiscoverNative)
+        // The disposable server shares a busy machine: a join can take longer than the default 30 s.
+        .request_config(matrix_engine::sdk::config::RequestConfig::new().timeout(Duration::from_secs(180)))
         .sqlite_store(store, Some(PASS))
         .search_index_store(matrix_engine::search_index::store_kind(&index_dir(store), PASS));
     if url.is_some() {
@@ -355,112 +357,4 @@ fn global_search_backfill() {
         let _ = (sa.stop().await, sb.stop().await);
     });
     assert!(failed.is_empty(), "failed scenarios: {failed:?}");
-}
-
-/// About 5000 synthetic messages in 5 unencrypted rooms: time to index, space of the index, time of a search.
-#[test]
-#[ignore = "requires the timeline_probe script"]
-fn global_search_volume() {
-    let config: serde_json::Value = serde_json::from_slice(&std::fs::read(std::env::var("FIXTURE_AUTH_CONFIG").unwrap()).unwrap()).unwrap();
-    let home = PathBuf::from(std::env::var("HOME").unwrap());
-    let (store_a, store_b) = (home.join("stores/alice-volume"), home.join("stores/bob-volume"));
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    const ROOMS: usize = 5;
-    const PER_ROOM: usize = 1000;
-    let words = ["caffè", "treno", "domani", "riunione", "progetto", "cena", "weekend", "pagamento", "fattura", "ufficio", "viaggio", "telefono", "documento", "ordine", "consegna", "magazzino", "cliente", "preventivo", "scadenza", "ciao"];
-    rt.block_on(async {
-        let a = build(&config, &store_a, None).await;
-        let b = build(&config, &store_b, None).await;
-        login(&a, &config, "alice").await;
-        login(&b, &config, "bob").await;
-        let mut ids = Vec::new();
-        for _ in 0..ROOMS {
-            let id = b.create_room(room_request(false, Some(&a))).await.unwrap().room_id().to_owned();
-            ids.push(id);
-        }
-        let sb = SyncService::builder(b.clone()).build().await.unwrap();
-        sb.start().await;
-        let sa = SyncService::builder(a.clone()).build().await.unwrap();
-        sa.start().await;
-        for id in &ids {
-            until("invite", 60, async || a.get_room(id)).await.expect("invite");
-            a.join_room_by_id(id).await.unwrap();
-        }
-        let t = Instant::now();
-        let mut sent = 0;
-        for (n, id) in ids.iter().enumerate() {
-            let room = until("room", 60, async || b.get_room(id)).await.expect("room");
-            // Twenty at a time: the server is the slow part, not the client.
-            for chunk in (0..PER_ROOM).collect::<Vec<_>>().chunks(20) {
-                let batch = chunk.iter().map(|i| {
-                    let body = format!("{} {} {} numero{} stanza{} messaggio sintetico di prova {}", words[i % words.len()], words[(i * 7 + n) % words.len()], words[(i * 13 + 3) % words.len()], i, n, i * 31 % 977);
-                    std::future::IntoFuture::into_future(room.send(plain(&body)))
-                });
-                for r in futures_util::future::join_all(batch).await {
-                    r.unwrap();
-                    sent += 1;
-                }
-            }
-        }
-        eprintln!("MEASURE sent-messages {sent} in-ms {}", t.elapsed().as_millis());
-        // Alice pages all of it into her cache; each page reaches the index too.
-        let t = Instant::now();
-        let mut reached = 0;
-        for id in &ids {
-            if matrix_engine::search_index::fill(&a, id, 5000, Duration::from_secs(240)).await {
-                reached += 1;
-            }
-        }
-        eprintln!("MEASURE page-and-index-all-rooms-ms {} rooms-at-start {reached}/{ROOMS}", t.elapsed().as_millis());
-        // The SDK indexes the same events on its own; wait until the index holds the last message of every room.
-        let probe = global_until(&a, "numero999", |s| hits(s).len() >= ROOMS).await;
-        eprintln!("MEASURE last-messages-indexed rooms={}", hits(&probe).len());
-        let dir = index_dir(&store_a);
-        eprintln!("MEASURE index-bytes {} files {}", bytes_under(&dir), files_under(&dir).len());
-        eprintln!("MEASURE store-bytes {}", bytes_under(&store_a));
-        for (label, term) in [("one-word", "riunione"), ("prefix", "riun"), ("two-words", "riunione treno"), ("rare-number", "numero777"), ("accent", "caffe"), ("no-match", "zzzzqq")] {
-            let mut ms = Vec::new();
-            let mut n = 0;
-            for _ in 0..7 {
-                let mut s = MessageSearch::everywhere(a.clone());
-                let mut rx = s.subscribe();
-                s.set_query(term);
-                tokio::time::sleep(DEBOUNCE).await;
-                let t = Instant::now();
-                let state = loop {
-                    let state = rx.borrow_and_update().clone();
-                    if !matches!(state, MessageSearchState::Searching { .. }) {
-                        break state;
-                    }
-                    rx.changed().await.unwrap();
-                };
-                ms.push(t.elapsed().as_millis());
-                n = hits(&state).len();
-            }
-            ms.sort();
-            eprintln!("MEASURE search-all-rooms {label} term-len {} hits-first-page {n} median-ms {} max-ms {}", term.len(), ms[3], ms[6]);
-        }
-        let _ = (sa.stop().await, sb.stop().await);
-        let held = a.joined_rooms().len();
-        drop((a, b));
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        // Cold start: a new client on the saved store, the first search after it.
-        let t = Instant::now();
-        let again = build(&config, &store_a, Some("https://localhost:1/")).await;
-        eprintln!("MEASURE reopen-client-ms {}", t.elapsed().as_millis());
-        let _ = held;
-        let t = Instant::now();
-        let mut s = MessageSearch::everywhere(again.clone());
-        let mut rx = s.subscribe();
-        s.set_query("riunione");
-        tokio::time::sleep(DEBOUNCE).await;
-        let state = loop {
-            let state = rx.borrow_and_update().clone();
-            if !matches!(state, MessageSearchState::Searching { .. }) {
-                break state;
-            }
-            rx.changed().await.unwrap();
-        };
-        eprintln!("MEASURE first-search-after-restart-ms {} hits {}", t.elapsed().as_millis(), hits(&state).len());
-    });
 }

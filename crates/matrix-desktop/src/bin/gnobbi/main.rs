@@ -1121,8 +1121,8 @@ impl App {
             match view.as_str() {
                 "info" => s.info_open = true,
                 "search" => s.search_open = true,
-                // Test hook: GNOBBI_EGUI_TERM=<text> typed in the room list's field (the messages of every room are searched for real).
-                "list-search" | "list-search-open" if s.query.is_empty() => {
+                // Test hook: GNOBBI_EGUI_TERM=<text> typed in the room list's field after GNOBBI_EGUI_TERM_AFTER seconds, so the index has filled (the messages of every room are searched for real).
+                "list-search" | "list-search-open" if s.query.is_empty() && self.shot.as_ref().is_some_and(|(_, t0)| t0.elapsed().as_secs() >= matrix_desktop::hooks::var("GNOBBI_EGUI_TERM_AFTER").ok().and_then(|v| v.parse().ok()).unwrap_or(0)) => {
                     s.query = matrix_desktop::hooks::var("GNOBBI_EGUI_TERM").unwrap_or_default();
                     s.sidebar.set_query(&s.query);
                 }

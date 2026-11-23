@@ -1383,8 +1383,12 @@ fn logout_removes_the_account_cache_and_keeps_the_profile_private() {
                 .len()
                 >= 25
         );
-        drop(alice);
         let dir = probe_root(277);
+        // The message index of the account sits beside its directory; logout removes it with the rest.
+        let index = dir.with_file_name(format!("{}-search", dir.file_name().unwrap().to_str().unwrap()));
+        crate::search_index::backfill(&alice, Some(&index), &std::sync::atomic::AtomicBool::new(false)).await;
+        assert!(std::fs::read_dir(&index).unwrap().next().is_some(), "the index holds rooms before logout");
+        drop(alice);
         let names = |d: &std::path::Path| {
             let mut n: Vec<String> = std::fs::read_dir(d)
                 .unwrap()
@@ -1402,6 +1406,7 @@ fn logout_removes_the_account_cache_and_keeps_the_profile_private() {
             vec![".lock".to_owned()],
             "nothing of the account cache is left"
         );
+        assert!(!index.exists(), "the message index is gone with the account");
         assert_eq!(
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o700
