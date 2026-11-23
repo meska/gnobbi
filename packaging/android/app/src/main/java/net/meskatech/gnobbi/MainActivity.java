@@ -27,6 +27,7 @@ public class MainActivity extends NativeActivity {
         try {
             FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
                 if (task.isSuccessful() && task.getResult() != null) Native.onToken(task.getResult());
+                else Log.w("Gnobbi", "FCM getToken failed: " + (task.getException() == null ? "no token" : task.getException().getClass().getSimpleName())); // class only: no token, no message
             });
         } catch (RuntimeException e) {
             Log.w("Gnobbi", "no FCM token: Firebase not configured or Google Play services missing"); // no push, but no crash

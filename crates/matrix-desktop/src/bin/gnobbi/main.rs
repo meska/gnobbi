@@ -546,6 +546,8 @@ impl eframe::App for App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
         }
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        matrix_desktop::push::set_enabled(self.prefs.notifications);
         session.poll(ctx, self.prefs.notifications, self.prefs.message_preview);
         matrix_desktop::notifications::set_visible(session.reading.0.then(|| session.sidebar.selected().map(|r| (session.catalog_id, r.scope.clone()))).flatten());
         // The other accounts keep syncing: unread counts and notifications go on, read markers do not.

@@ -1,8 +1,8 @@
-//! iOS remote push, phase 1: the APNs device token feeds the Matrix pushers of every account (`matrix_engine::push`).
-//! Phase 2 (Notification Service Extension: decrypted content, room opening on tap) is not here.
+//! Remote push (iOS APNs, Android FCM): the device token feeds the Matrix pushers of every account (`matrix_engine::push`),
+//! as long as the app's Notifications switch is on. iOS phase 2 (Notification Service Extension: decrypted content, room opening on tap) is not here.
 use crate::AppDirs;
 use matrix_engine::push::{PushPlatform, PushSettings, set};
-use std::sync::Mutex;
+use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
 
 /// APNs gives raw bytes; the pushkey is lowercase hex. Sygnal must run with `convert_device_token_to_hex: false`
 /// (its default base64-decodes the pushkey, turns 64 hex chars into a 96-char token and APNs answers BadDeviceToken).
@@ -18,6 +18,8 @@ pub fn token_class(bytes: &[u8]) -> String {
 }
 
 static TOKEN: Mutex<Option<String>> = Mutex::new(None);
+/// The Notifications switch; off until `init` has read it, so a launch never registers and then removes.
+static ENABLED: AtomicBool = AtomicBool::new(false);
 static DIRS: Mutex<Option<AppDirs>> = Mutex::new(None);
 
 /// Token (from the OS push service or from settings.json) + current language -> every account worker.
@@ -25,7 +27,7 @@ static DIRS: Mutex<Option<AppDirs>> = Mutex::new(None);
 fn publish() {
     let token = TOKEN.lock().ok().and_then(|t| t.clone());
     let platform = if cfg!(target_os = "ios") { PushPlatform::Apns } else { PushPlatform::Fcm };
-    set(token.map(|token| PushSettings { platform, token, lang: crate::i18n::current().to_owned(), body: crate::i18n::t("New message").to_owned() }));
+    set(token.map(|token| PushSettings { platform, token, lang: crate::i18n::current().to_owned(), body: crate::i18n::t("New message").to_owned(), enabled: ENABLED.load(Ordering::Relaxed) }));
 }
 
 fn save(dirs: &AppDirs, token: &str) {
@@ -42,6 +44,13 @@ pub fn received(token: String) {
     }
 }
 
+/// The Notifications switch changed (off: pushers removed, on: registered again). Cheap: call it every frame.
+pub fn set_enabled(on: bool) {
+    if ENABLED.swap(on, Ordering::Relaxed) != on {
+        publish();
+    }
+}
+
 /// At launch, once the language is applied: the last known token registers the pushers at once, the OS confirms it later.
 /// A token that arrived first (Android: push service started the process) wins over the saved one.
 pub fn init(dirs: &AppDirs) {
@@ -51,6 +60,7 @@ pub fn init(dirs: &AppDirs) {
         Some(token) => save(dirs, &token),
         None => *TOKEN.lock().unwrap_or_else(|e| e.into_inner()) = crate::preferences::read_settings(dirs).get("push_token").and_then(|v| v.as_str()).map(str::to_owned),
     }
+    ENABLED.store(crate::preferences::read_settings(dirs).get("notifications").and_then(|v| v.as_bool()).unwrap_or(false), Ordering::Relaxed);
     crate::i18n::on_change(|_| publish());
     publish();
 }
@@ -168,6 +178,10 @@ mod tests {
         received("fcm-rotated".into());
         assert_eq!(matrix_engine::push::current().unwrap().token, "fcm-rotated");
         assert_eq!(crate::preferences::read_settings(&dirs).get("push_token").and_then(|v| v.as_str()), Some("fcm-rotated"));
+        set_enabled(true);
+        assert!(matrix_engine::push::current().unwrap().enabled);
+        set_enabled(false);
+        assert!(!matrix_engine::push::current().unwrap().enabled);
         let _ = std::fs::remove_dir_all(&dirs.config);
     }
 

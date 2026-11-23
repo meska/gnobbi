@@ -1,4 +1,4 @@
-//! Matrix pusher for the APNs gateway (Sygnal): every signed-in account registers the same device token on its own homeserver.
+//! Matrix pusher for the push gateway (Sygnal; APNs and FCM): every signed-in account registers the same device token on its own homeserver.
 use matrix_sdk::Client;
 use matrix_sdk::ruma::api::client::push::{Pusher, PusherIds, PusherInit, PusherKind};
 use matrix_sdk::ruma::push::{HttpPusherData, PushFormat};
@@ -38,6 +38,8 @@ pub struct PushSettings {
     pub lang: String,
     /// Localized body of the generic alert (the push carries only event ids: no content, no decryption yet).
     pub body: String,
+    /// The app's Notifications switch: off removes the pusher from the homeserver, on registers it again.
+    pub enabled: bool,
 }
 
 static SETTINGS: OnceLock<watch::Sender<Option<PushSettings>>> = OnceLock::new();
@@ -113,6 +115,17 @@ pub(crate) async fn keep_registered(client: Client, device_name: &'static str, r
         let current = rx.borrow_and_update().clone();
         let tag = tag_rx.borrow_and_update().get(&root).cloned();
         let retry = match current.zip(tag) {
+            Some((s, _)) if !s.enabled => match registered.take() {
+                Some(old) if !matches!(tokio::time::timeout(Duration::from_secs(10), client.pusher().delete(old.clone())).await, Ok(Ok(()))) => {
+                    eprintln!("Gnobbi: push removal failed");
+                    registered = Some(old);
+                    true
+                }
+                _ => {
+                    let _ = std::fs::remove_file(registered_file(&root));
+                    false
+                }
+            },
             Some((s, tag)) => {
                 // Token rotation: `set(.., false)` keeps the old pushkey of this user, so Sygnal would keep pushing to a dead token.
                 let ids = ids_of(&s);
@@ -180,7 +193,7 @@ mod tests {
     static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     fn settings() -> PushSettings {
-        PushSettings { platform: PushPlatform::Apns, token: "ab12".into(), lang: "it".into(), body: "Nuovo messaggio".into() }
+        PushSettings { platform: PushPlatform::Apns, token: "ab12".into(), lang: "it".into(), body: "Nuovo messaggio".into(), enabled: true }
     }
 
     fn tag() -> AccountTag {
@@ -321,6 +334,35 @@ mod tests {
         assert!(pushers[0].contains("token-A") && pushers[0].contains("\"kind\":null"), "{pushers:?}");
         assert!(pushers[1].contains("token-B") && pushers[1].contains("\"kind\":\"http\""), "{pushers:?}");
         assert_eq!(load_registered(&root).unwrap().pushkey, "token-B");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Switch off removes the registered pusher (named by its app id) and forgets it; on registers it again.
+    #[tokio::test]
+    async fn switch_off_removes_the_registered_pusher_and_on_registers_it_again() {
+        let _turn = LOCK.lock().await;
+        let root = std::env::temp_dir().join(format!("gnobbi-push-switch-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let on = PushSettings { platform: PushPlatform::Fcm, token: "token-A".into(), ..settings() };
+        let (url, log) = mock_homeserver().await;
+        let client = Client::builder().homeserver_url(&url).build().await.unwrap();
+        client.matrix_auth().login_username("@a:t", "x").send().await.unwrap();
+        set(Some(on.clone()));
+        set_account(root.clone(), tag());
+        let run = tokio::spawn(keep_registered(client, "Gnobbi (Android)", Some(root.clone()), AccountId::new(1)));
+        let count = |kind: &str| log.lock().unwrap().iter().filter(|l| l.contains("/pushers/set") && l.contains(kind)).count();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(count("\"kind\":\"http\""), 1);
+        set(Some(PushSettings { enabled: false, ..on.clone() }));
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let off: Vec<String> = log.lock().unwrap().iter().filter(|l| l.contains("\"kind\":null")).cloned().collect();
+        assert!(off.len() == 1 && off[0].contains("token-A") && off[0].contains(APP_ID_ANDROID), "{off:?}");
+        assert!(load_registered(&root).is_none());
+        set(Some(on));
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(count("\"kind\":\"http\""), 2);
+        run.abort();
+        set(None);
         std::fs::remove_dir_all(&root).ok();
     }
 }
