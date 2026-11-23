@@ -689,3 +689,17 @@ menu	Bring All to Front	全部置于前面
 	helper out of place	辅助程序位置不当
 	Clear search	清除搜索
 	More reactions	更多回应
+
+# Weekdays
+	Mon	周一
+	Tue	周二
+	Wed	周三
+	Thu	周四
+	Fri	周五
+	Sat	周六
+	Sun	周日
+
+# Poll results
+	selected	已选择
+	Based on {votes}	基于 {votes}
+@plural	{n} vote	{n} 票

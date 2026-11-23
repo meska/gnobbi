@@ -604,3 +604,17 @@ menu	Bring All to Front	Trazer tudo para a frente
 	helper out of place	helper fora do lugar
 	Clear search	Limpar pesquisa
 	More reactions	Mais reações
+
+# Weekdays
+	Mon	seg.
+	Tue	ter.
+	Wed	qua.
+	Thu	qui.
+	Fri	sex.
+	Sat	sáb.
+	Sun	dom.
+
+# Poll results
+	selected	selecionada
+	Based on {votes}	Baseado em {votes}
+@plural	{n} vote	{n} voto|{n} votos

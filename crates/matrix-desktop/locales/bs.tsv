@@ -604,3 +604,17 @@ menu	Bring All to Front	Prebaci sve naprijed
 	helper out of place	pomoćnik na pogrešnom mjestu
 	Clear search	Obriši pretragu
 	More reactions	Više reakcija
+
+# Weekdays
+	Mon	pon
+	Tue	uto
+	Wed	sri
+	Thu	čet
+	Fri	pet
+	Sat	sub
+	Sun	ned
+
+# Poll results
+	selected	odabrano
+	Based on {votes}	Na osnovu {votes}
+@plural	{n} vote	{n} glas|{n} glasa|{n} glasova

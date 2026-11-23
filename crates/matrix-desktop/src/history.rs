@@ -716,7 +716,7 @@ impl DemoHistory {
 
     /// Day label to draw above row `index` when it is the first of its calendar day (system zone and locale).
     pub fn day_separator(&self, index: usize) -> Option<String> {
-        self.day_separator_in(index, &chrono::Local, crate::time_fmt::system(), now_ms())
+        self.day_separator_in(index, &chrono::Local, crate::time_fmt::active(), now_ms())
     }
 
     pub fn day_separator_in<Tz: chrono::TimeZone>(&self, index: usize, tz: &Tz, p: &crate::time_fmt::Patterns, now_ms: u64) -> Option<String> {

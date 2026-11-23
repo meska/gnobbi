@@ -604,3 +604,17 @@ menu	Bring All to Front	Traer todo al frente
 	helper out of place	asistente fuera de lugar
 	Clear search	Borrar búsqueda
 	More reactions	Más reacciones
+
+# Weekdays
+	Mon	lun
+	Tue	mar
+	Wed	mié
+	Thu	jue
+	Fri	vie
+	Sat	sáb
+	Sun	dom
+
+# Poll results
+	selected	seleccionada
+	Based on {votes}	Basado en {votes}
+@plural	{n} vote	{n} voto|{n} votos

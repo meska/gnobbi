@@ -689,3 +689,17 @@ menu	Bring All to Front	Все окна — на передний план
 	helper out of place	помощник не на месте
 	Clear search	Очистить поиск
 	More reactions	Ещё реакции
+
+# Weekdays
+	Mon	Пн
+	Tue	Вт
+	Wed	Ср
+	Thu	Чт
+	Fri	Пт
+	Sat	Сб
+	Sun	Вс
+
+# Poll results
+	selected	выбрано
+	Based on {votes}	На основе: {votes}
+@plural	{n} vote	{n} голос|{n} голоса|{n} голосов

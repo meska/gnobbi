@@ -603,3 +603,17 @@ menu	Bring All to Front	Przesuń wszystko na wierzch
 	helper out of place	pomocnik w niewłaściwym miejscu
 	Clear search	Wyczyść wyszukiwanie
 	More reactions	Więcej reakcji
+
+# Weekdays
+	Mon	pon.
+	Tue	wt.
+	Wed	śr.
+	Thu	czw.
+	Fri	pt.
+	Sat	sob.
+	Sun	niedz.
+
+# Poll results
+	selected	wybrano
+	Based on {votes}	Na podstawie {votes}
+@plural	{n} vote	{n} głos|{n} głosy|{n} głosów

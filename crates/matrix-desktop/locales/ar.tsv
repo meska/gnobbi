@@ -604,3 +604,17 @@ menu	Bring All to Front	إحضار الكل إلى المقدمة
 @plural	Gnobbi, {n} unread	Gnobbi، {n} غير مقروء|Gnobbi، {n} غير مقروء|Gnobbi، {n} غير مقروءين|Gnobbi، {n} غير مقروءة|Gnobbi، {n} غير مقروءة|Gnobbi، {n} غير مقروء
 	Clear search	مسح البحث
 	More reactions	مزيد من التفاعلات
+
+# Weekdays
+	Mon	اثنين
+	Tue	ثلاثاء
+	Wed	أربعاء
+	Thu	خميس
+	Fri	جمعة
+	Sat	سبت
+	Sun	أحد
+
+# Poll results
+	selected	محدد
+	Based on {votes}	بناءً على {votes}
+@plural	{n} vote	{n} صوت|{n} صوت|{n} صوتان|{n} أصوات|{n} صوتًا|{n} صوت

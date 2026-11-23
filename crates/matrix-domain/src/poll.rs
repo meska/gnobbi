@@ -26,10 +26,6 @@ pub struct PollAnswer {
     pub own: bool,
 }
 
-fn votes_label(n: u32) -> String {
-    format!("{n} {}", if n == 1 { "voto" } else { "voti" })
-}
-
 impl Poll {
     /// Counts and bars are shown only then (undisclosed polls reveal them at the end).
     pub fn results_visible(&self) -> bool {
@@ -72,29 +68,6 @@ impl Poll {
     pub fn is_leading(&self, ix: usize) -> bool {
         let max = self.answers.iter().map(|a| a.votes).max().unwrap_or(0);
         self.answers.get(ix).is_some_and(|a| a.votes > 0 && a.votes == max)
-    }
-
-    /// Accessible name: «Si, 5 voti, selezionata»; counts only when results are visible.
-    pub fn option_label(&self, ix: usize) -> String {
-        let Some(a) = self.answers.get(ix) else {
-            return String::new();
-        };
-        let mut label = a.text.clone();
-        if self.results_visible() {
-            label = format!("{label}, {}", votes_label(a.votes));
-        }
-        if a.own {
-            label.push_str(", selezionata");
-        }
-        label
-    }
-
-    pub fn footer(&self) -> String {
-        if self.results_visible() {
-            format!("Basato su {}", votes_label(self.voters))
-        } else {
-            votes_label(self.voters)
-        }
     }
 }
 
@@ -228,24 +201,6 @@ mod tests {
         assert!(!none.is_leading(0));
         let tie = poll(false, 1, [(2, false), (2, false), (0, false)]);
         assert!(tie.is_leading(0) && tie.is_leading(1));
-    }
-
-    #[test]
-    fn labels() {
-        let mut p = poll(false, 1, [(5, true), (1, false), (0, false)]);
-        assert_eq!(p.option_label(0), "O1, 5 voti, selezionata");
-        assert_eq!(p.option_label(1), "O2, 1 voto");
-        p.disclosed = false;
-        assert_eq!(p.option_label(0), "O1, selezionata");
-        assert_eq!(p.option_label(1), "O2");
-        assert_eq!(p.footer(), "6 voti");
-        p.ended = true;
-        assert_eq!(p.option_label(1), "O2, 1 voto");
-        assert_eq!(p.footer(), "Basato su 6 voti");
-        p.voters = 1;
-        assert_eq!(p.footer(), "Basato su 1 voto");
-        p.voters = 0;
-        assert_eq!(p.footer(), "Basato su 0 voti");
     }
 
     fn draft(answers: &[&str]) -> PollDraft {

@@ -604,3 +604,17 @@ menu	Bring All to Front	העברת הכול לחזית
 @plural	Gnobbi, {n} unread	Gnobbi, הודעה אחת לא נקראה ({n})|Gnobbi, {n} הודעות לא נקראו|Gnobbi, {n} הודעות לא נקראו
 	Clear search	נקה חיפוש
 	More reactions	עוד תגובות
+
+# Weekdays
+	Mon	יום ב׳
+	Tue	יום ג׳
+	Wed	יום ד׳
+	Thu	יום ה׳
+	Fri	יום ו׳
+	Sat	שבת
+	Sun	יום א׳
+
+# Poll results
+	selected	נבחרה
+	Based on {votes}	על סמך {votes}
+@plural	{n} vote	{n} קול|{n} קולות|{n} קולות

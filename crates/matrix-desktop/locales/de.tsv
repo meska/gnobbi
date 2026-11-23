@@ -689,3 +689,17 @@ menu	Bring All to Front	Alle nach vorne bringen
 	helper out of place	Helper am falschen Ort
 	Clear search	Suche löschen
 	More reactions	Weitere Reaktionen
+
+# Weekdays
+	Mon	Mo.
+	Tue	Di.
+	Wed	Mi.
+	Thu	Do.
+	Fri	Fr.
+	Sat	Sa.
+	Sun	So.
+
+# Poll results
+	selected	ausgewählt
+	Based on {votes}	Basierend auf {votes}
+@plural	{n} vote	{n} Stimme|{n} Stimmen

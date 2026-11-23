@@ -689,3 +689,17 @@ menu	Bring All to Front	Всички най-отпред
 	helper out of place	помощникът е на грешно място
 	Clear search	Изчисти търсенето
 	More reactions	Още реакции
+
+# Weekdays
+	Mon	пн
+	Tue	вт
+	Wed	ср
+	Thu	чт
+	Fri	пт
+	Sat	сб
+	Sun	нд
+
+# Poll results
+	selected	избрана
+	Based on {votes}	Въз основа на {votes}
+@plural	{n} vote	{n} глас|{n} гласа

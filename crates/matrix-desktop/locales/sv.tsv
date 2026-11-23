@@ -689,3 +689,17 @@ menu	Bring All to Front	Lägg alla överst
 	helper out of place	hjälpprogrammet ligger på fel plats
 	Clear search	Rensa sökning
 	More reactions	Fler reaktioner
+
+# Weekdays
+	Mon	mån
+	Tue	tis
+	Wed	ons
+	Thu	tors
+	Fri	fre
+	Sat	lör
+	Sun	sön
+
+# Poll results
+	selected	vald
+	Based on {votes}	Baserat på {votes}
+@plural	{n} vote	{n} röst|{n} röster

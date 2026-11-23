@@ -487,14 +487,14 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     ui.add_space(4.);
                     for (ix, answer) in poll.answers.iter().enumerate() {
                         let share = if poll.results_visible() { poll.share(ix) } else { 0. };
-                        let r = ui.add_enabled(!poll.ended, egui::Button::new(poll.option_label(ix)).wrap().selected(answer.own).min_size(Vec2::new(inner.min(200.), crate::metrics::get().button - 6.)));
+                        let r = ui.add_enabled(!poll.ended, egui::Button::new(matrix_desktop::poll_text::option_label(poll, ix)).wrap().selected(answer.own).min_size(Vec2::new(inner.min(200.), crate::metrics::get().button - 6.)));
                         let bar = crate::dir::flip(r.rect, egui::Rect::from_min_size(r.rect.left_bottom() - Vec2::new(0., 3.), Vec2::new(r.rect.width() * share, 3.)));
                         ui.painter().rect_filled(bar, 1., rgb(t.accent));
                         if r.clicked() {
                             acts.vote = Some((id.clone(), ix));
                         }
                     }
-                    ui.label(RichText::new(poll.footer()).size(11.).color(rgb(t.secondary)));
+                    ui.label(RichText::new(matrix_desktop::poll_text::footer(poll)).size(11.).color(rgb(t.secondary)));
                 } else if e.redacted {
                     ui.label(RichText::new(i18n::t("Message deleted")).italics().color(rgb(t.secondary)));
                 } else if !e.text.is_empty() {

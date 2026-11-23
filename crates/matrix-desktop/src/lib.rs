@@ -104,6 +104,7 @@ pub use history::{
 pub mod big_emoji;
 pub mod row_text;
 pub mod time_fmt;
+pub mod poll_text;
 mod sidebar;
 pub mod tray_menu;
 #[cfg(not(any(target_os = "ios", target_os = "android")))]

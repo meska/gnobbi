@@ -603,3 +603,17 @@ menu	Bring All to Front	すべてを手前に移動
 	helper out of place	ヘルパーの位置が正しくありません
 	Clear search	検索をクリア
 	More reactions	その他のリアクション
+
+# Weekdays
+	Mon	月
+	Tue	火
+	Wed	水
+	Thu	木
+	Fri	金
+	Sat	土
+	Sun	日
+
+# Poll results
+	selected	選択済み
+	Based on {votes}	{votes}に基づく
+@plural	{n} vote	{n}票

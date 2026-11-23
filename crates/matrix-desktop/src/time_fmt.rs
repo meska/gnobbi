@@ -4,15 +4,15 @@
 //! Rules (day = calendar day in the zone, so midnight and DST switches follow the wall clock, never 24 h blocks):
 //! - today: the time only; yesterday up to 6 days back: abbreviated weekday + time; older: short date + time.
 //! - separator between days (`day_label`): «Today» / «Yesterday» / abbreviated weekday / short date (no time).
-//! - weekday, short date order/separators (year always 2 digits), 12/24 h and AM/PM text come from the system
-//!   locale, read once through the platform formatter (macOS CFDateFormatter, Windows GetLocaleInfoEx,
+//! - weekday abbreviations follow the app language; short date order/separators (year always 2 digits),
+//!   12/24 h and AM/PM text come from the system locale, read once through the platform formatter (macOS CFDateFormatter, Windows GetLocaleInfoEx,
 //!   Linux nl_langinfo) as an ICU-style pattern: d/dd, M/MM, y (always printed with 2 digits), H/HH, h/hh, m/mm,
 //!   a (or t) for AM/PM, 'quoted text'. «Today»/«Yesterday» are UI strings (`i18n::t`), not formats.
 //! - Fallback when the locale cannot be read (Linux with LANG unset/C/POSIX or not installed, a failing API call,
 //!   unsupported OS): `Patterns::fallback()` = the reference it_IT look «Mer» / «GG/MM/AA» / «HH:mm».
 //! - Locale and zone are injected (`Patterns`, `tz`, `now_ms`) so tests do not depend on the machine.
 //!
-//! shortcut: the system patterns are read once per run, a 12/24 h or locale change needs a restart.
+//! shortcut: system date/time patterns are read once per run; a system format change needs a restart.
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
 use std::sync::OnceLock;
 
@@ -44,6 +44,18 @@ impl Patterns {
 pub fn system() -> &'static Patterns {
     static P: OnceLock<Patterns> = OnceLock::new();
     P.get_or_init(|| native().unwrap_or_else(Patterns::fallback))
+}
+
+/// System date and time preferences, with weekdays in the active app language.
+pub fn active() -> &'static Patterns {
+    static P: [OnceLock<Patterns>; crate::i18n::LANGUAGES.len()] = [const { OnceLock::new() }; crate::i18n::LANGUAGES.len()];
+    let code = crate::i18n::current();
+    let index = crate::i18n::LANGUAGES.iter().position(|l| l.code == code).unwrap_or(0);
+    P[index].get_or_init(|| {
+        let mut p = system().clone();
+        p.weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(|day| crate::i18n::tr(code, "", day).to_owned());
+        p
+    })
 }
 
 fn render<Tz: TimeZone>(pattern: &str, t: &DateTime<Tz>, p: &Patterns) -> String {
@@ -215,21 +227,21 @@ pub fn starts_day(prev_ms: Option<u64>, ms: u64) -> bool {
     starts_day_in(prev_ms, ms, &Local)
 }
 pub fn day_label(ms: u64) -> String {
-    day_label_in(ms, now_ms(), &Local, system())
+    day_label_in(ms, now_ms(), &Local, active())
 }
 pub fn day_or_time(ms: u64) -> String {
-    day_or_time_in(ms, now_ms(), &Local, system())
+    day_or_time_in(ms, now_ms(), &Local, active())
 }
 
 pub fn list_stamp(ms: u64) -> String {
-    list_stamp_in(ms, now_ms(), &Local, system())
+    list_stamp_in(ms, now_ms(), &Local, active())
 }
 /// `None` (no timestamp known) shows nothing.
 pub fn last_message_stamp(ms: Option<u64>) -> Option<String> {
     ms.map(list_stamp)
 }
 pub fn last_message_spoken_ms(ms: u64) -> String {
-    last_message_spoken_in(ms, now_ms(), &Local, system())
+    last_message_spoken_in(ms, now_ms(), &Local, active())
 }
 pub fn next_local_midnight_ms() -> Option<u64> {
     next_local_midnight_ms_in(now_ms(), &Local)
@@ -427,6 +439,16 @@ fn native() -> Option<Patterns> {
 mod tests {
     use super::*;
     use chrono::{FixedOffset, Utc};
+
+    #[test]
+    fn weekday_follows_app_language() {
+        use crate::i18n::{apply, Preference};
+        let (z, now, day) = (utc(), ms(2026, 11, 6, 12, 0), ms(2026, 11, 4, 12, 0));
+        apply(Preference::Fixed("en"), None);
+        assert_eq!(list_stamp_in(day, now, &z, active()), "Wed");
+        apply(Preference::Fixed("it"), None);
+        assert_eq!(list_stamp_in(day, now, &z, active()), "Mer");
+    }
 
     #[test]
     fn list_stamp_is_time_weekday_or_date() {

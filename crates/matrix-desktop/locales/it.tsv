@@ -738,3 +738,17 @@ menu	Bring All to Front	Porta tutto in primo piano
 	Your reaction	La tua reazione
 	Clear search	Cancella ricerca
 	More reactions	Altre reazioni
+
+# Weekdays
+	Mon	lun
+	Tue	mar
+	Wed	mer
+	Thu	gio
+	Fri	ven
+	Sat	sab
+	Sun	dom
+
+# Poll results
+	selected	selezionata
+	Based on {votes}	Basato su {votes}
+@plural	{n} vote	{n} voto|{n} voti

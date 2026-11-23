@@ -604,3 +604,17 @@ menu	Bring All to Front	Összes előtérbe hozása
 	helper out of place	a segéd rossz helyen van
 	Clear search	Keresés törlése
 	More reactions	További reakciók
+
+# Weekdays
+	Mon	H
+	Tue	K
+	Wed	Sze
+	Thu	Cs
+	Fri	P
+	Sat	Szo
+	Sun	V
+
+# Poll results
+	selected	kiválasztva
+	Based on {votes}	Alapja: {votes}
+@plural	{n} vote	{n} szavazat|{n} szavazat

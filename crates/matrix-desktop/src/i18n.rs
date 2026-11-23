@@ -453,6 +453,17 @@ mod tests {
     }
 
     #[test]
+    fn poll_and_weekday_keys_exist_in_every_catalog() {
+        for l in LANGUAGES.iter().filter(|l| l.code != "en") {
+            let (c, _) = parse(l.source, l.plural_forms);
+            for key in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "selected", "Based on {votes}"] {
+                assert!(c.get("").is_some_and(|rows| rows.contains_key(key)), "{}: {key}", l.code);
+            }
+            assert!(c.get("@plural").is_some_and(|rows| rows.contains_key("{n} vote")), "{}", l.code);
+        }
+    }
+
+    #[test]
     fn catalogs_are_well_formed() {
         for l in &LANGUAGES {
             let (_, errors) = parse(l.source, l.plural_forms);

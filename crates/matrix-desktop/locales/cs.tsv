@@ -603,3 +603,17 @@ menu	Bring All to Front	Všechna okna do popředí
 	helper out of place	pomocník na nesprávném místě
 	Clear search	Vymazat hledání
 	More reactions	Další reakce
+
+# Weekdays
+	Mon	po
+	Tue	út
+	Wed	st
+	Thu	čt
+	Fri	pá
+	Sat	so
+	Sun	ne
+
+# Poll results
+	selected	vybráno
+	Based on {votes}	Na základě {votes}
+@plural	{n} vote	{n} hlas|{n} hlasy|{n} hlasů

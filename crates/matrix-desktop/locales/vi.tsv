@@ -690,3 +690,17 @@ menu	Bring All to Front	Đưa tất cả lên trước
 
 	Clear search	Xóa tìm kiếm
 	More reactions	Thêm biểu cảm
+
+# Weekdays
+	Mon	Thứ 2
+	Tue	Thứ 3
+	Wed	Thứ 4
+	Thu	Thứ 5
+	Fri	Thứ 6
+	Sat	Thứ 7
+	Sun	CN
+
+# Poll results
+	selected	đã chọn
+	Based on {votes}	Dựa trên {votes}
+@plural	{n} vote	{n} phiếu|{n} phiếu

@@ -604,3 +604,17 @@ menu	Bring All to Front	Tümünü öne getir
 	helper out of place	yardımcı yanlış yerde
 	Clear search	Aramayı temizle
 	More reactions	Daha fazla tepki
+
+# Weekdays
+	Mon	Pzt
+	Tue	Sal
+	Wed	Çar
+	Thu	Per
+	Fri	Cum
+	Sat	Cmt
+	Sun	Paz
+
+# Poll results
+	selected	seçili
+	Based on {votes}	{votes} temelinde
+@plural	{n} vote	{n} oy|{n} oy

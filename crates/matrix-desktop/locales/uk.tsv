@@ -689,3 +689,17 @@ menu	Bring All to Front	Усі вікна на передній план
 	helper out of place	помічник не на місці
 	Clear search	Очистити пошук
 	More reactions	Більше реакцій
+
+# Weekdays
+	Mon	пн
+	Tue	вт
+	Wed	ср
+	Thu	чт
+	Fri	пт
+	Sat	сб
+	Sun	нд
+
+# Poll results
+	selected	вибрано
+	Based on {votes}	На основі: {votes}
+@plural	{n} vote	{n} голос|{n} голоси|{n} голосів

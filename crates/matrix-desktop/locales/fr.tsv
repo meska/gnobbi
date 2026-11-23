@@ -604,3 +604,17 @@ menu	Bring All to Front	Tout ramener au premier plan
 	helper out of place	assistant mal placé
 	Clear search	Effacer la recherche
 	More reactions	Plus de réactions
+
+# Weekdays
+	Mon	lun.
+	Tue	mar.
+	Wed	mer.
+	Thu	jeu.
+	Fri	ven.
+	Sat	sam.
+	Sun	dim.
+
+# Poll results
+	selected	sélectionnée
+	Based on {votes}	Basé sur {votes}
+@plural	{n} vote	{n} vote|{n} votes
