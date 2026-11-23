@@ -14,6 +14,8 @@ pub struct Acts {
     pub now_playing: Option<(matrix_domain::EventId, bool, f32)>,
     pub open_link: Option<matrix_desktop::SafeWebUrl>,
     pub picture: Option<(matrix_domain::EventId, bool, String)>,
+    /// The name or picture of a sender (or a mention) was clicked: the member to show.
+    pub profile: Option<String>,
     /// The quote of a reply was clicked: the original to scroll to.
     pub reply_jump: Option<matrix_domain::EventId>,
     /// The message just jumped to, lit for a moment.
@@ -79,6 +81,26 @@ pub(crate) fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWe
 
 #[cfg(test)]
 mod tests {
+    use eframe::egui;
+
+    #[test]
+    fn a_click_on_a_sender_opens_that_member_with_the_hand() {
+        let (ctx, at, mut acts) = (egui::Context::default(), egui::pos2(10., 10.), super::Acts::default());
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        let mut cursor = egui::CursorIcon::Default;
+        for events in [vec![egui::Event::PointerMoved(at)], vec![egui::Event::PointerMoved(at)], vec![button(true)], vec![button(false)]] {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200., 100.))), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                let (_, resp) = ui.allocate_exact_size(egui::vec2(50., 50.), egui::Sense::click());
+                super::sender_link(resp, "@bob:example.org", &mut acts);
+            });
+            out.textures_delta.clear();
+            cursor = out.platform_output.cursor_icon;
+        }
+        assert_eq!(acts.profile.as_deref(), Some("@bob:example.org"));
+        assert_eq!(cursor, egui::CursorIcon::PointingHand);
+    }
+
     #[test]
     fn a_change_of_reactions_moves_the_cached_height_by_the_difference() {
         let (mut stored, id) = (std::collections::HashMap::new(), matrix_domain::EventId::new("$a"));
@@ -123,6 +145,14 @@ mod tests {
 
 pub type Pictures = std::collections::HashMap<matrix_domain::EventId, egui::TextureHandle>;
 pub use crate::avatar::Avatars;
+
+/// Makes `resp` (a sender's name, picture or mention pill) open that member's card: hand cursor, screen-reader label, click.
+fn sender_link(resp: egui::Response, user: &str, acts: &mut Acts) -> egui::Response {
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, i18n::t("Open profile")));
+    let resp = crate::metrics::clickable(resp);
+    if resp.clicked() { acts.profile = Some(user.to_owned()); }
+    resp
+}
 
 /// Round avatar of `size` (see `crate::avatar::paint`).
 fn avatar(ui: &mut egui::Ui, size: f32, pic: &crate::avatar::Avatar, initials: &str, font: f32, t: &DesignTokens) -> egui::Response {
@@ -392,7 +422,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     let (name, twin) = split_id(name, id);
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 4.;
-                        ui.label(RichText::new(name).size(12.).strong().color(rgb(t.accent))).on_hover_text(id);
+                        sender_link(ui.add(egui::Label::new(RichText::new(name).size(12.).strong().color(rgb(t.accent))).sense(egui::Sense::click())), id, acts).on_hover_text(id);
                         if twin {
                             ui.add(egui::Label::new(RichText::new(id).size(10.).color(rgb(t.secondary))).truncate());
                         }
@@ -487,8 +517,10 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                                 if let Some(s) = who {
                                     let pic = crate::avatar::lookup(avatars, s.avatar.as_deref());
                                     let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
-                                    avatar(ui, 20., &pic, &initials, 9., t);
-                                    ui.label(RichText::new(seg).size(BODY).strong().color(rgb(t.accent)));
+                                    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(20.), egui::Sense::click());
+                                    paint_avatar(ui, rect, &pic, &initials, 9., t);
+                                    sender_link(resp, &s.id, acts);
+                                    sender_link(ui.add(egui::Label::new(RichText::new(seg).size(BODY).strong().color(rgb(t.accent))).sense(egui::Sense::click())), &s.id, acts);
                                     continue;
                                 }
                                 for (text, url) in link_parts(seg) {
@@ -546,7 +578,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         if let (Some(column), false, Some(s)) = (column, below, &e.sender) {
             let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
             let pic = crate::avatar::lookup(avatars, s.avatar.as_deref());
-            paint_avatar(ui, egui::Rect::from_min_size(egui::pos2(column.left(), frame.response.rect.bottom() - 32.), Vec2::splat(32.)), &pic, &initials, 12., t);
+            let rect = egui::Rect::from_min_size(egui::pos2(column.left(), frame.response.rect.bottom() - 32.), Vec2::splat(32.));
+            paint_avatar(ui, rect, &pic, &initials, 12., t);
+            sender_link(ui.interact(rect, ui.scope_id().with(("sender", &e.id.id)), egui::Sense::click()), &s.id, acts);
         }
         opened = menu_at(ui, frame.response.rect, e, acts);
         bubble = frame.response.rect;

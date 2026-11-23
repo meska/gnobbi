@@ -253,6 +253,10 @@ pub struct Session {
     pub who: Option<(eframe::egui::Rect, matrix_engine::history::Reaction)>,
     media: LiveMedia,
     pub viewer: Option<crate::viewer::Viewer>,
+    /// The full picture of the avatar the viewer shows, on its way.
+    avatar_full: Option<std::sync::mpsc::Receiver<matrix_engine::avatar::AvatarPicture>>,
+    /// The member card was opened from a message, not from the info panel: closing it closes the info panel it borrowed.
+    chat_profile: bool,
     media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
     /// Thumbnails of the open room's pictures and videos, by event.
     pub pictures: std::collections::HashMap<EventId, egui::TextureHandle>,
@@ -422,6 +426,8 @@ impl Session {
             who: None,
             media: LiveMedia::default(),
             viewer: None,
+            avatar_full: None,
+            chat_profile: false,
             media_route,
             pictures: Default::default(),
             avatars: Default::default(),
@@ -699,6 +705,10 @@ impl Session {
                 source.request(mxc, self.avatar_chan.0.clone());
             }
         }
+        if let Some((_, Some(p))) = &self.profile && let Some(mxc) = &p.avatar && self.avatar_wanted(&matrix_engine::avatar::large_key(mxc)) {
+            self.avatars.insert(matrix_engine::avatar::large_key(mxc), Avatar::Loading);
+            source.request_large(mxc.clone(), self.avatar_chan.0.clone());
+        }
         let Some(messages) = &self.messages else { return changed };
         let thread = self.thread.iter().filter_map(|th| th.history.as_ref());
         for mxc in messages.sender_avatar_mxcs().chain(thread.flat_map(|h| h.sender_avatar_mxcs())) {
@@ -772,6 +782,11 @@ impl Session {
                     Err(_) => self.stickers.error = Some(i18n::t("Image cannot be used")),
                 }
             } else if let Some(viewer) = &mut self.viewer && viewer.id == id { viewer.set_original(ctx, result); }
+            changed = true;
+        }
+        if let Some(rx) = &self.avatar_full && let Ok(p) = rx.try_recv() {
+            self.avatar_full = None;
+            if let (Some(viewer), Some(rgba)) = (&mut self.viewer, p.rgba) { viewer.set_avatar(ctx, rgba); }
             changed = true;
         }
         if let Some((id, result)) = self.media.take_video() {
@@ -1644,6 +1659,36 @@ impl Session {
         append_profile_mention(&mut self.draft, &mut self.mentions, user_id, name);
     }
 
+    /// A sender's name or picture in a message was clicked: the member card opens over the chat, with the info panel only borrowed.
+    pub fn open_profile_from_chat(&mut self, user_id: String) {
+        self.chat_profile = !self.info_open;
+        self.info_open = true;
+        self.open_profile(user_id);
+    }
+
+    /// Closes the info panel the card borrowed once the card is gone (or the panel was toggled off).
+    pub fn settle_chat_profile(&mut self) {
+        if card_borrowed_info_done(self.chat_profile, self.profile.is_some(), self.info_open) {
+            (self.chat_profile, self.profile, self.info_open) = (false, None, false);
+        }
+    }
+
+    /// The card's picture, big (falls back to the small one while the big one comes).
+    pub fn profile_picture(&self, mxc: Option<&str>) -> crate::avatar::Avatar {
+        let big = mxc.map(matrix_engine::avatar::large_key);
+        match big.as_deref().map(|k| crate::avatar::lookup(&self.avatars, Some(k))) {
+            Some(Avatar::Ready(t)) => Avatar::Ready(t),
+            _ => crate::avatar::lookup(&self.avatars, mxc),
+        }
+    }
+
+    /// Opens the picture full size in the viewer.
+    pub fn open_avatar_viewer(&mut self, mxc: &str, name: String) {
+        let Avatar::Ready(tex) = self.profile_picture(Some(mxc)) else { return };
+        self.avatar_full = self.avatar_original(mxc);
+        self.viewer = Some(crate::viewer::Viewer::for_avatar(name, tex));
+    }
+
     pub fn open_profile(&mut self, user_id: String) {
         self.new_failed = false;
         self.rights = None;
@@ -1732,7 +1777,7 @@ impl Session {
         let Some(viewer) = &mut self.viewer else { return };
         let action = viewer.show(ctx, self.pictures.get(&viewer.id));
         match action {
-            crate::viewer::Action::Close => { self.media.cancel_original(); self.viewer = None; }
+            crate::viewer::Action::Close => { self.media.cancel_original(); self.avatar_full = None; self.viewer = None; }
             crate::viewer::Action::Save(path) => {
                 if path.exists() {
                     self.notice = Some(i18n::t("Choose a file that does not exist yet").to_owned());
@@ -2045,6 +2090,19 @@ impl Session {
 
 fn recovery_open(state: Option<RecoveryState>) -> bool {
     matches!(state, Some(RecoveryState::Offered | RecoveryState::Pending | RecoveryState::Failed(_) | RecoveryState::Unsupported))
+}
+
+/// A card opened from a message borrowed the info panel: it is done once the card is closed or the panel toggled off.
+fn card_borrowed_info_done(from_chat: bool, card: bool, info: bool) -> bool {
+    from_chat && (!card || !info)
+}
+
+#[test]
+fn chat_card_gives_the_info_panel_back() {
+    assert!(!card_borrowed_info_done(true, true, true), "card on screen");
+    assert!(card_borrowed_info_done(true, false, true), "card closed");
+    assert!(card_borrowed_info_done(true, true, false), "panel toggled off");
+    assert!(!card_borrowed_info_done(false, false, true), "info panel opened by the user stays");
 }
 
 fn append_profile_mention(draft: &mut String, mentions: &mut Vec<matrix_engine::sending::Mention>, user_id: String, name: &str) {

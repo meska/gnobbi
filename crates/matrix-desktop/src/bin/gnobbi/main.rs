@@ -928,6 +928,7 @@ impl App {
             {
                 let scope = s.sidebar.rooms()[first].scope.clone();
                 s.sidebar.select(&scope);
+                s.opened = true; // one column: the room, not the list behind it
             }
             // GNOBBI_EGUI_EXPORT=<passphrase> / GNOBBI_EGUI_NEWKEY=1: the two key actions of the Devices window, once.
             if !self.hook_keys
@@ -1333,6 +1334,7 @@ impl App {
             if room.is_some() && matrix_desktop::hooks::var_os("GNOBBI_DEBUG_LONGPRESS_MSG").is_some() {
                 self.list_open = false; // test hook: the long-pressed message needs the chat on screen
             }
+            s.settle_chat_profile();
             if single {
                 side = side_on_top(s.info_open && room.is_some(), s.profile.is_some(), s.search_open, s.thread.is_some());
                 // «Back» closes the side panel on top before it shows the list.
@@ -1344,6 +1346,7 @@ impl App {
                         Side::Thread => s.thread = None,
                     }
                     self.list_open = false;
+                    s.settle_chat_profile();
                     side = side_on_top(s.info_open, s.profile.is_some(), s.search_open, s.thread.is_some());
                 }
                 // Without a room there is nothing to show but the list.
@@ -1511,7 +1514,8 @@ impl App {
             let (rights, failed, busy) = (s.rights.clone(), s.moderation_failed, s.moderating);
             let me = id == s.user;
             let can_verify = s.verification.as_ref().is_some_and(|v| v.can_begin());
-            dir::panel_end("member").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, busy, s.new_failed, me, can_verify, &mut action, &mut self.confirm, &mut moderation, &mut close, t)));
+            let picture = s.profile_picture(profile.as_ref().and_then(|p| p.avatar.as_deref()));
+            dir::panel_end("member").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, busy, s.new_failed, me, can_verify, &picture, &mut action, &mut self.confirm, &mut moderation, &mut close, t)));
             match action {
                 Some(info::ProfileAction::Message) => s.start_dm(id.clone()),
                 Some(info::ProfileAction::Mention) => {
@@ -1525,6 +1529,9 @@ impl App {
                         s.info_open = false;
                         close = true;
                     }
+                }
+                Some(info::ProfileAction::Picture) => {
+                    if let Some(p) = &profile && let Some(mxc) = &p.avatar { s.open_avatar_viewer(mxc, p.name.clone()); }
                 }
                 Some(info::ProfileAction::Verify) => { if let Some(v) = &mut s.verification { v.begin_user(id.clone()); } }
                 Some(info::ProfileAction::ReadReceipt) => {
@@ -1613,6 +1620,7 @@ impl App {
             if let Some(body) = out.send { s.send_thread(body); }
             if let Some((id, name)) = out.save { s.save(id, &name); }
             if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
+            if let Some(user) = acts.profile.take() { s.open_profile_from_chat(user); }
             if let Some(id) = acts.play.take() { s.play_audio(id); }
             s.reaction_acts(std::mem::take(&mut acts.react), ui.ctx(), t);
             if acts.open_link.is_some() { self.pending_web = acts.open_link; }
@@ -1727,7 +1735,7 @@ impl App {
                     Some(lift) => {
                         lift.rect = acts.lift_rect.unwrap_or(lift.rect);
                         lift.view = acts.view.unwrap_or(lift.view);
-                        (acts.reply_jump, acts.picture, acts.play, acts.vote, acts.open_link) = (None, None, None, None, None);
+                        (acts.reply_jump, acts.picture, acts.play, acts.vote, acts.open_link, acts.profile) = (None, None, None, None, None, None);
                         acts.react = Default::default();
                         (None, None, None)
                     }
@@ -1753,6 +1761,7 @@ impl App {
                     s.open_thread(root);
                 }
                 if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
+                if let Some(user) = acts.profile.take() { s.open_profile_from_chat(user); }
                 if let Some(id) = acts.play.take() {
                     s.play_audio(id);
                 }

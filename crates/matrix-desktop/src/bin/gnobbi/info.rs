@@ -356,10 +356,13 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
 }
 
 #[derive(Clone, Copy)]
-pub enum ProfileAction { Message, Mention, Verify, ReadReceipt }
+pub enum ProfileAction { Message, Mention, Verify, ReadReceipt, Picture }
+
+/// Side of the picture on the member card, in points.
+const PICTURE: f32 = 104.;
 
 /// A member's card; returns the new ignore state when flipped.
-pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operations::UserProfile>, rights: Option<&matrix_engine::operations::MemberRights>, failed: bool, busy: bool, dm_failed: bool, me: bool, can_verify: bool, action: &mut Option<ProfileAction>, confirm: &mut Option<&'static str>, moderation: &mut Option<matrix_engine::operations::Moderation>, close: &mut bool, t: &DesignTokens) -> Option<bool> {
+pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operations::UserProfile>, rights: Option<&matrix_engine::operations::MemberRights>, failed: bool, busy: bool, dm_failed: bool, me: bool, can_verify: bool, picture: &crate::avatar::Avatar, action: &mut Option<ProfileAction>, confirm: &mut Option<&'static str>, moderation: &mut Option<matrix_engine::operations::Moderation>, close: &mut bool, t: &DesignTokens) -> Option<bool> {
     let mut flip = None;
     ui.add_space(16.);
     ui.horizontal(|ui| {
@@ -377,12 +380,23 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
         ui.add_space(16.);
         ui.with_layout(crate::dir::col(), |ui| {
             ui.set_max_width(ui.available_width() - 16.);
-            ui.heading(&p.name);
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(id).color(rgb(t.secondary)));
-                if copy_icon(ui).clicked() {
-                    ui.ctx().copy_text(id.to_owned());
-                }
+            // Telegram-like head: big picture (full size on a click), name and id centred under it.
+            ui.vertical_centered(|ui| {
+                let ready = matches!(picture, crate::avatar::Avatar::Ready(_));
+                let (rect, resp) = ui.allocate_exact_size(Vec2::splat(PICTURE), if ready { egui::Sense::click() } else { egui::Sense::hover() });
+                crate::avatar::paint(ui, rect.center(), PICTURE, rgb(matrix_desktop::AVATAR_FALLBACK), picture, &matrix_desktop::initials(&p.name), 40., rgb(t.avatar_text));
+                resp.widget_info(|| egui::WidgetInfo::labeled(if ready { egui::Role::Button } else { egui::Role::Image }, true, i18n::t("Profile picture")));
+                if crate::metrics::clickable(resp).clicked() { *action = Some(ProfileAction::Picture); }
+                ui.add_space(8.);
+                ui.heading(&p.name);
+                let id_w = ui.painter().layout_no_wrap(id.to_owned(), FontId::proportional(14.), Color32::WHITE).size().x + crate::metrics::button() + ui.spacing().item_spacing.x;
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(((ui.available_width() - id_w) / 2.).max(0.));
+                    ui.label(RichText::new(id).color(rgb(t.secondary)));
+                    if copy_icon(ui).clicked() {
+                        ui.ctx().copy_text(id.to_owned());
+                    }
+                });
             });
             ui.horizontal_wrapped(|ui| {
                 ui.label(i18n::t("Profile link"));

@@ -13,6 +13,8 @@ fn fit(image: egui::Vec2, available: egui::Vec2) -> egui::Vec2 {
 pub struct Viewer {
     pub id: EventId,
     video: bool,
+    /// A profile picture: not an event's media, so nothing to save or open.
+    avatar: bool,
     name: String,
     original: Option<egui::TextureHandle>,
     pub failed: bool,
@@ -22,7 +24,17 @@ pub struct Viewer {
 
 impl Viewer {
     pub fn new(id: EventId, video: bool, name: String) -> Self {
-        Self { id, video, name, original: None, failed: false, opening: false, player: None }
+        Self { id, video, avatar: false, name, original: None, failed: false, opening: false, player: None }
+    }
+
+    /// A profile picture, shown at once from the texture the card already has.
+    pub fn for_avatar(name: String, shown: egui::TextureHandle) -> Self {
+        Self { avatar: true, original: Some(shown), ..Self::new(EventId::new("avatar"), false, name) }
+    }
+
+    /// The picture as uploaded, when it arrives.
+    pub fn set_avatar(&mut self, ctx: &egui::Context, (w, h, rgba): (u32, u32, Vec<u8>)) {
+        self.original = Some(ctx.load_texture("avatar-original", egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba), Default::default()));
     }
 
     pub fn set_original(&mut self, ctx: &egui::Context, result: Result<Preview, MediaError>) {
@@ -70,11 +82,11 @@ impl Viewer {
                 ui.horizontal(|ui| {
                     let resp = crate::icons::button(ui, crate::icons::Icon::X, false, matrix_desktop::i18n::t("Close"));
                     if resp.clicked() { action = Action::Close; }
-                    if ui.button(i18n::t("Save as")).clicked() {
+                    if !self.avatar && ui.button(i18n::t("Save as")).clicked() {
                         let name = std::path::Path::new(&self.name).file_name().and_then(|s| s.to_str()).unwrap_or("file");
                         crate::pick::save_start(ctx, i18n::t("Save as"), name);
                     }
-                    if let Some(path) = crate::pick::done(i18n::t("Save as")) { action = Action::Save(path); }
+                    if !self.avatar && let Some(path) = crate::pick::done(i18n::t("Save as")) { action = Action::Save(path); }
                     if self.video && ui.add_enabled(!self.opening, egui::Button::new(i18n::t("Open"))).clicked() {
                         self.opening = true;
                         action = Action::Open;
