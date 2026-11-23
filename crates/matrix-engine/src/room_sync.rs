@@ -2355,7 +2355,10 @@ pub(crate) async fn fill(
             return (now, Ok(()));
         }
         let before = now.rows.len();
-        let Ok(reached_start) = timeline.paginate_backwards(PAGE as u16).await else {
+        let step_started = std::time::Instant::now();
+        let paged = timeline.paginate_backwards(PAGE as u16).await;
+        tracing::info!("paginate_backwards source=network ms={} ok={}", step_started.elapsed().as_millis(), paged.is_ok());
+        let Ok(reached_start) = paged else {
             return (
                 loaded(room, timeline).await,
                 Err(crate::history::HistoryError::Transport),
@@ -2402,30 +2405,32 @@ fn joined(
         .ok_or(HistoryError::Unavailable)
 }
 
+const SAVED_BUDGET: Duration = Duration::from_millis(300);
+
 /// Saved messages of one room, as the room's Timeline holds them. With fewer than a PAGE of visible
-/// saved rows the loop also takes network pagination steps, each cut at 1 s and at most 10, before
-/// the first emission; an unreachable server only delays it.
+/// saved rows the loop steps back through older saved chunks for at most `SAVED_BUDGET` in all (a step
+/// that has to leave the disk is cut), so the first emission never waits for the network: the full list follows.
 async fn saved_page(
     client: &matrix_sdk::Client,
     timelines: &Timelines,
     account_id: matrix_domain::AccountId,
     tag: crate::RequestTag,
 ) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
+    let t0 = std::time::Instant::now();
     let room = joined(client, &tag, account_id)?;
     let timeline = timelines.get(&room).await?;
     let mut now = loaded(&room, &timeline).await;
     // The timeline starts from the newest saved chunk only (the reply may sit there while its root is in
     // an older one): step back through the older saved chunks until a page is full; the SDK reads the disk first.
-    // shortcut: a step that has to leave the disk is dropped after 1 s, and at most 10 steps.
+    // shortcut: a step that has to leave the disk is dropped when the budget ends, and at most 10 steps.
+    let deadline = tokio::time::Instant::now() + SAVED_BUDGET;
     for _ in 0..10 {
         if now.rows.iter().filter(|r| !r.status).count() >= PAGE || now.at_start {
             break;
         }
-        let step = tokio::time::timeout(
-            Duration::from_secs(1),
-            timeline.paginate_backwards(PAGE as u16),
-        )
-        .await;
+        let step_started = std::time::Instant::now();
+        let step = tokio::time::timeout_at(deadline, timeline.paginate_backwards(PAGE as u16)).await;
+        tracing::info!("paginate_backwards source=cache_step ms={} done={}", step_started.elapsed().as_millis(), matches!(step, Ok(Ok(_))));
         if !matches!(step, Ok(Ok(_))) {
             break;
         }
@@ -2435,6 +2440,7 @@ async fn saved_page(
     }
     crate::threads::annotate_unread(timelines, &room, &mut now.rows).await;
     let next = cursor(&now.rows, now.at_start);
+    tracing::info!("room_open first_items source=cache ms={} rows={}", t0.elapsed().as_millis(), now.rows.len());
     Ok(crate::history::HistoryPage {
         tag,
         events: now.rows,
@@ -2487,6 +2493,7 @@ pub(crate) async fn serve_history(
     out: &mut crate::Sender<crate::history::HistoryResult>,
 ) -> bool {
     let tag = request.tag;
+    let opened = std::time::Instant::now();
     // False once the receiver is gone.
     let mut emit = async |result: crate::history::HistoryResult| {
         result.tag.is_cancelled() || out.send(result).await.is_ok()
@@ -2505,6 +2512,7 @@ pub(crate) async fn serve_history(
         }
         return match open_page(client, timelines, tag.clone()).await {
             Ok((page, _)) => {
+                tracing::info!("room_open full_list source=network ms={} rows={}", opened.elapsed().as_millis(), page.events.len());
                 emit(crate::history::HistoryResult {
                     tag,
                     page: Ok(page),
@@ -2515,6 +2523,7 @@ pub(crate) async fn serve_history(
         };
     }
     let page = fetch_history(client, timelines, account, tag.clone(), request.before).await;
+    tracing::info!("room_open first_items source=network ms={} rows={} open={}", opened.elapsed().as_millis(), page.as_ref().map_or(0, |p| p.events.len()), request.open);
     emit(crate::history::HistoryResult { tag, page }).await
 }
 
