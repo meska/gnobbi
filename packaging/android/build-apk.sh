@@ -5,6 +5,8 @@
 # Needs the Android SDK (ANDROID_HOME) and a JDK 17-21.
 set -eu
 cd "$(dirname "$0")"
+# Firebase client config (PA-1), kept out of the repo: GOOGLE_SERVICES_JSON=/path/google-services.json
+[ -z "${GOOGLE_SERVICES_JSON:-}" ] || cp "$GOOGLE_SERVICES_JSON" app/google-services.json
 ./gradlew assembleDebug
 mkdir -p ../../artifacts/android
 cp app/build/outputs/apk/debug/app-debug.apk ../../artifacts/android/gnobbi-debug.apk
