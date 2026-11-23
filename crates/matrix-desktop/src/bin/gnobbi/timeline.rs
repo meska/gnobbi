@@ -320,10 +320,12 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         return (menu_at(ui, r.response.rect, e, acts), false, false);
     }
     // The side margin (12) and, in group rooms, the avatar column (32 + 8) are not available to the bubble: without them a wide bubble overflowed a narrow column and every row shifted right.
-    let side = 12. + if group && !e.outgoing { 40. } else { 0. };
-    let max = ((ui.available_width() - side) * 0.85).clamp(120., MAX_BUBBLE);
+    let max = bubble_max(ui.available_width(), group && !e.outgoing);
     let layout = if e.outgoing { crate::dir::row_rev(Align::TOP) } else { crate::dir::row(Align::TOP) };
     let mut opened = None;
+    // Media with reactions: the pills straddle the media's bottom edge inside the bubble (Telegram), not a line under it.
+    let shown = reactions_of(e, &acts.wishes).into_owned();
+    let over = pills_over_media(e);
     let mut bubble = egui::Rect::NOTHING;
     let mut save = false;
     let mut thread = false;
@@ -428,6 +430,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                         None => {
                             if crate::metrics::clickable(ui.add(egui::Label::new(RichText::new(media.translated(|k| i18n::t(k).to_owned())).color(rgb(t.secondary))).sense(egui::Sense::click()))).clicked() && media.kind == matrix_engine::history::MediaKind::Video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| i18n::t("video").into()))); }
                         }
+                    }
+                    if over && !shown.is_empty() {
+                        crate::reactions::show(ui, e, &shown, group, true, egui::Rect::NOTHING, acts.press, &mut acts.react, t);
                     }
                 }
                 if let (Some(_), matrix_domain::TimelineId::Server(id)) = (&e.audio, &e.id.id) {
@@ -546,9 +551,21 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         opened = menu_at(ui, frame.response.rect, e, acts);
         bubble = frame.response.rect;
     });
-    let shown = reactions_of(e, &acts.wishes);
-    crate::reactions::show(ui, e, &shown, group, bubble, acts.press, &mut acts.react, t);
+    if !over {
+        crate::reactions::show(ui, e, &shown, group, false, bubble, acts.press, &mut acts.react, t);
+    }
     (opened, save, thread)
+}
+
+/// A picture, sticker or video (not a file or audio): its reactions straddle the media's bottom edge.
+fn pills_over_media(e: &DemoEvent) -> bool {
+    use matrix_engine::history::MediaKind::{Image, Video};
+    matches!(e.id.id, matrix_domain::TimelineId::Server(_)) && e.media.as_ref().is_some_and(|m| matches!(m.kind, Image | Video))
+}
+
+/// The widest a bubble gets in a column `avail` wide (`avatar`: a group's incoming one leaves room for the avatar).
+fn bubble_max(avail: f32, avatar: bool) -> f32 {
+    ((avail - 12. - if avatar { 40. } else { 0. }) * 0.85).clamp(120., MAX_BUBBLE)
 }
 
 /// The cached height of a row whose pills now take `ph`: moved by the difference from what they took when it was last laid out
@@ -692,7 +709,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         }
         for (i, e) in events.iter().enumerate() {
             if let (matrix_domain::TimelineId::Server(id), false, false) = (&e.id.id, e.status, e.redacted) {
-                let ph = crate::reactions::height(ui, &reactions_of(e, &acts.wishes), e.outgoing, members > 2, ui.available_width());
+                let ph = crate::reactions::height(ui, &reactions_of(e, &acts.wishes), e.outgoing, members > 2, if pills_over_media(e) { (bubble_max(ui.available_width(), members > 2 && !e.outgoing) - 2. * PAD_X).min(320.) } else { ui.available_width() }, pills_over_media(e));
                 heights.rows[i] = pill_shift(&mut heights.pills, id, ph, heights.rows[i]);
             }
             let h = heights.rows[i];

@@ -2166,6 +2166,13 @@ async fn perform_uncached(
             }
             let mut updates = client.send_queue().subscribe();
             let id = item.identifier();
+            // One reaction per user: the SDK takes back every other of ours first (the new one replaces it).
+            let others: Vec<String> = item.content().reactions().map_or_else(Vec::new, |r| {
+                r.iter().filter(|(k, by)| k.as_str() != key && by.contains_key(user)).map(|(k, _)| k.clone()).collect()
+            });
+            for other in others {
+                timeline.toggle_reaction(&id, &other).await.map_err(|_| OperationError::Transport)?;
+            }
             let added = timeline
                 .toggle_reaction(&id, key)
                 .await

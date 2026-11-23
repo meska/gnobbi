@@ -449,3 +449,24 @@ fn a_vote_and_another_operation_in_the_same_frame_never_overwrite_each_other() {
     assert!(!actions.submit(Operation::React { key: "+1".into() }, TransactionId::new("r2")), "the unsent vote is kept");
     assert!(matches!(actions.take_command(), Some(OperationCommand::Apply(r)) if matches!(r.operation, Operation::Vote { .. })));
 }
+
+#[test]
+fn a_new_pill_of_ours_replaces_the_old_one_and_taking_it_back_keeps_the_rest() {
+    use matrix_desktop::overlay_reactions as overlay;
+    let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:test") };
+    let target = EventId::new("$m");
+    let key = |shown: &[matrix_engine::history::Reaction]| shown.iter().map(|r| (r.key.clone(), r.count, r.mine)).collect::<Vec<_>>();
+    // None of ours before: nothing to replace.
+    let mut actions = LiveOperations::default();
+    assert!(actions.react_direct(scope.clone(), target.clone(), "😮", false, TransactionId::new("t0")));
+    assert_eq!(key(&overlay(actions.wishes(), &target, &[reaction("👍", 1, false)])), [("👍".into(), 1, false), ("😮".into(), 1, true)]);
+    // Ours 😂 (alone) and 👍 (shared): 😮 replaces both, the others' count stays.
+    let server = vec![reaction("😂", 1, true), reaction("👍", 3, true)];
+    let mut actions = LiveOperations::default();
+    assert!(actions.react_direct(scope.clone(), target.clone(), "😮", false, TransactionId::new("t1")));
+    assert_eq!(key(&overlay(actions.wishes(), &target, &server)), [("👍".into(), 2, false), ("😮".into(), 1, true)]);
+    // Same emoji again is the toggle: only that one goes.
+    let mut actions = LiveOperations::default();
+    assert!(actions.react_direct(scope, target.clone(), "😂", true, TransactionId::new("t2")));
+    assert_eq!(key(&overlay(actions.wishes(), &target, &server)), [("👍".into(), 3, true)]);
+}

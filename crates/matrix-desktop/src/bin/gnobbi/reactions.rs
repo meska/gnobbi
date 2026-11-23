@@ -53,13 +53,21 @@ pub fn flow(widths: &[f32], avail: f32, gap: f32) -> Flow {
     Flow { at, lines }
 }
 
-fn block_height(lines: usize, pill_h: f32) -> f32 {
-    if lines == 0 { 0. } else { TOP + lines as f32 * pill_h + (lines - 1) as f32 * GAP_Y }
+/// Under a media message the first line rises half its height over the media's bottom edge instead of starting `TOP` below it.
+fn lead(over: bool, pill_h: f32) -> f32 {
+    if over { -pill_h / 2. } else { TOP }
+}
+
+fn block_height(lines: usize, pill_h: f32, over: bool) -> f32 {
+    if lines == 0 { 0. } else { lead(over, pill_h) + lines as f32 * pill_h + (lines - 1) as f32 * GAP_Y }
 }
 
 /// The room a row leaves for pills, as (start, end) inside a column `[left, right]`: from the bubble's start edge (past the avatar
 /// column of a group) to the margin; an own message ends at the margin, an incoming one starts at the bubble.
-fn span(left: f32, right: f32, outgoing: bool, group: bool) -> (f32, f32) {
+fn span(left: f32, right: f32, outgoing: bool, group: bool, over: bool) -> (f32, f32) {
+    if over {
+        return (left + 4., right - 4.);
+    }
     (left + 12. + if group && !outgoing { 40. } else { 0. }, right - 12.)
 }
 
@@ -96,12 +104,12 @@ fn widths(ui: &egui::Ui, rs: &[Reaction]) -> Vec<f32> {
 }
 
 /// Height the pills take below a bubble in a column `width` wide (0 without reactions).
-pub fn height(ui: &egui::Ui, rs: &[Reaction], outgoing: bool, group: bool, width: f32) -> f32 {
+pub fn height(ui: &egui::Ui, rs: &[Reaction], outgoing: bool, group: bool, width: f32, over: bool) -> f32 {
     if rs.is_empty() {
         return 0.;
     }
-    let (l, r) = span(0., width, outgoing, group);
-    block_height(flow(&widths(ui, rs), r - l, GAP_X).lines.len(), PILL_H * scale())
+    let (l, r) = span(0., width, outgoing, group, over);
+    block_height(flow(&widths(ui, rs), r - l, GAP_X).lines.len(), PILL_H * scale(), over)
 }
 
 /// What a pill asked for this frame.
@@ -118,8 +126,9 @@ fn suppress_id() -> egui::Id {
     egui::Id::new("reaction-suppress-click")
 }
 
-/// Draws the pills of `e` below its bubble, at the column's current cursor. `rs` already has the pending taps laid over.
-pub fn show(ui: &mut egui::Ui, e: &DemoEvent, rs: &[Reaction], group: bool, bubble: Rect, press: Option<egui::Pos2>, out: &mut Acts, t: &DesignTokens) {
+/// Draws the pills of `e` at the column's current cursor: below its bubble, or (`over`, media inside the bubble) straddling the media's
+/// bottom edge, the cursor being just under it. `rs` already has the pending taps laid over.
+pub fn show(ui: &mut egui::Ui, e: &DemoEvent, rs: &[Reaction], group: bool, over: bool, bubble: Rect, press: Option<egui::Pos2>, out: &mut Acts, t: &DesignTokens) {
     let target = match &e.id.id {
         matrix_domain::TimelineId::Server(id) => Some(id.clone()),
         _ => None,
@@ -127,11 +136,14 @@ pub fn show(ui: &mut egui::Ui, e: &DemoEvent, rs: &[Reaction], group: bool, bubb
     let rgb = |c: u32| Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
     let pill_h = PILL_H * scale();
     let (left, width) = (ui.cursor().left(), ui.available_width());
-    let (l, r) = span(left, left + width, e.outgoing, group);
+    let (l, r) = span(left, left + width, e.outgoing, group, over);
     let widths = widths(ui, rs);
     let f = flow(&widths, r - l, GAP_X);
-    let h = block_height(f.lines.len(), pill_h);
-    let (block, _) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
+    let h = block_height(f.lines.len(), pill_h, over);
+    // The spacing the media left before the cursor is part of the way up.
+    let sp = if over { ui.spacing().item_spacing.y } else { 0. };
+    let (block, _) = ui.allocate_exact_size(vec2(width, (h - sp).max(0.)), Sense::hover());
+    let block = block.translate(vec2(0., -sp));
     if ui.input(|i| i.pointer.any_pressed()) {
         ui.data_mut(|d| d.remove_temp::<bool>(suppress_id()));
     }
@@ -150,7 +162,7 @@ pub fn show(ui: &mut egui::Ui, e: &DemoEvent, rs: &[Reaction], group: bool, bubb
         let w = w.min(r - l);
         // An own message's lines end at the margin; an incoming one's start at the bubble.
         let start = if e.outgoing { r - f.lines[*line] } else { l };
-        let min = pos2(start + x, block.top() + TOP + *line as f32 * (pill_h + GAP_Y));
+        let min = pos2(start + x, block.top() + lead(over, pill_h) + *line as f32 * (pill_h + GAP_Y));
         let pill = crate::dir::flip(column, Rect::from_min_size(min, vec2(w, pill_h)));
         let ink = if r_.mine { rgb(t.on_accent) } else { rgb(t.text) };
         #[cfg(debug_assertions)]
@@ -263,7 +275,7 @@ mod tests {
                 }
                 assert!(f.lines.iter().all(|w| *w <= avail + 0.01));
                 assert_eq!(f.at.iter().map(|(l, _)| *l).max(), Some(f.lines.len() - 1));
-                let h = block_height(f.lines.len(), PILL_H);
+                let h = block_height(f.lines.len(), PILL_H, false);
                 assert_eq!(h, TOP + f.lines.len() as f32 * PILL_H + (f.lines.len() - 1) as f32 * GAP_Y);
             }
         }
@@ -279,14 +291,17 @@ mod tests {
         assert_eq!(f.at, [(0, 0.), (1, 0.)]);
         assert_eq!(f.lines, [100., 30.]);
         assert!(flow(&[], 100., 4.).lines.is_empty());
-        assert_eq!(block_height(0, PILL_H), 0.);
-        assert_eq!(block_height(1, PILL_H), TOP + PILL_H);
+        assert_eq!(block_height(0, PILL_H, false), 0.);
+        assert_eq!(block_height(1, PILL_H, false), TOP + PILL_H);
+        assert_eq!(block_height(1, PILL_H, true), PILL_H / 2., "over the media: half the pill hangs below its edge");
+        assert_eq!(block_height(2, PILL_H, true), PILL_H * 1.5 + GAP_Y);
     }
 
     #[test]
     fn the_room_for_pills_follows_the_bubble_side() {
-        assert_eq!(span(0., 300., false, false), (12., 288.));
-        assert_eq!(span(0., 300., false, true), (52., 288.), "incoming in a group: past the avatar");
-        assert_eq!(span(0., 300., true, true), (12., 288.));
+        assert_eq!(span(0., 300., false, false, false), (12., 288.));
+        assert_eq!(span(0., 300., false, true, false), (52., 288.), "incoming in a group: past the avatar");
+        assert_eq!(span(0., 300., true, true, false), (12., 288.));
+        assert_eq!(span(0., 300., false, true, true), (4., 296.), "inside a media bubble: no avatar column");
     }
 }

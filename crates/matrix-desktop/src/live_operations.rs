@@ -52,11 +52,29 @@ pub struct Wish {
 const WISH_AFTER_DONE: Duration = Duration::from_secs(8);
 const WISH_MAX: Duration = Duration::from_secs(30);
 
+/// One reaction per user: adding `key` takes our other pills back (the engine redacts them), as `pending`.
+fn drop_mine_but(out: &mut Vec<Reaction>, key: &str) {
+    let mut i = 0;
+    while i < out.len() {
+        if out[i].key != key && out[i].mine {
+            if out[i].count <= 1 {
+                out.remove(i);
+                continue;
+            }
+            (out[i].count, out[i].mine, out[i].pending) = (out[i].count - 1, false, true);
+        }
+        i += 1;
+    }
+}
+
 /// `server` with the wishes for `target` laid over it: an emoji added shows with us counted, one taken back without us; both as
 /// `pending` (dimmed). A wish the server already agrees with changes nothing.
 pub fn overlay(wishes: &[Wish], target: &EventId, server: &[Reaction]) -> Vec<Reaction> {
     let mut out = server.to_vec();
     for w in wishes.iter().filter(|w| w.target == *target) {
+        if w.add {
+            drop_mine_but(&mut out, &w.key);
+        }
         match (out.iter().position(|r| r.key == w.key), w.add) {
             (Some(at), true) if !out[at].mine => {
                 let r = &mut out[at];

@@ -149,6 +149,28 @@ fn reactions_are_projected_and_taken_back() {
         let gone = shown!(|r| r.iter().all(|r| !r.mine), "other device reaction removed");
         assert_eq!(summary(&gone), [(thumbs.clone(), 1, false), (heart.clone(), 1, false)]);
 
+        // One reaction per user: ours 😂 then 😮 leaves only 😮 (the engine redacts the old one); Bob's pills stay.
+        sync.operate(&op("rx-a", Operation::React { key: "\u{1f602}".into() })).await.expect("react 1");
+        shown!(|r| r.iter().any(|r| r.key == "\u{1f602}" && r.mine), "first of ours");
+        sync.operate(&op("rx-b", Operation::React { key: "\u{1f62e}".into() })).await.expect("react 2");
+        let swapped = shown!(|r| r.iter().any(|r| r.key == "\u{1f62e}" && r.mine) && r.iter().all(|r| r.key != "\u{1f602}"), "replaced");
+        assert_eq!(swapped.iter().filter(|r| r.mine).count(), 1);
+        // Bob's own view of Alice's reactions: only 😮.
+        let page = rb
+            .relations(message.clone(), matrix_engine::sdk::room::RelationsOptions {
+                include_relations: matrix_engine::sdk::room::IncludeRelations::RelationsOfType(matrix_engine::sdk::ruma::events::relation::RelationType::Annotation),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let alices: Vec<String> = page.chunk.iter().filter_map(|e| {
+            let v: serde_json::Value = serde_json::from_str(e.raw().json().get()).ok()?;
+            (v["sender"].as_str() == Some(a.user_id().unwrap().as_str())).then(|| v["content"]["m.relates_to"]["key"].as_str().unwrap_or_default().to_owned())
+        }).collect();
+        assert_eq!(alices, ["\u{1f62e}"], "Bob sees only the new reaction of Alice");
+        sync.operate(&op("rx-c", Operation::Unreact { key: "\u{1f62e}".into() })).await.expect("unreact 2");
+        shown!(|r| r.iter().all(|r| !r.mine), "ours gone");
+
         // Bob takes his heart back: the pill goes with it.
         rb.redact(&heart_by_bob, None, None).await.unwrap();
         let last = shown!(|r| r.len() == 1, "bob removes his heart");
