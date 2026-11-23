@@ -76,7 +76,7 @@ pub fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&
 pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferences, dirs: Option<&AppDirs>, t: &DesignTokens) -> Option<Preferences> {
     let mut p = prefs.clone();
     let mut changed = false;
-    let (mut devices, mut accounts, mut customize) = (false, false, false);
+    let (mut devices, mut accounts, mut customize, mut feedback) = (false, false, false, false);
     // One column: the pages that return here («‹») slide over this one, which stays under them.
     let under = ctx.content_rect().width() < crate::SINGLE_WIDTH && (rail.accounts || rail.devices || rail.customize);
     let closed = crate::rail::drawer(ctx, rail.panel, "settings-drawer", tr("Settings"), rail.settings || under, t, |ui, rect| {
@@ -117,10 +117,12 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                             ui.label(if ok { tr("Added to menu") } else { tr("Could not add to menu") });
                         }
                     }
+                    feedback = nav_row(ui, tr("Send feedback"), crate::icons::Icon::ChatCircleDots, t).clicked();
                 });
             });
         });
     });
+    rail.feedback |= feedback;
     if closed {
         rail.settings = false;
     }

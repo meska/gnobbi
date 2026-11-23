@@ -1117,6 +1117,15 @@ impl App {
                     }
                 }
                 "settings" => self.rail.set_settings(true),
+                // «Send feedback» as if tapped; once more after a failure, as a retry by the user.
+                "feedback" if s.sync == Some(RoomSyncStatus::Ready) => {
+                    static TAPS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+                    let taps = TAPS.load(std::sync::atomic::Ordering::Relaxed);
+                    if taps == 0 || (taps == 1 && s.room_error.is_some()) {
+                        TAPS.store(taps + 1, std::sync::atomic::Ordering::Relaxed);
+                        s.send_feedback();
+                    }
+                }
                 "accounts" => self.rail.set_accounts(true),
                 "customize" => self.rail.set_customize(true),
                 _ => {}
@@ -1364,6 +1373,10 @@ impl App {
         let mut others = Vec::new();
         let (active_id, active_label, account) = self.account_rows(&mut others);
         if let Some(session) = &mut self.session {
+            if std::mem::take(&mut self.rail.feedback) {
+                session.send_feedback();
+                (self.rail.edit, self.rail.settings, self.rail.devices, self.rail.accounts, self.rail.customize) = (false, false, false, false, false);
+            }
             rail::edit_window(ui.ctx(), session, &mut self.new_form, &mut self.rail, account, self.dirs.as_ref(), t);
             let mut under = (both || list_dx != 0.).then(|| mobile::nav_layer(ui, list_dx));
             let ui: &mut egui::Ui = match &mut under { Some(layer) => layer, None => &mut *ui };
@@ -2756,11 +2769,11 @@ fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::S
         ui.add_space(8.);
         // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
         let dots = others.len().div_ceil(5) as f32 * 10.;
-        let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(rail::WIDTH, 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
+        let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(rail::WIDTH, 52. + dots), egui::Sense::click());
         let resp = crate::metrics::clickable(resp);
         let name = active_label;
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
-        if !others.is_empty() && resp.hovered() {
+        if resp.hovered() {
             ui.painter().rect_filled(rect.shrink2(egui::Vec2::new(6., 2.)), 10., rgb(t.input));
         }
         let c = rect.center_top() + egui::Vec2::new(0., 26.);
@@ -2775,13 +2788,13 @@ fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::S
                 ui.painter().circle_stroke(d, 2.5, egui::Stroke::new(1., rgb(t.secondary)));
             }
         }
-        if !others.is_empty() {
-            // Test hook: GNOBBI_EGUI_VIEW=account-menu shows the list without a click.
-            if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
-                egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
-            }
-            egui::Popup::menu(&resp).align(if dir::rtl() { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START }).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| crate::dir::popup(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.;
+        // Test hook: GNOBBI_EGUI_VIEW=account-menu shows the menu without a click.
+        if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
+            egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
+        }
+        egui::Popup::menu(&resp).align(if dir::rtl() { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START }).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| crate::dir::popup(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.;
+            if !others.is_empty() {
                 accounts::switch_row(ui, name, active_id, &session.own_avatar(), true, 0, t);
                 for (root, other, id, pic, unread) in others {
                     if accounts::switch_row(ui, other, id, pic, false, unread.unwrap_or(0), t).clicked() {
@@ -2789,8 +2802,12 @@ fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::S
                         ui.close();
                     }
                 }
-            }));
-        }
+            }
+            if ui.button(i18n::t("Send feedback")).clicked() {
+                rail_state.feedback = true;
+                ui.close();
+            }
+        }));
         resp.on_hover_text(name);
         let placed = session.space_placed.take();
         rail::show(ui, &mut session.sidebar, &session.avatars, rail_state, account, placed, t);

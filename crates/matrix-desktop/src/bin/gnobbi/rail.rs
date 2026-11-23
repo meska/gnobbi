@@ -40,6 +40,8 @@ pub struct State {
     pub customize: bool,
     /// The devices drawer was just opened: the caller refreshes the list once and clears this.
     pub refresh_devices: bool,
+    /// «Send feedback» was tapped; the shell hands it to the session and clears it.
+    pub feedback: bool,
     pub moving: Option<Move>,
     /// Why the last move did not happen.
     pub error: Option<String>,

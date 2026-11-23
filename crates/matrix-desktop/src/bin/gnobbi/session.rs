@@ -217,6 +217,8 @@ pub struct Session {
     /// Highlighted row of the quick search, counted over all groups.
     pub quick_sel: usize,
     pub new_failed: bool,
+    /// The DM being started is the feedback one: its composer gets the diagnostic line, a failure is a list line.
+    feedback_pending: bool,
     /// Joins asked from the quick search or «Unisciti», by the command's target; a successful one is removed.
     pub joins: std::collections::HashMap<String, crate::join::JoinState>,
     /// «Crea spazio» was sent and its answer is not in yet.
@@ -402,6 +404,7 @@ impl Session {
             explore: None,
             quick_sel: 0,
             new_failed: false,
+            feedback_pending: false,
             joins: Default::default(),
             new_busy: false,
             pending_space: None,
@@ -1333,9 +1336,18 @@ impl Session {
             OperationResult::RoomStarted { result } => {
                 match result {
                     Ok(scope) => {
+                        if std::mem::take(&mut self.feedback_pending) {
+                            // A line the user already typed there is theirs: keep it.
+                            let slot = if self.draft_scope.as_ref() == Some(scope) { &mut self.draft } else { self.drafts.entry(scope.clone()).or_default() };
+                            if slot.is_empty() { *slot = matrix_desktop::feedback::diagnostic(); }
+                        }
                         self.pending_select = Some(scope.clone());
                         self.new_open = false;
                         self.new_failed = false;
+                    }
+                    Err(e) if std::mem::take(&mut self.feedback_pending) => {
+                        use matrix_engine::operations::OperationError as E;
+                        self.room_error = Some(i18n::t(match e { E::Unavailable | E::WrongScope | E::InvalidInput => "Feedback address not found", e => matrix_engine::operations::space_error_line(*e) }).into());
                     }
                     Err(_) => self.new_failed = true,
                 }
@@ -1494,6 +1506,13 @@ impl Session {
             RoomAction::RemoveFrom(space) => Some(OperationCommand::RemoveFromSpace { scope, space }),
         };
         if let Some(command) = command { self.op_queue.push(command); }
+    }
+
+    /// «Send feedback»: opens the DM with the feedback user (the SDK reuses or creates it), diagnostic line in its composer.
+    pub fn send_feedback(&mut self) {
+        self.room_error = None;
+        self.feedback_pending = true;
+        self.op_queue.push(OperationCommand::StartDm { user_id: matrix_desktop::feedback::target() });
     }
 
     pub fn start_dm(&mut self, user_id: String) {
