@@ -13,8 +13,15 @@ pub struct AvatarPicture {
 pub trait AvatarSource: Send + Sync {
     /// Starts the download and decode away from the caller; the answer arrives on `out`.
     fn request(&self, mxc: String, out: std::sync::mpsc::Sender<AvatarPicture>);
+    /// The big thumbnail for the profile card; the answer's `mxc` is `large_key(mxc)`.
+    fn request_large(&self, mxc: String, out: std::sync::mpsc::Sender<AvatarPicture>);
     /// Like `request`, but the picture as uploaded instead of the small thumbnail (to retouch the own avatar). Not cached.
     fn request_original(&self, mxc: String, out: std::sync::mpsc::Sender<AvatarPicture>);
+}
+
+/// Key of the big thumbnail of `mxc` in the window's picture map.
+pub fn large_key(mxc: &str) -> String {
+    format!("{mxc}#large")
 }
 
 pub type AvatarSlot = Arc<Mutex<Option<Box<dyn AvatarSource>>>>;

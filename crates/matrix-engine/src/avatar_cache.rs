@@ -20,6 +20,9 @@ use std::{io::Write, time::Duration};
 pub const AVATAR_PX: u32 = 96;
 /// Cap on one thumbnail, enforced while the body is received.
 pub const AVATAR_MAX_BYTES: usize = 256 * 1024;
+/// The big picture of a profile card (about 110 pt at 3x), with its own cap.
+pub const AVATAR_LARGE_PX: u32 = 384;
+pub const AVATAR_LARGE_MAX_BYTES: usize = 1024 * 1024;
 /// Files kept on disk; the oldest go first.
 pub const AVATAR_MAX_ENTRIES: usize = 512;
 /// Simultaneous downloads.
@@ -87,11 +90,20 @@ impl AvatarCache {
     /// Like `get`; `Err(true)` is a transient failure (no connection, timeout, 5xx, 429)
     /// worth asking again later, `Err(false)` is final (missing, refused, junk, too big).
     pub async fn try_get(&self, client: &matrix_sdk::Client, mxc: &str) -> Result<Vec<u8>, bool> {
+        self.try_get_sized(client, mxc, AVATAR_PX, self.max_bytes, "").await
+    }
+
+    /// The big thumbnail of the profile card; cached beside the small one.
+    pub async fn try_get_large(&self, client: &matrix_sdk::Client, mxc: &str) -> Result<Vec<u8>, bool> {
+        self.try_get_sized(client, mxc, AVATAR_LARGE_PX, AVATAR_LARGE_MAX_BYTES, "-large").await
+    }
+
+    async fn try_get_sized(&self, client: &matrix_sdk::Client, mxc: &str, px: u32, max_bytes: usize, suffix: &str) -> Result<Vec<u8>, bool> {
         let uri = <&MxcUri>::from(mxc);
         crate::media_sdk::checked_source(MediaSource::Plain(uri.to_owned())).map_err(|_| false)?;
         // The file name comes from the validated URI: media id is [A-Za-z0-9_-], server name is sanitised.
         let (server, id) = uri.parts().map_err(|_| false)?;
-        let name = format!("{}-{id}", server.as_str().replace([':', '[', ']'], "_"));
+        let name = format!("{}-{id}{suffix}", server.as_str().replace([':', '[', ']'], "_"));
         let path = self.dir.join(&name);
         if let Ok(bytes) = std::fs::read(&path) {
             return Ok(bytes);
@@ -109,8 +121,8 @@ impl AvatarCache {
                 return Ok(bytes);
             }
             let _permit = self.permits.acquire().await.map_err(|_| false)?;
-            let thumbnail = MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(Method::Crop, AVATAR_PX.into(), AVATAR_PX.into()));
-            let bytes = self.fetch(client, uri, thumbnail, self.max_bytes).await?;
+            let thumbnail = MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(Method::Crop, px.into(), px.into()));
+            let bytes = self.fetch(client, uri, thumbnail, max_bytes).await?;
             self.store(&name, &bytes).map_err(|_| false)?;
             Ok(bytes)
         }
@@ -240,6 +252,17 @@ impl crate::avatar::AvatarSource for AvatarFetcher {
                 Err(retry) => (None, retry),
             };
             let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba, retry });
+        });
+    }
+
+    fn request_large(&self, mxc: String, out: std::sync::mpsc::Sender<crate::avatar::AvatarPicture>) {
+        let me = self.clone();
+        self.runtime.spawn(async move {
+            let (rgba, retry) = match me.cache.try_get_large(&me.client, &mxc).await {
+                Ok(bytes) => (tokio::task::spawn_blocking(move || decode(&bytes)).await.ok().flatten(), false),
+                Err(retry) => (None, retry),
+            };
+            let _ = out.send(crate::avatar::AvatarPicture { mxc: crate::avatar::large_key(&mxc), rgba, retry });
         });
     }
 
