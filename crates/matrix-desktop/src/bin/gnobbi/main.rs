@@ -1237,9 +1237,6 @@ impl App {
             Some(RoomSyncStatus::SyncFailed) => i18n::t("Sync interrupted"),
             _ => i18n::t("Connecting…"),
         };
-        // The shown account sits on top of the spaces rail: a click lists the others, each with a dot below it (filled = unread).
-        let mut pick_account = None;
-        let mut list_only = false;
         let width = ui.ctx().content_rect().width();
         let narrow = width < NARROW_WIDTH;
         let single = width < SINGLE_WIDTH;
@@ -1250,7 +1247,51 @@ impl App {
         if narrow && matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("list") {
             self.list_open = true;
         }
-        // Left-edge swipe = the back button; the chat follows the finger.
+        let drag = self.back_swipe(ui, single);
+        let side = self.side_on_top_now(ui, single);
+        let covered = side.is_some();
+        // One column with a room: the chat slides over the list; while it is on the way both pages are drawn, each in its shifted rect.
+        let sliding = single && !self.rail.any_drawer() && self.session.as_ref().is_some_and(|s| s.sidebar.selected().is_some());
+        // shortcut: a side panel (info, member, search, thread) is part of the chat page, so the page does not follow the finger while one is on top (the swipe closes it on release); give the panels their own page to animate them.
+        let held = match drag { Some(mobile::BackDrag::Moving(p)) if !covered => Some(p), _ => None };
+        let both = self.nav.step(sliding, self.list_open, held, std::time::Instant::now(), mobile::reduce_motion());
+        let screen_width = ui.ctx().viewport_rect().width();
+        let (mut list_dx, chat_dx) = if both { mobile::nav_offsets(self.nav.progress, screen_width, dir::rtl()) } else { (0., 0.) };
+        // A drawer page on its way over the list: the list trails under it like under the chat.
+        if single && self.list_open && !both {
+            list_dx = mobile::nav_offsets(1. - rail::pages_open(ui.ctx()).1, screen_width, dir::rtl()).0;
+        }
+        let show_list = self.list_open || both;
+        let (pick_account, list_only) = self.rail_and_list(ui, t, (narrow, single), both, list_dx, show_list);
+        let (pick, list_only) = account_switch_effect(pick_account, &self.root, list_only);
+        if let Some(root) = pick {
+            self.open_account(root);
+        }
+        if list_only {
+            self.overlays(ui, t);
+            return;
+        }
+        let mut over = both.then(|| {
+            mobile::nav_cover(ui, self.nav.progress, chat_dx, list_fill(t));
+            mobile::nav_layer(ui, chat_dx)
+        });
+        let ui: &mut egui::Ui = match &mut over { Some(layer) => layer, None => ui };
+        self.header(ui, t, state, narrow, single);
+        self.info_panel(ui, t, single, side);
+        self.member_panel(ui, t, single);
+        self.search_panel(ui, t, single, side);
+        self.thread_panel(ui, t, single, side);
+        self.composer_bar(ui, t, covered);
+        self.overlays(ui, t);
+        self.timeline_panel(ui, t, covered);
+        // On the way the pages take no taps or scrolls: a shield on top of both swallows them (the finger that drags is already down).
+        if both && !self.nav.dragging {
+            ui.interact(ui.ctx().viewport_rect(), egui::Id::new("nav-shield"), egui::Sense::click_and_drag());
+        }
+    }
+
+    /// Left-edge swipe = the back button; the chat follows the finger.
+    fn back_swipe(&mut self, ui: &mut egui::Ui, single: bool) -> Option<mobile::BackDrag> {
         let drag = if single && !self.list_open && !self.rail.any_drawer() { mobile::back_drag(ui.ctx()) } else { None };
         // The touch menu is open: the swipe closes it and goes no further.
         let drag = match &mut self.session {
@@ -1264,6 +1305,11 @@ impl App {
         if let Some(mobile::BackDrag::Released(back)) = drag {
             self.list_open = back;
         }
+        drag
+    }
+
+    /// The side panel on top (one column only), after «Back» has closed what it had to.
+    fn side_on_top_now(&mut self, ui: &mut egui::Ui, single: bool) -> Option<Side> {
         let mut side = None;
         if let Some(s) = &mut self.session {
             let room = s.sidebar.selected().map(|r| r.scope.clone());
@@ -1298,23 +1344,46 @@ impl App {
                 self.list_open |= room.is_none();
             }
         }
-        let covered = side.is_some();
-        // One column with a room: the chat slides over the list; while it is on the way both pages are drawn, each in its shifted rect.
-        let sliding = single && !self.rail.any_drawer() && self.session.as_ref().is_some_and(|s| s.sidebar.selected().is_some());
-        // shortcut: a side panel (info, member, search, thread) is part of the chat page, so the page does not follow the finger while one is on top (the swipe closes it on release); give the panels their own page to animate them.
-        let held = match drag { Some(mobile::BackDrag::Moving(p)) if !covered => Some(p), _ => None };
-        let both = self.nav.step(sliding, self.list_open, held, std::time::Instant::now(), mobile::reduce_motion());
-        let screen_width = ui.ctx().viewport_rect().width();
-        let (mut list_dx, chat_dx) = if both { mobile::nav_offsets(self.nav.progress, screen_width, dir::rtl()) } else { (0., 0.) };
-        // A drawer page on its way over the list: the list trails under it like under the chat.
-        if single && self.list_open && !both {
-            list_dx = mobile::nav_offsets(1. - rail::pages_open(ui.ctx()).1, screen_width, dir::rtl()).0;
+        side
+    }
+
+    /// The spaces rail and the room list left of the chat: the account picked in the rail menu and whether only the list is on screen.
+    fn rail_and_list(&mut self, ui: &mut egui::Ui, t: &DesignTokens, (narrow, single): (bool, bool), both: bool, list_dx: f32, show_list: bool) -> (Option<std::path::PathBuf>, bool) {
+        // The shown account sits on top of the spaces rail: a click lists the others, each with a dot below it (filled = unread).
+        let mut pick_account = None;
+        let mut list_only = false;
+        let mut others = Vec::new();
+        let (active_id, active_label, account) = self.account_rows(&mut others);
+        if let Some(session) = &mut self.session {
+            rail::edit_window(ui.ctx(), session, &mut self.new_form, &mut self.rail, account, self.dirs.as_ref(), t);
+            let mut under = (both || list_dx != 0.).then(|| mobile::nav_layer(ui, list_dx));
+            let ui: &mut egui::Ui = match &mut under { Some(layer) => layer, None => &mut *ui };
+            if !single || show_list {
+                if single { mobile::rail_background(ui, chat_background(t), list_dx); }
+                pick_account = rail_panel(ui, session, &mut self.rail, account, &others, (&active_label, &active_id), t);
+            }
+            if !narrow || show_list {
+                // Narrow: the list takes the whole width left of the rail and the chat is not drawn; a tap on a row, the open one too, goes to the chat.
+                let list_fill = list_fill(t);
+                if narrow {
+                    narrow_list(ui, session, &mut self.list_open, &mut self.rail, single, list_fill, t);
+                } else {
+                    wide_list(ui, session, &mut self.prefs, self.dirs.as_ref(), list_fill, t);
+                }
+                if narrow && !both {
+                    list_only = true;
+                }
+            }
         }
-        let show_list = self.list_open || both;
+        (pick_account, list_only)
+    }
+
+    /// The other accounts (parked or in the catalog) and the shown one, for the rail.
+    fn account_rows(&mut self, others: &mut Vec<(std::path::PathBuf, String, String, avatar::Avatar, Option<u64>)>) -> (String, String, u64) {
         let unread = |s: &Session| s.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
         let catalog = self.dirs.as_ref().map(matrix_desktop::AccountCatalog::load);
         let entry_for = |root: &std::path::Path| catalog.as_ref().zip(self.dirs.as_ref()).and_then(|(c, d)| c.accounts().iter().find(|e| c.data_dir(d, e.id).as_deref() == Some(root)));
-        let mut others: Vec<_> = self.parked.iter().map(|p| {
+        *others = self.parked.iter().map(|p| {
             let entry = entry_for(&p.root);
             let id = entry.and_then(|e| e.user_id.as_deref()).unwrap_or(&p.session.user);
             let name = account_row_label(Some(&p.session.account_name), entry.map(|e| e.label.as_str()), Some(id));
@@ -1341,130 +1410,11 @@ impl App {
             self.rail_account = matrix_desktop::AccountCatalog::load(d).id_for_root(d, &self.root).map(|id| (self.root.clone(), id.as_u64()));
         }
         let account = self.rail_account.as_ref().filter(|(root, _)| *root == self.root).map_or(0, |(_, id)| *id);
-        if let Some(session) = &mut self.session {
-            rail::edit_window(ui.ctx(), session, &mut self.new_form, &mut self.rail, account, self.dirs.as_ref(), t);
-            let mut under = (both || list_dx != 0.).then(|| mobile::nav_layer(ui, list_dx));
-            let ui: &mut egui::Ui = match &mut under { Some(layer) => layer, None => &mut *ui };
-            if !single || show_list {
-                if single { mobile::rail_background(ui, chat_background(t), list_dx); }
-                dir::panel_start("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
-                    ui.add_space(8.);
-                    // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
-                    let dots = others.len().div_ceil(5) as f32 * 10.;
-                    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(rail::WIDTH, 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
-                    let resp = crate::metrics::clickable(resp);
-                    let name = active_label.as_str();
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
-                    if !others.is_empty() && resp.hovered() {
-                        ui.painter().rect_filled(rect.shrink2(egui::Vec2::new(6., 2.)), 10., rgb(t.input));
-                    }
-                    let c = rect.center_top() + egui::Vec2::new(0., 26.);
-                    let initial: String = name.trim_start_matches('@').chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned());
-                    avatar::paint(ui, c, 36., rgb(AVATAR), &session.own_avatar(), &initial, 16., rgb(t.on_accent));
-                    for (i, (_, _, _, _, n)) in others.iter().enumerate() {
-                        let in_row = (others.len() - i / 5 * 5).min(5);
-                        let d = egui::Pos2::new(c.x + ((i % 5) as f32 - (in_row - 1) as f32 / 2.) * 10., rect.top() + 55. + (i / 5) as f32 * 10.);
-                        if n.is_some_and(|n| n > 0) {
-                            ui.painter().circle_filled(d, 3., rgb(t.accent));
-                        } else {
-                            ui.painter().circle_stroke(d, 2.5, egui::Stroke::new(1., rgb(t.secondary)));
-                        }
-                    }
-                    if !others.is_empty() {
-                        // Test hook: GNOBBI_EGUI_VIEW=account-menu shows the list without a click.
-                        if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
-                            egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
-                        }
-                        egui::Popup::menu(&resp).align(if dir::rtl() { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START }).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| crate::dir::popup(ui, |ui| {
-                            ui.spacing_mut().item_spacing.y = 0.;
-                            accounts::switch_row(ui, name, &active_id, &session.own_avatar(), true, 0, t);
-                            for (root, other, id, pic, unread) in &others {
-                                if accounts::switch_row(ui, other, id, pic, false, unread.unwrap_or(0), t).clicked() {
-                                    pick_account = Some(root.clone());
-                                    ui.close();
-                                }
-                            }
-                        }));
-                    }
-                    resp.on_hover_text(name);
-                    let placed = session.space_placed.take();
-                    rail::show(ui, &mut session.sidebar, &session.avatars, &mut self.rail, account, placed, t);
-                });
-            }
-            if !narrow || show_list {
-                // Narrow: the list takes the whole width left of the rail and the chat is not drawn; a tap on a row, the open one too, goes to the chat.
-                let list_fill = list_fill(t);
-                if narrow {
-                    dir::panel_start("list-narrow").exact_size(ui.available_width()).resizable(false).show_separator_line(false).frame(bar(t).fill(list_fill)).show(ui, |ui| dir::scope(ui, |ui| {
-                        let mut new_chat = false;
-                        // One column: the chat header has no room for the app's own windows, they sit in one menu here.
-                        let (mut settings, mut accounts, mut devices) = (false, false, false);
-                        if list::rooms(ui, session, &mut new_chat, t, &mut |ui| {
-                            if !single { return; }
-                            egui::Popup::menu(&icons::button(ui, icons::Icon::List, false, i18n::t("Menu"))).show(|ui| crate::dir::popup(ui, |ui| {
-                                settings = ui.button(i18n::t("Settings")).clicked();
-                                accounts = ui.button(i18n::t("Account")).clicked();
-                                devices = ui.button(i18n::t("Devices")).clicked();
-                                if settings || accounts || devices { ui.close(); }
-                            }));
-                        }) {
-                            self.list_open = false;
-                        }
-                        session.new_open |= new_chat;
-                        if settings { self.rail.set_settings(true); }
-                        if accounts { self.rail.set_accounts(true); }
-                        if devices { self.rail.set_devices(true); }
-                    }));
-                } else {
-                    let max = list_max_width(ui.ctx().content_rect().width());
-                    let resize_id = ui.scope_id().with_salt(egui::IdSalt::new("list")).with("__resize");
-                    let hovered = ui.style().visuals.widgets.hovered.fg_stroke;
-                    let active = ui.style().visuals.widgets.active.fg_stroke;
-                    let highlight = Stroke::NONE;
-                    ui.style_mut().visuals.widgets.hovered.fg_stroke = highlight;
-                    ui.style_mut().visuals.widgets.active.fg_stroke = highlight;
-                    let response = dir::panel_start("list")
-                        .default_size(self.prefs.list_width.map_or(t.sidebar, |w| w as f32))
-                        .size_range(240. ..=max).resizable(true).show_separator_line(false)
-                        .frame(bar(t).fill(list_fill)).show(ui, |ui| {
-                            ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
-                            ui.style_mut().visuals.widgets.active.fg_stroke = active;
-                            let mut new_chat = false;
-                            dir::scope(ui, |ui| list::rooms(ui, session, &mut new_chat, t, &mut |_| {}));
-                            session.new_open |= new_chat;
-                        });
-                    ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
-                    ui.style_mut().visuals.widgets.active.fg_stroke = active;
-                    if let Some(handle) = ui.read_response(resize_id)
-                        && handle.drag_stopped()
-                    {
-                        let width = handle.interact_pointer_pos().map_or(response.response.rect.width(), |p| if dir::rtl() { response.response.rect.right() - p.x } else { p.x - response.response.rect.left() }).clamp(240., max).round() as u32;
-                        self.prefs.list_width = Some(width);
-                        if let Some(dirs) = &self.dirs
-                            && let Err(error) = Preferences::update(dirs, |p| p.list_width = Some(width))
-                        {
-                            eprintln!("Gnobbi: list_width {:?}", error.kind());
-                        }
-                    }
-                }
-                if narrow && !both {
-                    list_only = true;
-                }
-            }
-        }
-        let (pick, list_only) = account_switch_effect(pick_account, &self.root, list_only);
-        if let Some(root) = pick {
-            self.open_account(root);
-        }
-        if list_only {
-            self.overlays(ui, t);
-            return;
-        }
-        let mut over = both.then(|| {
-            mobile::nav_cover(ui, self.nav.progress, chat_dx, list_fill(t));
-            mobile::nav_layer(ui, chat_dx)
-        });
-        let ui: &mut egui::Ui = match &mut over { Some(layer) => layer, None => ui };
+        (active_id, active_label, account)
+    }
+
+    /// The header bar of the chat.
+    fn header(&mut self, ui: &mut egui::Ui, t: &DesignTokens, state: &str, narrow: bool, single: bool) {
         let has_room = self.session.as_ref().is_some_and(|s| s.messages.is_some());
         let (info_on, search_on) = self.session.as_ref().map_or((false, false), |s| (s.info_open, s.search_open));
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
@@ -1507,6 +1457,10 @@ impl App {
             });
         }));
         }
+    }
+
+    /// The room info panel (right).
+    fn info_panel(&mut self, ui: &mut egui::Ui, t: &DesignTokens, single: bool, side: Option<Side>) {
         if let Some(s) = &self.session
             && s.info_open
             && (!single || side == Some(Side::Info))
@@ -1539,6 +1493,10 @@ impl App {
                 s.open_edit();
             }
         }
+    }
+
+    /// The member card panel (right).
+    fn member_panel(&mut self, ui: &mut egui::Ui, t: &DesignTokens, single: bool) {
         if let Some(s) = &mut self.session
             && s.info_open
             && let Some((id, profile)) = s.profile.clone()
@@ -1583,6 +1541,10 @@ impl App {
                 s.profile = None;
             }
         }
+    }
+
+    /// The in-room search panel (right).
+    fn search_panel(&mut self, ui: &mut egui::Ui, t: &DesignTokens, single: bool, side: Option<Side>) {
         if let Some(s) = &mut self.session
             && s.search_open
             && (!single || side == Some(Side::Search))
@@ -1597,6 +1559,10 @@ impl App {
                 s.notice = None;
             }
         }
+    }
+
+    /// The thread panel (right).
+    fn thread_panel(&mut self, ui: &mut egui::Ui, t: &DesignTokens, single: bool, side: Option<Side>) {
         if let Some(s) = &mut self.session
             && (!single || side == Some(Side::Thread))
             && let Some(mut th) = s.thread.take()
@@ -1645,6 +1611,10 @@ impl App {
             s.reaction_acts(std::mem::take(&mut acts.react), ui.ctx(), t);
             if acts.open_link.is_some() { self.pending_web = acts.open_link; }
         }
+    }
+
+    /// The composer at the bottom of the chat.
+    fn composer_bar(&mut self, ui: &mut egui::Ui, t: &DesignTokens, covered: bool) {
         let mut to_send = None;
         let composer_rect = composer::panel(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
             if let Some(s) = &mut self.session
@@ -1697,7 +1667,10 @@ impl App {
         if let (Some(body), Some(s)) = (to_send, &mut self.session) {
             s.submit_draft(body);
         }
-        self.overlays(ui, t);
+    }
+
+    /// The timeline (or the invite) in the central panel.
+    fn timeline_panel(&mut self, ui: &mut egui::Ui, t: &DesignTokens, covered: bool) {
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| dir::scope(ui, |ui| {
             // The click that changes room lands before `drive_history` swaps the messages: drawing the old room under the new room's scroll state moved it to the bottom and saved that as its reading position.
             // A side panel has taken the whole width: nothing is laid out in the sliver left.
@@ -1798,10 +1771,6 @@ impl App {
                 status_pill::show(ui, timeline_view, i18n::t("Unread messages not found"), Duration::from_secs(1), t);
             }
         }));
-        // On the way the pages take no taps or scrolls: a shield on top of both swallows them (the finger that drags is already down).
-        if both && !self.nav.dragging {
-            ui.interact(ui.ctx().viewport_rect(), egui::Id::new("nav-shield"), egui::Sense::click_and_drag());
-        }
     }
 
     /// The windows and drawers of the session (settings, account, devices, new chat…). Drawn in every layout: the one-column list returns before the chat.
@@ -2740,6 +2709,113 @@ fn discard_new_profile(dirs: &AppDirs, dir: &std::path::Path) {
     if dir.starts_with(dirs.data.join("accounts")) && matrix_desktop::AccountCatalog::load(dirs).id_for_root(dirs, dir).is_none() {
         accounts::wipe(dir, None);
     }
+}
+
+/// The spaces rail: the shown account on top (a click lists the others), then the spaces.
+fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::State, account: u64, others: &[(std::path::PathBuf, String, String, avatar::Avatar, Option<u64>)], (active_label, active_id): (&str, &str), t: &DesignTokens) -> Option<std::path::PathBuf> {
+    let mut pick_account = None;
+    dir::panel_start("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
+        ui.add_space(8.);
+        // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
+        let dots = others.len().div_ceil(5) as f32 * 10.;
+        let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(rail::WIDTH, 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
+        let resp = crate::metrics::clickable(resp);
+        let name = active_label;
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+        if !others.is_empty() && resp.hovered() {
+            ui.painter().rect_filled(rect.shrink2(egui::Vec2::new(6., 2.)), 10., rgb(t.input));
+        }
+        let c = rect.center_top() + egui::Vec2::new(0., 26.);
+        let initial: String = name.trim_start_matches('@').chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned());
+        avatar::paint(ui, c, 36., rgb(AVATAR), &session.own_avatar(), &initial, 16., rgb(t.on_accent));
+        for (i, (_, _, _, _, n)) in others.iter().enumerate() {
+            let in_row = (others.len() - i / 5 * 5).min(5);
+            let d = egui::Pos2::new(c.x + ((i % 5) as f32 - (in_row - 1) as f32 / 2.) * 10., rect.top() + 55. + (i / 5) as f32 * 10.);
+            if n.is_some_and(|n| n > 0) {
+                ui.painter().circle_filled(d, 3., rgb(t.accent));
+            } else {
+                ui.painter().circle_stroke(d, 2.5, egui::Stroke::new(1., rgb(t.secondary)));
+            }
+        }
+        if !others.is_empty() {
+            // Test hook: GNOBBI_EGUI_VIEW=account-menu shows the list without a click.
+            if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
+                egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
+            }
+            egui::Popup::menu(&resp).align(if dir::rtl() { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START }).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| crate::dir::popup(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.;
+                accounts::switch_row(ui, name, active_id, &session.own_avatar(), true, 0, t);
+                for (root, other, id, pic, unread) in others {
+                    if accounts::switch_row(ui, other, id, pic, false, unread.unwrap_or(0), t).clicked() {
+                        pick_account = Some(root.clone());
+                        ui.close();
+                    }
+                }
+            }));
+        }
+        resp.on_hover_text(name);
+        let placed = session.space_placed.take();
+        rail::show(ui, &mut session.sidebar, &session.avatars, rail_state, account, placed, t);
+    });
+    pick_account
+}
+
+/// Narrow window: the list takes the whole width left of the rail; a tap on a row, the open one too, goes to the chat.
+fn narrow_list(ui: &mut egui::Ui, session: &mut Session, list_open: &mut bool, rail_state: &mut rail::State, single: bool, list_fill: egui::Color32, t: &DesignTokens) {
+        dir::panel_start("list-narrow").exact_size(ui.available_width()).resizable(false).show_separator_line(false).frame(bar(t).fill(list_fill)).show(ui, |ui| dir::scope(ui, |ui| {
+            let mut new_chat = false;
+            // One column: the chat header has no room for the app's own windows, they sit in one menu here.
+            let (mut settings, mut accounts, mut devices) = (false, false, false);
+            if list::rooms(ui, session, &mut new_chat, t, &mut |ui| {
+                if !single { return; }
+                egui::Popup::menu(&icons::button(ui, icons::Icon::List, false, i18n::t("Menu"))).show(|ui| crate::dir::popup(ui, |ui| {
+                    settings = ui.button(i18n::t("Settings")).clicked();
+                    accounts = ui.button(i18n::t("Account")).clicked();
+                    devices = ui.button(i18n::t("Devices")).clicked();
+                    if settings || accounts || devices { ui.close(); }
+                }));
+            }) {
+                *list_open = false;
+            }
+            session.new_open |= new_chat;
+            if settings { rail_state.set_settings(true); }
+            if accounts { rail_state.set_accounts(true); }
+            if devices { rail_state.set_devices(true); }
+        }));
+}
+
+/// Wide window: the resizable list, its width remembered once the drag is over.
+fn wide_list(ui: &mut egui::Ui, session: &mut Session, prefs: &mut Preferences, dirs: Option<&AppDirs>, list_fill: egui::Color32, t: &DesignTokens) {
+        let max = list_max_width(ui.ctx().content_rect().width());
+        let resize_id = ui.scope_id().with_salt(egui::IdSalt::new("list")).with("__resize");
+        let hovered = ui.style().visuals.widgets.hovered.fg_stroke;
+        let active = ui.style().visuals.widgets.active.fg_stroke;
+        let highlight = Stroke::NONE;
+        ui.style_mut().visuals.widgets.hovered.fg_stroke = highlight;
+        ui.style_mut().visuals.widgets.active.fg_stroke = highlight;
+        let response = dir::panel_start("list")
+            .default_size(prefs.list_width.map_or(t.sidebar, |w| w as f32))
+            .size_range(240. ..=max).resizable(true).show_separator_line(false)
+            .frame(bar(t).fill(list_fill)).show(ui, |ui| {
+                ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
+                ui.style_mut().visuals.widgets.active.fg_stroke = active;
+                let mut new_chat = false;
+                dir::scope(ui, |ui| list::rooms(ui, session, &mut new_chat, t, &mut |_| {}));
+                session.new_open |= new_chat;
+            });
+        ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
+        ui.style_mut().visuals.widgets.active.fg_stroke = active;
+        if let Some(handle) = ui.read_response(resize_id)
+            && handle.drag_stopped()
+        {
+            let width = handle.interact_pointer_pos().map_or(response.response.rect.width(), |p| if dir::rtl() { response.response.rect.right() - p.x } else { p.x - response.response.rect.left() }).clamp(240., max).round() as u32;
+            prefs.list_width = Some(width);
+            if let Some(dirs) = dirs
+                && let Err(error) = Preferences::update(dirs, |p| p.list_width = Some(width))
+            {
+                eprintln!("Gnobbi: list_width {:?}", error.kind());
+            }
+        }
 }
 
 fn account_switch_effect(pick: Option<std::path::PathBuf>, active: &std::path::Path, narrow: bool) -> (Option<std::path::PathBuf>, bool) {
