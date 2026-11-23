@@ -1,7 +1,5 @@
 # Gnobbi roadmap
 
-Direction and order only, with no dates or promises. Priorities can change.
-
 ## Now
 - **Android**: the same egui interface as desktop and iOS. Remaining: attachments and sharing, app icon, and end-to-end push notifications through a push gateway.
 - **iOS**: continuous internal TestFlight builds. External testing waits for a stable build.
