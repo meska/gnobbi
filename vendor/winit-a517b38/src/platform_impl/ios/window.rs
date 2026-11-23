@@ -82,8 +82,6 @@ impl WinitUIWindow {
     ) -> Retained<Self> {
         let this: Retained<Self> = unsafe { msg_send_id![mtm.alloc(), initWithFrame: frame] };
 
-        this.setRootViewController(Some(view_controller));
-
         // Windows in apps that adopt the scene life cycle are only shown once attached to a scene.
         if app_state::os_capabilities().scenes && unsafe { this.windowScene() }.is_none() {
             let scenes = unsafe { UIApplication::sharedApplication(mtm).connectedScenes() };
@@ -92,6 +90,10 @@ impl WinitUIWindow {
             let scene = scene.map(|scene| unsafe { &*(scene as *const _ as *const UIWindowScene) });
             unsafe { this.setWindowScene(scene) };
         }
+
+        // After the scene: a root view controller set on a window that has no scene yet leaves the window's interface
+        // orientation unknown, and system sheets hosted in it (share sheet) are laid out as landscape and clipped.
+        this.setRootViewController(Some(view_controller));
 
         match window_attributes.fullscreen.clone().map(Into::into) {
             Some(Fullscreen::Exclusive(ref video_mode)) => {
