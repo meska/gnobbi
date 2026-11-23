@@ -21,7 +21,15 @@ pub const BUILD_INFO: BuildInfo = BuildInfo {
     matrix_sdk: env!("GNOBBI_MATRIX_SDK_VERSION"),
 };
 
+/// iOS has no /etc/os-release or sw_vers, and no process may be spawned there.
+#[cfg(target_os = "ios")]
+pub fn system_version() -> String {
+    let v = objc2_foundation::NSProcessInfo::processInfo().operatingSystemVersion();
+    format!("iOS {}.{}.{} ({})", v.majorVersion, v.minorVersion, v.patchVersion, std::env::consts::ARCH)
+}
+
 /// OS name and version at runtime; falls back to the bare OS name.
+#[cfg(not(target_os = "ios"))]
 pub fn system_version() -> String {
     let os = std::env::consts::OS;
     let ver = if cfg!(target_os = "macos") {
