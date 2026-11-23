@@ -1123,6 +1123,8 @@ impl App {
             }
             match view.as_str() {
                 "info" => s.info_open = true,
+                // Test hook: the card of the first other member opened as a click on a sender in the chat does.
+                "chat-profile" if s.profile.is_none() && let Some(user) = s.members.as_ref().and_then(|(_, l)| l.iter().find(|m| m.user_id != s.user).map(|m| m.user_id.clone())) => s.open_profile_from_chat(user),
                 "search" => s.search_open = true,
                 // Test hook: GNOBBI_EGUI_TERM=<text> typed in the room list's field after GNOBBI_EGUI_TERM_AFTER seconds, so the index has filled (the messages of every room are searched for real).
                 "list-search" | "list-search-open" if s.query.is_empty() && self.shot.as_ref().is_some_and(|(_, t0)| t0.elapsed().as_secs() >= matrix_desktop::hooks::var("GNOBBI_EGUI_TERM_AFTER").ok().and_then(|v| v.parse().ok()).unwrap_or(0)) => {
@@ -1385,7 +1387,7 @@ impl App {
             }
             s.settle_chat_profile();
             if single {
-                side = side_on_top(s.info_open && room.is_some(), s.profile.is_some(), s.search_open, s.thread.is_some());
+                side = side_on_top((s.info_open || s.chat_profile.is_some()) && room.is_some(), s.profile.is_some(), s.search_open, s.thread.is_some());
                 // «Back» closes the side panel on top before it shows the list.
                 if self.list_open && room.is_some() && let Some(top) = side {
                     match top {
@@ -1396,7 +1398,7 @@ impl App {
                     }
                     self.list_open = false;
                     s.settle_chat_profile();
-                    side = side_on_top(s.info_open, s.profile.is_some(), s.search_open, s.thread.is_some());
+                    side = side_on_top(s.info_open || s.chat_profile.is_some(), s.profile.is_some(), s.search_open, s.thread.is_some());
                 }
                 // Without a room there is nothing to show but the list.
                 self.list_open |= room.is_none();
@@ -1560,7 +1562,7 @@ impl App {
     /// The member card panel (right).
     fn member_panel(&mut self, ui: &mut egui::Ui, t: &DesignTokens, single: bool) {
         if let Some(s) = &mut self.session
-            && s.info_open
+            && s.card_open()
             && let Some((id, profile)) = s.profile.clone()
         {
             let (mut close, mut flip, mut moderation, mut action) = (false, None, None, None);
@@ -1579,7 +1581,7 @@ impl App {
                         state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(s.draft.chars().count()))));
                         state.store(ui.ctx(), composer);
                         ui.ctx().memory_mut(|m| m.request_focus(composer));
-                        s.info_open = false;
+                        (s.info_open, s.chat_profile) = (false, None);
                         close = true;
                     }
                 }
@@ -1591,7 +1593,7 @@ impl App {
                     if let Some(event) = rights.as_ref().and_then(|r| r.read_receipt.as_ref()) {
                         s.search_jump = Some((matrix_domain::EventId::new(event), false));
                         s.notice = None;
-                        s.info_open = false;
+                        (s.info_open, s.chat_profile) = (false, None);
                         close = true;
                     }
                 }

@@ -263,8 +263,8 @@ pub struct Session {
     pub viewer: Option<crate::viewer::Viewer>,
     /// The full picture of the avatar the viewer shows, on its way.
     avatar_full: Option<std::sync::mpsc::Receiver<matrix_engine::avatar::AvatarPicture>>,
-    /// The member card was opened from a message, not from the info panel: closing it closes the info panel it borrowed.
-    chat_profile: bool,
+    /// The member card was opened from a message, not from the info panel: it stands alone (the info panel is off) and holds whether the panel was open before, to give it back on closing.
+    pub chat_profile: Option<bool>,
     media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
     /// Thumbnails of the open room's pictures and videos, by event.
     pub pictures: std::collections::HashMap<EventId, egui::TextureHandle>,
@@ -440,7 +440,7 @@ impl Session {
             media: LiveMedia::default(),
             viewer: None,
             avatar_full: None,
-            chat_profile: false,
+            chat_profile: None,
             media_route,
             pictures: Default::default(),
             avatars: Default::default(),
@@ -991,6 +991,7 @@ impl Session {
             self.opened = true;
             self.pending_click = None;
             self.profile = None;
+            self.chat_profile = None;
             self.info_open = false;
             changed = true;
         }
@@ -1751,18 +1752,21 @@ impl Session {
         append_profile_mention(&mut self.draft, &mut self.mentions, user_id, name);
     }
 
-    /// A sender's name or picture in a message was clicked: the member card opens over the chat, with the info panel only borrowed.
+    /// A sender's name or picture in a message was clicked: the member card opens alone and replaces the info panel while it is on screen.
     pub fn open_profile_from_chat(&mut self, user_id: String) {
-        self.chat_profile = !self.info_open;
-        self.info_open = true;
+        (self.chat_profile, self.info_open) = open_from_chat(self.chat_profile, self.info_open);
         self.open_profile(user_id);
     }
 
-    /// Closes the info panel the card borrowed once the card is gone (or the panel was toggled off).
+    /// Gives the info panel back once the chat card is closed; drops the chat card when the user opened the panel, search or a thread over it.
     pub fn settle_chat_profile(&mut self) {
-        if card_borrowed_info_done(self.chat_profile, self.profile.is_some(), self.info_open) {
-            (self.chat_profile, self.profile, self.info_open) = (false, None, false);
-        }
+        let other = self.search_open || self.thread.is_some();
+        (self.chat_profile, self.profile, self.info_open) = settle_chat_card(self.chat_profile, self.profile.take(), self.info_open, other);
+    }
+
+    /// The member card is on screen: from the info panel, or alone from a message.
+    pub fn card_open(&self) -> bool {
+        self.profile.is_some() && (self.info_open || self.chat_profile.is_some())
     }
 
     /// The card's picture, big (falls back to the small one while the big one comes).
@@ -2184,17 +2188,37 @@ fn recovery_open(state: Option<RecoveryState>) -> bool {
     matches!(state, Some(RecoveryState::Offered | RecoveryState::Pending | RecoveryState::Failed(_) | RecoveryState::Unsupported))
 }
 
-/// A card opened from a message borrowed the info panel: it is done once the card is closed or the panel toggled off.
-fn card_borrowed_info_done(from_chat: bool, card: bool, info: bool) -> bool {
-    from_chat && (!card || !info)
+/// A click on a sender: the card stands alone and the info panel goes off, remembered only by the first click.
+pub fn open_from_chat(chat: Option<bool>, info: bool) -> (Option<bool>, bool) {
+    (Some(chat.unwrap_or(info)), false)
+}
+
+/// State of a card opened from a message: (chat card, card, info panel) after one settle.
+fn settle_chat_card<T>(chat: Option<bool>, card: Option<T>, info: bool, other_panel: bool) -> (Option<bool>, Option<T>, bool) {
+    match chat {
+        None => (None, card, info),
+        Some(_) if other_panel => (None, None, info),
+        Some(_) if info => (None, card, info), // the user opened the info panel: the card now belongs to it
+        Some(was) if card.is_none() => (None, None, was),
+        Some(_) => (chat, card, info),
+    }
+}
+
+#[test]
+fn a_chat_card_never_opens_the_info_panel() {
+    assert_eq!(open_from_chat(None, false), (Some(false), false));
+    assert_eq!(open_from_chat(None, true), (Some(true), false), "replaces the open panel");
+    assert_eq!(open_from_chat(Some(true), false), (Some(true), false), "a second click keeps what the first remembered");
 }
 
 #[test]
 fn chat_card_gives_the_info_panel_back() {
-    assert!(!card_borrowed_info_done(true, true, true), "card on screen");
-    assert!(card_borrowed_info_done(true, false, true), "card closed");
-    assert!(card_borrowed_info_done(true, true, false), "panel toggled off");
-    assert!(!card_borrowed_info_done(false, false, true), "info panel opened by the user stays");
+    assert_eq!(settle_chat_card(Some(false), Some(1), false, false), (Some(false), Some(1), false), "card on screen, alone");
+    assert_eq!(settle_chat_card(Some(false), None::<u8>, false, false), (None, None, false), "closed: no panel as before");
+    assert_eq!(settle_chat_card(Some(true), None::<u8>, false, false), (None, None, true), "closed: info panel back");
+    assert_eq!(settle_chat_card(Some(true), Some(1), true, false), (None, Some(1), true), "panel opened over the card: the card is the panel's");
+    assert_eq!(settle_chat_card(Some(true), Some(1), false, true), (None, None, false), "search or thread opened: the card goes");
+    assert_eq!(settle_chat_card(None, None::<u8>, true, false), (None, None, true), "info panel opened by the user stays");
 }
 
 fn append_profile_mention(draft: &mut String, mentions: &mut Vec<matrix_engine::sending::Mention>, user_id: String, name: &str) {

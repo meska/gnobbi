@@ -99,6 +99,10 @@ mod tests {
         }
         assert_eq!(acts.profile.as_deref(), Some("@bob:example.org"));
         assert_eq!(cursor, egui::CursorIcon::PointingHand);
+        // The room info panel stays closed and the card is the only side panel.
+        let (chat, info) = crate::session::open_from_chat(None, false);
+        assert!(!info);
+        assert_eq!(crate::side_on_top(info || chat.is_some(), true, false, false), Some(crate::Side::Member));
     }
 
     #[test]
