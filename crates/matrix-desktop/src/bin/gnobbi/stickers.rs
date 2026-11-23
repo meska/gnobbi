@@ -43,6 +43,8 @@ pub struct Local {
     pub recent: Vec<Sticker>,
     pub favourites: Vec<Sticker>,
     pub order: Vec<String>,
+    /// «Fill the square» as last chosen in the editor; none yet means on.
+    pub fill: Option<bool>,
 }
 
 fn to_json(s: &Sticker) -> Value {
@@ -62,13 +64,13 @@ impl Local {
         let order = v.get("order").and_then(Value::as_array).into_iter().flatten().filter_map(|s| s.as_str().map(str::to_owned)).collect();
         let mut recent = list("recent");
         recent.truncate(RECENT);
-        Self { file: Some(file), recent, favourites: list("favourites"), order }
+        Self { file: Some(file), recent, favourites: list("favourites"), order, fill: v.get("fill").and_then(Value::as_bool) }
     }
 
     fn save(&self) {
         let Some(file) = &self.file else { return };
         let all = |l: &[Sticker]| l.iter().map(to_json).collect::<Vec<_>>();
-        let _ = std::fs::write(file, json!({"recent": all(&self.recent), "favourites": all(&self.favourites), "order": self.order}).to_string());
+        let _ = std::fs::write(file, json!({"recent": all(&self.recent), "favourites": all(&self.favourites), "order": self.order, "fill": self.fill}).to_string());
     }
 
     /// `s` was sent: first of the recent ones, which stay at most `RECENT`.
@@ -194,7 +196,7 @@ impl Panel {
 
     pub fn add_rgba(&mut self, w: u32, h: u32, rgba: Vec<u8>, name: &str) {
         self.error = None;
-        self.editor = Some(Editor { size: (w, h), rgba, fill: false, ready: None, texture: None, code: matrix_engine::stickers::shortcode_from(name), pack: None });
+        self.editor = Some(Editor { size: (w, h), rgba, fill: self.local.fill.unwrap_or(true), ready: None, texture: None, code: matrix_engine::stickers::shortcode_from(name), pack: None });
     }
 }
 
@@ -524,8 +526,13 @@ fn editor(ctx: &egui::Context, panel: &mut Panel, t: &DesignTokens) {
         });
         if crate::settings::switch(ui, i18n::t("Fill the square"), &mut e.fill, t) {
             e.ready = None;
+            panel.local.fill = Some(e.fill);
+            panel.local.save();
         }
-        ui.add(crate::metrics::line(&mut e.code).hint_text(i18n::t("Name")).desired_width(f32::INFINITY));
+        ui.horizontal(|ui| ui.with_layout(crate::dir::row(egui::Align::Center), |ui| {
+            let label = ui.label(i18n::t("Name"));
+            ui.add(crate::metrics::line(&mut e.code).hint_text(i18n::t("Name")).desired_width(f32::INFINITY)).labelled_by(label.id);
+        }));
         clean_code(&mut e.code);
         if taken {
             ui.colored_label(rgb(t.error), i18n::t("Name already used"));
@@ -875,6 +882,22 @@ mod tests {
         assert_eq!(back.sorted(&packs).iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["a", "c", "b"]);
         let _ = std::fs::write(dir.join("bad.json"), "{\"recent\": [3, {\"url\": \"https://x\"}], \"order\": 7}");
         assert!(Local::load(dir.join("bad.json")).recent.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn editor_fill_defaults_on_and_remembers_the_last_choice() {
+        let dir = std::env::temp_dir().join(format!("gnobbi-stickers-fill-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("stickers.json");
+        let mut panel = Panel::load(file.clone());
+        panel.add_rgba(2, 2, vec![0; 16], "a");
+        assert!(panel.editor.as_ref().unwrap().fill);
+        panel.local.fill = Some(false);
+        panel.local.save();
+        let mut panel = Panel::load(file);
+        panel.add_rgba(2, 2, vec![0; 16], "a");
+        assert!(!panel.editor.as_ref().unwrap().fill);
         let _ = std::fs::remove_dir_all(dir);
     }
 
