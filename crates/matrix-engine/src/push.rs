@@ -107,7 +107,8 @@ pub(crate) async fn keep_registered(client: Client, device_name: &'static str, r
     let Some(root) = root else { return };
     let mut rx = channel().subscribe();
     let mut tag_rx = tags().subscribe();
-    let mut registered: Option<PusherIds> = None;
+    // The previous process may have registered another token (Android rotates it while the app is dead).
+    let mut registered: Option<PusherIds> = load_registered(&root);
     loop {
         let current = rx.borrow_and_update().clone();
         let tag = tag_rx.borrow_and_update().get(&root).cloned();
@@ -120,6 +121,7 @@ pub(crate) async fn keep_registered(client: Client, device_name: &'static str, r
                 }
                 match client.pusher().set(pusher(&s, device_name, &tag, worker), false).await {
                     Ok(()) => {
+                        save_registered(&root, &ids);
                         registered = Some(ids);
                         false
                     }
@@ -136,6 +138,20 @@ pub(crate) async fn keep_registered(client: Client, device_name: &'static str, r
             changed = tag_rx.changed() => if changed.is_err() { return },
             _ = tokio::time::sleep(Duration::from_secs(60)), if retry => {}
         }
+    }
+}
+
+fn registered_file(root: &std::path::Path) -> PathBuf {
+    root.join("push-registered.json")
+}
+
+fn load_registered(root: &std::path::Path) -> Option<PusherIds> {
+    serde_json::from_slice(&std::fs::read(registered_file(root)).ok()?).ok()
+}
+
+fn save_registered(root: &std::path::Path, ids: &PusherIds) {
+    if let Ok(json) = serde_json::to_vec(ids) {
+        let _ = std::fs::write(registered_file(root), json);
     }
 }
 
@@ -159,6 +175,9 @@ pub(crate) async fn remove(client: &Client) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The settings and tags are process-wide: tests that publish them take turns.
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     fn settings() -> PushSettings {
         PushSettings { platform: PushPlatform::Apns, token: "ab12".into(), lang: "it".into(), body: "Nuovo messaggio".into() }
@@ -216,6 +235,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_notifies_only_on_change() {
+        let _turn = LOCK.lock().await;
         let mut rx = channel().subscribe();
         set(Some(settings()));
         assert!(rx.has_changed().unwrap());
@@ -236,5 +256,71 @@ mod tests {
         assert!(!rx.has_changed().unwrap());
         set_account(root, AccountTag { catalog: AccountId::new(4), dir: "accounts/4".into() });
         assert!(rx.has_changed().unwrap());
+    }
+
+    /// Minimal homeserver: records "<path> <body>" of every request, answers login and `{}` for the rest.
+    async fn mock_homeserver() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = log.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    let (head, body) = loop {
+                        let n = socket.read(&mut chunk).await.unwrap_or(0);
+                        buf.extend_from_slice(&chunk[..n]);
+                        let text = String::from_utf8_lossy(&buf).into_owned();
+                        if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                            let len = head.to_lowercase().split("content-length:").nth(1).and_then(|v| v.lines().next()?.trim().parse::<usize>().ok()).unwrap_or(0);
+                            if body.len() >= len || n == 0 {
+                                break (head.to_owned(), body.to_owned());
+                            }
+                        } else if n == 0 {
+                            return;
+                        }
+                    };
+                    let path = head.split_whitespace().nth(1).unwrap_or("").to_owned();
+                    seen.lock().unwrap().push(format!("{path} {body}"));
+                    let reply = if path.ends_with("/login") {
+                        r#"{"user_id":"@a:t","access_token":"tok","device_id":"D"}"#
+                    } else if path.ends_with("/versions") {
+                        r#"{"versions":["v1.11"]}"#
+                    } else {
+                        "{}"
+                    };
+                    let _ = socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len()).as_bytes()).await;
+                });
+            }
+        });
+        (url, log)
+    }
+
+    #[tokio::test]
+    async fn token_rotated_while_the_process_was_dead_removes_the_old_pushkey() {
+        let _turn = LOCK.lock().await;
+        let root = std::env::temp_dir().join(format!("gnobbi-push-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let old = PushSettings { platform: PushPlatform::Fcm, token: "token-A".into(), ..settings() };
+        save_registered(&root, &ids_of(&old));
+        let (url, log) = mock_homeserver().await;
+        let client = Client::builder().homeserver_url(&url).build().await.unwrap();
+        client.matrix_auth().login_username("@a:t", "x").send().await.unwrap();
+        set(Some(PushSettings { token: "token-B".into(), ..old }));
+        set_account(root.clone(), tag());
+        let run = keep_registered(client, "Gnobbi (Android)", Some(root.clone()), AccountId::new(1));
+        let _ = tokio::time::timeout(Duration::from_secs(3), run).await;
+        set(None);
+        let pushers: Vec<String> = log.lock().unwrap().iter().filter(|l| l.contains("/pushers/set")).cloned().collect();
+        assert_eq!(pushers.len(), 2, "{pushers:?}");
+        assert!(pushers[0].contains("token-A") && pushers[0].contains("\"kind\":null"), "{pushers:?}");
+        assert!(pushers[1].contains("token-B") && pushers[1].contains("\"kind\":\"http\""), "{pushers:?}");
+        assert_eq!(load_registered(&root).unwrap().pushkey, "token-B");
+        std::fs::remove_dir_all(&root).ok();
     }
 }
