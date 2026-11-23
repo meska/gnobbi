@@ -351,8 +351,6 @@ pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &Avatars, t: &Design
     take_paste(ui, panel);
     let w = width(ui.ctx().content_rect().width());
     ui.set_width(w);
-    // The sticker's media is the pack's own, public on the homeserver even in an encrypted room.
-    ui.label(RichText::new(i18n::t("Stickers are not encrypted, like an unencrypted image")).small().weak());
     let slot = crate::metrics::button();
     ui.horizontal(|ui| {
         let field = w - 2. * slot - 2. * ui.spacing().item_spacing.x;
