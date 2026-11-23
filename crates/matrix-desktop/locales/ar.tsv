@@ -599,3 +599,4 @@ menu	Bring All to Front	إحضار الكل إلى المقدمة
 @plural	{n} status message hidden	{n} رسالة حالة مخفية|{n} رسالة حالة مخفية|{n} رسالتا حالة مخفيتان|{n} رسائل حالة مخفية|{n} رسالة حالة مخفية|{n} رسالة حالة مخفية
 @plural	{n} unread	{n} غير مقروء|{n} غير مقروء|{n} غير مقروءين|{n} غير مقروءة|{n} غير مقروءة|{n} غير مقروء
 @plural	Gnobbi, {n} unread	Gnobbi، {n} غير مقروء|Gnobbi، {n} غير مقروء|Gnobbi، {n} غير مقروءين|Gnobbi، {n} غير مقروءة|Gnobbi، {n} غير مقروءة|Gnobbi، {n} غير مقروء
+	Clear search	مسح البحث

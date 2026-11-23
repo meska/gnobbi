@@ -147,7 +147,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        let r = ui.add_sized([w, crate::metrics::button()], crate::metrics::line(query).hint_text(i18n::t("Search conversations")));
+        let r = crate::metrics::search(ui, [w, crate::metrics::button()], query, i18n::t("Search conversations"));
         if std::mem::take(focus) {
             r.request_focus();
         }

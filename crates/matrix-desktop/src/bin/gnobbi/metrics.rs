@@ -91,6 +91,23 @@ pub fn line(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
     egui::TextEdit::singleline(text).align(crate::dir::align(egui::Align2::LEFT_CENTER))
 }
 
+/// A search field of `size` with a clear button (the X, a button-sized square) inside its end edge, shown while there is text.
+/// The margin is always there so the text never runs under the X; a click on it empties `text` and reports the field as changed.
+pub fn search(ui: &mut egui::Ui, size: [f32; 2], text: &mut String, hint: &str) -> egui::Response {
+    let margin = if crate::dir::rtl() { egui::Margin { left: size[1] as i8, right: 8, top: 0, bottom: 0 } } else { egui::Margin { left: 8, right: size[1] as i8, top: 0, bottom: 0 } };
+    let mut r = ui.add_sized(size, line(text).hint_text(hint).margin(margin));
+    if !text.is_empty() {
+        let side = size[1];
+        let rect = crate::dir::flip(r.rect, egui::Rect::from_center_size(egui::pos2(r.rect.right() - side / 2., r.rect.center().y), egui::vec2(side, side)));
+        if crate::icons::button_at(ui, rect, r.id.with("clear"), crate::icons::Icon::X, false, get().icon, crate::i18n::t("Clear search"), None, true, 1.).clicked() {
+            text.clear();
+            r.mark_changed();
+            r.request_focus();
+        }
+    }
+    r
+}
+
 /// Pointing-hand cursor over something clickable and enabled; a response that does not sense clicks keeps the normal cursor.
 /// egui's own buttons, menu entries and tabs get it from `Visuals::interact_cursor` (set in `apply`); this is for the drawn ones.
 pub fn clickable(resp: egui::Response) -> egui::Response {
@@ -121,5 +138,31 @@ mod tests {
     fn only_clickable_responses_get_the_hand() {
         assert_eq!(cursor_over(egui::Sense::click()), egui::CursorIcon::PointingHand);
         assert_eq!(cursor_over(egui::Sense::hover()), egui::CursorIcon::Default);
+    }
+
+    #[test]
+    fn clear_button_empties_the_search_only_when_there_is_text() {
+        let ctx = crate::icons::test_context();
+        let mut text = "ab".to_string();
+        let mut run = |text: &mut String, events: Vec<egui::Event>| {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 100.))), events, ..Default::default() };
+            let (mut rect, mut changed) = (egui::Rect::NOTHING, false);
+            let mut out = ctx.run_ui(input, |ui| {
+                let r = search(ui, [200., 40.], text, "hint");
+                (rect, changed) = (r.rect, r.changed());
+            });
+            out.textures_delta.clear();
+            (rect, changed)
+        };
+        let (rect, _) = run(&mut text, vec![]);
+        let at = egui::pos2(rect.right() - 20., rect.center().y);
+        let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        run(&mut text, vec![egui::Event::PointerMoved(at)]);
+        run(&mut text, vec![click(true)]);
+        let (_, changed) = run(&mut text, vec![click(false)]);
+        assert!(text.is_empty() && changed);
+        // no text: no button, a click there leaves the (empty) text alone and changes nothing
+        let (_, changed) = run(&mut text, vec![click(true)]);
+        assert!(!changed && text.is_empty());
     }
 }

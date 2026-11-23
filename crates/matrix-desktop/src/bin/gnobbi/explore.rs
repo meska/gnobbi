@@ -85,7 +85,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     let mut more = false;
     egui::Window::new(i18n::t("Explore public rooms")).frame(egui::Frame::window(&ctx.style_of(ctx.theme())).stroke(egui::Stroke::NONE)).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_width(crate::dir::fit(ui, 460.));
-        let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut e.term).hint_text(i18n::t("Search public rooms")));
+        let field = crate::metrics::search(ui, [ui.available_width(), crate::metrics::button()], &mut e.term, i18n::t("Search public rooms"));
         if std::mem::take(&mut e.fresh) {
             field.request_focus();
         }

@@ -168,7 +168,7 @@ fn tabs(ui: &mut egui::Ui, tab: &mut u8) {
 /// The user search («Cerca persone» and its results); returns the user that was clicked.
 pub fn people(ui: &mut egui::Ui, s: &mut Session, t: &matrix_desktop::DesignTokens) -> Option<String> {
     let mut picked = None;
-    ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.new_term).hint_text(i18n::t("Search people")));
+    crate::metrics::search(ui, [ui.available_width(), crate::metrics::button()], &mut s.new_term, i18n::t("Search people"));
     ui.add_space(6.);
     match &s.users {
         SearchState::Searching { .. } => {

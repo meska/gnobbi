@@ -354,7 +354,7 @@ pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &Avatars, t: &Design
     let slot = crate::metrics::button();
     ui.horizontal(|ui| {
         let field = w - 2. * slot - 2. * ui.spacing().item_spacing.x;
-        ui.add_sized([field, slot], crate::metrics::line(&mut panel.query).hint_text(i18n::t("Search")));
+        crate::metrics::search(ui, [field, slot], &mut panel.query, i18n::t("Search"));
         if crate::icons::button(ui, Icon::Plus, false, i18n::t("Add sticker")).clicked() {
             crate::pick::start(ui.ctx(), i18n::t("Add sticker"), true);
         }

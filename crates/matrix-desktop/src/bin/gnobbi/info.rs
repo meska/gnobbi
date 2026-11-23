@@ -275,7 +275,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        ui.add_sized([w, crate::metrics::button()], crate::metrics::line(term).hint_text(i18n::t("Search in room")));
+        crate::metrics::search(ui, [w, crate::metrics::button()], term, i18n::t("Search in room"));
     });
     ui.add_space(8.);
     match state {
