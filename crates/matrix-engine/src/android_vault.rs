@@ -129,6 +129,27 @@ impl ProtectionSource for AndroidKeystore {
     }
 }
 
+/// Secret of one store (the passphrase of its sqlite store), for the push reader that runs without the engine.
+#[cfg(target_os = "android")]
+pub(crate) fn read_secret(path: &Path) -> Result<Secret, VaultError> {
+    let _guard = lock();
+    read_in(&bridge::vault_dir()?, &bridge::Keystore, path)
+}
+
+/// JavaVM and a never-released global ref to the application Context, from the FCM service when the process was started for a push
+/// only (no android-activity, so `ndk_context` is empty). Never initializes `ndk_context`: android-activity does that itself later
+/// and a second init panics (risk R1). `ndk_context`, when set, wins.
+#[cfg(target_os = "android")]
+pub fn init_context(vm: *mut std::ffi::c_void, context: *mut std::ffi::c_void) {
+    let _ = bridge::SERVICE_CONTEXT.set((vm as usize, context as usize));
+}
+
+/// True once [`init_context`] ran (the caller then does not leak another global ref).
+#[cfg(target_os = "android")]
+pub fn context_ready() -> bool {
+    bridge::SERVICE_CONTEXT.get().is_some()
+}
+
 /// Removes the sealed blob of one store; an absent blob is fine. The Keystore key stays for the other profiles.
 #[cfg(target_os = "android")]
 pub(crate) fn delete_profile_store(path: &Path) -> Result<(), VaultError> {
@@ -166,18 +187,27 @@ mod bridge {
         }
     }
 
-    fn attach<T>(f: impl FnOnce(&mut Env) -> Result<T, Error>) -> Result<T, VaultError> {
-        // ndk-context panics when no android-activity glue initialized it.
-        let ctx = std::panic::catch_unwind(ndk_context::android_context).map_err(|_| VaultError::Unavailable)?;
-        // SAFETY: the VM pointer comes from android-activity; from_raw is idempotent.
-        let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) };
-        vm.attach_current_thread(f).map_err(map)
+    pub(super) static SERVICE_CONTEXT: std::sync::OnceLock<(usize, usize)> = std::sync::OnceLock::new();
+
+    /// (JavaVM, Context): android-activity's through ndk-context (panics when it never ran), else the service's.
+    fn raw_context() -> Result<(*mut std::ffi::c_void, *mut std::ffi::c_void), VaultError> {
+        if let Ok(ctx) = std::panic::catch_unwind(ndk_context::android_context) {
+            return Ok((ctx.vm(), ctx.context()));
+        }
+        SERVICE_CONTEXT.get().map(|&(vm, ctx)| (vm as *mut _, ctx as *mut _)).ok_or(VaultError::Unavailable)
+    }
+
+    fn attach<T>(f: impl FnOnce(&mut Env, *mut std::ffi::c_void) -> Result<T, Error>) -> Result<T, VaultError> {
+        let (vm, context) = raw_context()?;
+        // SAFETY: the VM pointer comes from android-activity or the service; from_raw is idempotent.
+        let vm = unsafe { jni::JavaVM::from_raw(vm.cast()) };
+        vm.attach_current_thread(|env| f(env, context)).map_err(map)
     }
 
     pub(super) fn vault_dir() -> Result<PathBuf, VaultError> {
-        let dir = attach(|env| {
-            // SAFETY: the activity is a global ref owned by android-activity; JObject has no Drop and is not kept.
-            let context = unsafe { JObject::from_raw(env, ndk_context::android_context().context().cast()) };
+        let dir = attach(|env, context| {
+            // SAFETY: a global ref that is never released (android-activity's or the service's); JObject has no Drop and is not kept.
+            let context = unsafe { JObject::from_raw(env, context.cast()) };
             let file = env.call_method(&context, jni_str!("getNoBackupFilesDir"), jni_sig!("()Ljava/io/File;"), &[])?.l()?;
             let path = env.call_method(&file, jni_str!("getAbsolutePath"), jni_sig!("()Ljava/lang/String;"), &[])?.l()?;
             let path = env.cast_local::<JString>(path)?;
@@ -280,7 +310,7 @@ mod bridge {
     pub(super) struct Keystore;
     impl Sealer for Keystore {
         fn seal(&self, aad: &[u8], plain: &[u8]) -> Result<Vec<u8>, VaultError> {
-            attach(|env| {
+            attach(|env, _| {
                 let key = match key(env)? {
                     Some(key) => key,
                     None => {
@@ -302,7 +332,7 @@ mod bridge {
                 return Err(VaultError::InvalidItem);
             }
             let (iv, data) = sealed.split_at(IV_LEN);
-            let opened = attach(|env| {
+            let opened = attach(|env, _| {
                 let Some(key) = key(env)? else { return Ok(None) };
                 let cipher = cipher(env)?;
                 let iv = env.byte_array_from_slice(iv)?;

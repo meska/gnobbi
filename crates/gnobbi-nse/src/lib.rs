@@ -151,8 +151,9 @@ fn classify(event: &Value, sender_name: Option<String>, room: Option<String>) ->
 }
 
 async fn fetch(dir: &Path, pass: &str, room_id: &str, event_id: &str) -> Result<Outcome, Fail> {
-    let rid = <&RoomId>::try_from(room_id).map_err(|_| Fail::BadInput)?;
-    let eid = <&EventId>::try_from(event_id).map_err(|_| Fail::BadInput)?;
+    // Refused before any IO.
+    <&RoomId>::try_from(room_id).map_err(|_| Fail::BadInput)?;
+    <&EventId>::try_from(event_id).map_err(|_| Fail::BadInput)?;
     let (homeserver, session) = unseal(dir, pass)?;
     let crypto = SqliteCryptoStore::open(dir, Some(pass))
         .await
@@ -177,6 +178,14 @@ async fn fetch(dir: &Path, pass: &str, room_id: &str, event_id: &str) -> Result<
         .restore_session(session)
         .await
         .map_err(|_| Fail::Store)?;
+    read_event(&client, room_id, event_id, true).await
+}
+
+/// Fetches, decrypts and classifies one pushed event with an already logged-in `client`. `sync_keys`: when the key is missing, run one
+/// encryption sync (the lite client of the extension); false for the app's own client, whose sync brings the keys: then `Encrypted`.
+pub async fn read_event(client: &Client, room_id: &str, event_id: &str, sync_keys: bool) -> Result<Outcome, Fail> {
+    let rid = <&RoomId>::try_from(room_id).map_err(|_| Fail::BadInput)?;
+    let eid = <&EventId>::try_from(event_id).map_err(|_| Fail::BadInput)?;
     let mut synced = false;
     let event = loop {
         let raw = client
@@ -195,7 +204,7 @@ async fn fetch(dir: &Path, pass: &str, room_id: &str, event_id: &str) -> Result<
             break serde_json::from_str(d.json().get()).map_err(|_| Fail::Net)?;
         }
         // Key missing: one sync of keys, then one more try; a failed or useless sync leaves the message undecryptable.
-        if synced || sync_encryption(&client).await.is_err() {
+        if !sync_keys || synced || sync_encryption(client).await.is_err() {
             return Ok(Outcome::Encrypted);
         }
         synced = true;
@@ -249,13 +258,25 @@ pub fn run(
     room_id: &str,
     event_id: &str,
 ) -> Result<Outcome, Fail> {
+    run_for(BUDGET, data_dir, tag, pass, room_id, event_id)
+}
+
+/// [`run`] with another time budget (Android: onMessageReceived has about 10 s).
+pub fn run_for(
+    budget: Duration,
+    data_dir: &Path,
+    tag: &str,
+    pass: &str,
+    room_id: &str,
+    event_id: &str,
+) -> Result<Outcome, Fail> {
     let dir = data_dir.join(store_path(tag).ok_or(Fail::BadInput)?);
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|_| Fail::Net)?
         .block_on(async {
-            tokio::time::timeout(BUDGET, fetch(&dir, pass, room_id, event_id))
+            tokio::time::timeout(budget, fetch(&dir, pass, room_id, event_id))
                 .await
                 .unwrap_or(Err(Fail::Net))
         })

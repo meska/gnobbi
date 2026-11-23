@@ -83,4 +83,30 @@ public class NotifierTest {
     @Test public void withoutTheNativeLibraryTheNotificationIsShown() {
         assertFalse(Native.isRoomVisible("3:7:a", "!r:x"));
     }
+
+    private static String title(Notification n) { return n.extras.getString(Notification.EXTRA_TITLE); }
+    private static String text(Notification n) { return n.extras.getString(Notification.EXTRA_TEXT); }
+
+    @Test public void engineTextBecomesSenderAndBodyAndEverythingElseStaysGeneric() {
+        Notification n = Notifier.build(ctx, sample("3:7:a", "!r:x"), "TAnn\nhi\nthere");
+        assertEquals("Ann", title(n));
+        assertEquals("hi\nthere", text(n));
+        n = Notifier.build(ctx, sample("3:7:a", "!r:x"), "OAnn");
+        assertEquals("Ann", title(n));
+        assertEquals(ctx.getString(R.string.notification_generic), text(n));
+        for (String generic : new String[] {"", "T", "Tno-newline", "O", "garbage"}) {
+            n = Notifier.build(ctx, sample("3:7:a", "!r:x"), generic);
+            assertEquals(generic, ctx.getString(R.string.app_name), title(n));
+            assertEquals(generic, ctx.getString(R.string.notification_generic), text(n));
+        }
+    }
+
+    @Test public void engineSuppressPostsNothing() {
+        Shadows.shadowOf((android.app.Application) ctx).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS);
+        assertFalse(Notifier.show(ctx, sample("3:7:a", "!r:x"), false, "S"));
+    }
+
+    @Test public void withoutTheNativeLibraryTheAlertIsGeneric() {
+        assertEquals("", Native.alert(ctx, sample("3:7:a", "!r:x")));
+    }
 }

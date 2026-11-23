@@ -13,9 +13,11 @@ mac-vault = ["sdk", "dep:security-framework", "dep:getrandom"]
 ios-vault = ["sdk", "dep:security-framework", "dep:getrandom"]
 android-vault = ["sdk", "dep:jni", "dep:ndk-context", "dep:getrandom"]
 windows-vault = ["sdk", "dep:windows", "dep:getrandom"]
-sdk = ["dep:tracing", "dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "dep:serde_json", "dep:matrix-sdk-store-encryption", "dep:image", "dep:mime_guess", "dep:matrix-sdk-crypto", "dep:matrix-sdk-ui", "dep:eyeball-im", "dep:futures-util", "dep:pulldown-cmark"]
+sdk = ["dep:tracing", "dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "dep:serde_json", "dep:matrix-sdk-store-encryption", "dep:image", "dep:mime_guess", "dep:matrix-sdk-crypto", "dep:matrix-sdk-ui", "dep:eyeball-im", "dep:futures-util", "dep:pulldown-cmark", "dep:gnobbi-nse"]
 
 [dependencies]
+# Push content: the notification extension's reader (iOS NSE, Android FCM service) and the contract test on AccountStore::seal (persistence_tests.rs).
+gnobbi-nse = { path = "../gnobbi-nse", optional = true }
 matrix-sdk-crypto = { version = "=0.19.1", optional = true, default-features = false }
 opus-pure = "=0.2.3"
 mime_guess = { version = "=2.0.5", optional = true, default-features = false }
@@ -61,8 +63,6 @@ name = "sdk_smoke"
 required-features = ["sdk"]
 
 [dev-dependencies]
-# Contract test: the iOS NSE must read what AccountStore::seal writes (persistence_tests.rs).
-gnobbi-nse = { path = "../gnobbi-nse" }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
 futures-util = { version = "=0.3.34", default-features = false }
 # Fake homeserver and paused clock of tests/sync_flapping.rs.

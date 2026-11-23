@@ -19,6 +19,11 @@ final class Notifier {
     private Notifier() {}
 
     static Notification build(Context ctx, PushPayload p) {
+        return build(ctx, p, "");
+    }
+
+    /** {@code alert} is the engine's answer (see Alert::wire in push.rs): "" generic, "O" + sender, "T" + sender + newline + text. */
+    static Notification build(Context ctx, PushPayload p, String alert) {
         Intent open = new Intent(ctx, MainActivity.class)
                 .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra(EXTRA_ACCOUNT, p.account)
@@ -27,11 +32,20 @@ final class Notifier {
         int code = (p.account + '\0' + p.roomId).hashCode();
         PendingIntent tap = PendingIntent.getActivity(ctx, code, open,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        // Generic text only: fetching and decrypting the event is t_ec008f7e (never invent content).
+        // Content only when the engine read it; anything else keeps the generic text (never invent content).
+        String title = ctx.getString(R.string.app_name);
+        String text = ctx.getString(R.string.notification_generic);
+        int nl = alert.indexOf('\n');
+        if (alert.startsWith("T") && nl > 1) {
+            title = alert.substring(1, nl);
+            text = alert.substring(nl + 1);
+        } else if (alert.startsWith("O") && alert.length() > 1) {
+            title = alert.substring(1);
+        }
         return new Notification.Builder(ctx, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher_foreground)
-                .setContentTitle(ctx.getString(R.string.app_name))
-                .setContentText(ctx.getString(R.string.notification_generic))
+                .setContentTitle(title)
+                .setContentText(text)
                 .setContentIntent(tap)
                 .setAutoCancel(true)
                 .build();
@@ -51,7 +65,12 @@ final class Notifier {
      * the user refused POST_NOTIFICATIONS or notifications are disabled.
      */
     static boolean show(Context ctx, PushPayload p, boolean roomVisible) {
-        if (roomVisible) return false;
+        return show(ctx, p, roomVisible, "");
+    }
+
+    /** Also false for the engine's "S" (Notifications switch off, or an edit/redaction: nothing to alert). */
+    static boolean show(Context ctx, PushPayload p, boolean roomVisible, String alert) {
+        if (roomVisible || alert.equals("S")) return false;
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
         if (nm == null || !nm.areNotificationsEnabled()) return false;
         if (Build.VERSION.SDK_INT >= 33
@@ -60,7 +79,7 @@ final class Notifier {
         }
         nm.createNotificationChannel(new NotificationChannel(CHANNEL_ID,
                 ctx.getString(R.string.channel_messages), NotificationManager.IMPORTANCE_HIGH));
-        nm.notify(tag(p), 0, build(ctx, p));
+        nm.notify(tag(p), 0, build(ctx, p, alert));
         return true;
     }
 }

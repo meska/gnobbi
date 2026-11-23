@@ -1,5 +1,6 @@
 package net.meskatech.gnobbi;
 
+import android.content.Context;
 import android.util.Log;
 
 /** Bridge to libgnobbi.so: Java_net_meskatech_gnobbi_Native_nativeOnToken / _nativeOnOpen in crates/matrix-desktop/src/push.rs. */
@@ -11,6 +12,22 @@ final class Native {
     private static native void nativeOnOpen(String account, String room);
 
     private static native boolean nativeIsRoomVisible(String account, String room);
+
+    private static native String nativeAlert(Context ctx, String filesDir, String account, String room, String event);
+
+    /**
+     * What to post for a push, from the engine (fetch + decrypt, preview and switch rules in Rust): "" is the generic text, also when
+     * the library is missing or the engine fails. Blocks up to about 8 s; call it from onMessageReceived only.
+     */
+    static String alert(Context ctx, PushPayload p) {
+        try {
+            System.loadLibrary("gnobbi");
+            String a = nativeAlert(ctx.getApplicationContext(), ctx.getFilesDir().getCanonicalPath(), p.account, p.roomId, p.eventId);
+            return a == null ? "" : a;
+        } catch (UnsatisfiedLinkError | java.io.IOException e) {
+            return "";
+        }
+    }
 
     /** True when the user is reading that room right now; false (show the notification) when the engine is not loaded. */
     static boolean isRoomVisible(String account, String room) {

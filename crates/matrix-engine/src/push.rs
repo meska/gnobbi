@@ -6,9 +6,13 @@ use matrix_domain::AccountId;
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::watch;
+
+pub use gnobbi_nse::{Fail, Outcome};
+#[cfg(all(feature = "android-vault", target_os = "android"))]
+pub use crate::android_vault::{context_ready, init_context};
 
 pub const APP_ID_IOS: &str = "net.meskatech.gnobbi";
 pub const APP_ID_ANDROID: &str = "net.meskatech.gnobbi.android";
@@ -78,12 +82,47 @@ pub fn current() -> Option<PushSettings> {
     channel().borrow().clone()
 }
 
+/// `gnobbi_account` of the push payload.
+fn account_of(tag: &AccountTag, worker: AccountId) -> String {
+    format!("{}:{}:{}", tag.catalog.as_u64(), worker.as_u64(), tag.dir)
+}
+
+/// The clients of the running workers by store root (with the runtime they live on): a push for an account whose worker is alive is
+/// read with that client, never with a second one on the same crypto store.
+static LIVE: Mutex<Vec<(PathBuf, AccountId, Client, tokio::runtime::Handle)>> = Mutex::new(Vec::new());
+
+struct LiveGuard(PathBuf);
+
+impl Drop for LiveGuard {
+    fn drop(&mut self) {
+        LIVE.lock().unwrap_or_else(|e| e.into_inner()).retain(|(root, ..)| *root != self.0);
+    }
+}
+
+/// Reads the pushed event with the running worker's client; `None` when that account has no live worker (the caller then goes cold).
+/// Blocking, for the Android FCM service thread. A decryption key the sync has not brought yet is `Outcome::Encrypted`.
+pub fn read_live(account: &str, room: &str, event: &str, budget: Duration) -> Option<Result<Outcome, Fail>> {
+    let (client, handle) = {
+        let tags = tags().borrow();
+        let live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
+        live.iter().find(|(root, worker, ..)| tags.get(root).is_some_and(|t| account_of(t, *worker) == account)).map(|(_, _, c, h)| (c.clone(), h.clone()))?
+    };
+    let (room, event) = (room.to_owned(), event.to_owned());
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    // On the worker's own runtime: its connection pool and tasks belong there.
+    handle.spawn(async move {
+        let read = tokio::time::timeout(budget, gnobbi_nse::read_event(&client, &room, &event, false)).await;
+        let _ = tx.send(read.unwrap_or(Err(Fail::Net)));
+    });
+    Some(rx.blocking_recv().unwrap_or(Err(Fail::Net)))
+}
+
 /// Pure: the pusher Sygnal turns into a visible APNs alert (`default_payload` is merged under room_id/event_id).
 /// `worker` is the store's account id (folder `account-<worker>`, Keychain item, second part of the click key).
 pub fn pusher(s: &PushSettings, device_name: &str, tag: &AccountTag, worker: AccountId) -> Pusher {
     let mut data = HttpPusherData::new(GATEWAY.to_owned());
     data.format = Some(PushFormat::EventIdOnly);
-    let account = format!("{}:{}:{}", tag.catalog.as_u64(), worker.as_u64(), tag.dir);
+    let account = account_of(tag, worker);
     let payload = match s.platform {
         PushPlatform::Apns => json!({
             "aps": { "alert": { "title": "Gnobbi", "body": s.body }, "sound": "default", "mutable-content": 1 },
@@ -107,6 +146,8 @@ pub fn pusher(s: &PushSettings, device_name: &str, tag: &AccountTag, worker: Acc
 /// Runs until aborted.
 pub(crate) async fn keep_registered(client: Client, device_name: &'static str, root: Option<PathBuf>, worker: AccountId) {
     let Some(root) = root else { return };
+    LIVE.lock().unwrap_or_else(|e| e.into_inner()).push((root.clone(), worker, client.clone(), tokio::runtime::Handle::current()));
+    let _live = LiveGuard(root.clone());
     let mut rx = channel().subscribe();
     let mut tag_rx = tags().subscribe();
     // The previous process may have registered another token (Android rotates it while the app is dead).
@@ -171,6 +212,15 @@ fn save_registered(root: &std::path::Path, ids: &PusherIds) {
 /// The ids the pusher was registered with (also what removal must name).
 fn ids_of(s: &PushSettings) -> PusherIds {
     PusherIds::new(s.token.clone(), s.platform.app_id().to_owned())
+}
+
+/// App process not running an engine for that account (FCM woke only the service): opens the account's store with the Keystore secret
+/// and reads the event with the lite client. Needs `android_vault::init_context` first.
+#[cfg(all(feature = "android-vault", target_os = "android"))]
+pub fn read_cold(data_dir: &std::path::Path, account: &str, room: &str, event: &str, budget: Duration) -> Result<Outcome, Fail> {
+    let store = data_dir.join(gnobbi_nse::store_path(account).ok_or(Fail::BadInput)?);
+    let secret = crate::android_vault::read_secret(&store).map_err(|_| Fail::Store)?;
+    gnobbi_nse::run_for(budget, data_dir, account, &secret.0, room, event)
 }
 
 /// Before the server logout: the token is useless to the account that leaves.
@@ -300,7 +350,9 @@ mod tests {
                     };
                     let path = head.split_whitespace().nth(1).unwrap_or("").to_owned();
                     seen.lock().unwrap().push(format!("{path} {body}"));
-                    let reply = if path.ends_with("/login") {
+                    let reply = if path.contains("/event/") {
+                        r#"{"type":"m.room.message","event_id":"$e:t","sender":"@b:t","origin_server_ts":1,"content":{"msgtype":"m.text","body":"ciao"}}"#
+                    } else if path.ends_with("/login") {
                         r#"{"user_id":"@a:t","access_token":"tok","device_id":"D"}"#
                     } else if path.ends_with("/versions") {
                         r#"{"versions":["v1.11"]}"#
@@ -363,6 +415,33 @@ mod tests {
         assert_eq!(count("\"kind\":\"http\""), 2);
         run.abort();
         set(None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A push for an account with a running worker is read with that worker's client (no second client), by the same account string
+    /// the pusher carries; an unknown account is `None`; once the worker ends the entry is gone.
+    #[tokio::test]
+    async fn live_worker_client_reads_the_pushed_event_and_goes_away_with_the_worker() {
+        let _turn = LOCK.lock().await;
+        let root = std::env::temp_dir().join(format!("gnobbi-push-live-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let (url, log) = mock_homeserver().await;
+        let client = Client::builder().homeserver_url(&url).build().await.unwrap();
+        client.matrix_auth().login_username("@a:t", "x").send().await.unwrap();
+        set(None);
+        set_account(root.clone(), tag());
+        let run = tokio::spawn(keep_registered(client, "Gnobbi (Android)", Some(root.clone()), AccountId::new(1)));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let read = |account: &'static str| tokio::task::spawn_blocking(move || read_live(account, "!r:t", "$e:t", Duration::from_secs(5)));
+        assert_eq!(
+            read("3:1:accounts/3").await.unwrap(),
+            Some(Ok(Outcome::Message { sender: "@b:t".into(), body: "ciao".into(), room: None }))
+        );
+        assert!(log.lock().unwrap().iter().any(|l| l.contains("/event/")));
+        assert_eq!(read("3:2:accounts/3").await.unwrap(), None);
+        run.abort();
+        let _ = run.await;
+        assert_eq!(read("3:1:accounts/3").await.unwrap(), None);
         std::fs::remove_dir_all(&root).ok();
     }
 }

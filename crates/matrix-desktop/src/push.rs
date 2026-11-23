@@ -1,7 +1,7 @@
 //! Remote push (iOS APNs, Android FCM): the device token feeds the Matrix pushers of every account (`matrix_engine::push`),
 //! as long as the app's Notifications switch is on. iOS phase 2 (Notification Service Extension: decrypted content, room opening on tap) is not here.
 use crate::AppDirs;
-use matrix_engine::push::{PushPlatform, PushSettings, set};
+use matrix_engine::push::{Fail, Outcome, PushPlatform, PushSettings, set};
 use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
 
 /// APNs gives raw bytes; the pushkey is lowercase hex. Sygnal must run with `convert_device_token_to_hex: false`
@@ -65,10 +65,88 @@ pub fn init(dirs: &AppDirs) {
     publish();
 }
 
+/// What the Android FCM service posts for one push.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Alert {
+    /// Fixed text, no content (preview off, nothing readable, any failure).
+    Generic,
+    /// Nothing: Notifications switch off, or an edit/redaction.
+    Suppress,
+    /// Readable, but not text (image, file...): sender with the generic text.
+    Sender(String),
+    Text { title: String, body: String },
+}
+
+impl Alert {
+    /// One string for JNI: "" generic, "S" suppress, "O<sender>", "T<title>\n<text>" (a title has no newline).
+    pub fn wire(&self) -> String {
+        match self {
+            Alert::Generic => String::new(),
+            Alert::Suppress => "S".into(),
+            Alert::Sender(s) => format!("O{}", s.replace('\n', " ")),
+            Alert::Text { title, body } => format!("T{}\n{body}", title.replace('\n', " ")),
+        }
+    }
+}
+
+/// Pure: the alert for a push. `read` (fetch + decrypt) only runs when the content may be shown; a failure never invents content.
+pub fn alert(notifications: bool, preview: bool, read: impl FnOnce() -> Result<Outcome, Fail>) -> Alert {
+    if !notifications {
+        return Alert::Suppress;
+    }
+    if !preview {
+        return Alert::Generic;
+    }
+    match read() {
+        Ok(Outcome::Message { sender, body, .. }) => Alert::Text { title: sender, body },
+        Ok(Outcome::Other { sender, .. }) => Alert::Sender(sender),
+        Ok(Outcome::Suppress) => Alert::Suppress,
+        Ok(Outcome::Encrypted) | Err(_) => Alert::Generic,
+    }
+}
+
 /// JNI entry points of `net.meskatech.gnobbi.Native` (static natives, see packaging/android).
 #[cfg(target_os = "android")]
 mod android {
-    use jni::{errors::LogErrorAndDefault, objects::{JClass, JString}, Env, EnvUnowned};
+    use jni::{errors::LogErrorAndDefault, objects::{JClass, JObject, JString}, Env, EnvUnowned};
+    use std::time::Duration;
+
+    /// onMessageReceived has about 10 s: the read gives up earlier and the generic text is posted.
+    const BUDGET: Duration = Duration::from_secs(8);
+
+    // shortcut: a live process whose worker is not running yet (signing in, parked) also goes cold: the lite client then shares the crypto store with the
+    // app in one process (R2); the lock holders differ ("main"/"gnobbi-nse") but this is not proven on a device. Upgrade when PA-4 shows lock contention.
+    /// Warm: the running worker's client. Cold (the process was started for the push only): the lite reader with the Keystore secret.
+    fn alert_for(files_dir: &str, account: &str, room: &str, event: &str) -> super::Alert {
+        // HOME as android_main sets it: the XDG fallbacks of app_dirs land in the app's private dir.
+        let Some(dirs) = crate::app_dirs(crate::Platform::CURRENT, |k| (k == "HOME").then(|| files_dir.to_owned())) else { return super::Alert::Generic };
+        let prefs = crate::Preferences::load(&dirs);
+        super::alert(prefs.notifications, prefs.message_preview, || {
+            matrix_engine::push::read_live(account, room, event, BUDGET)
+                .unwrap_or_else(|| matrix_engine::push::read_cold(&dirs.data, account, room, event, BUDGET))
+        })
+    }
+
+    /// Alert for a push (see `Alert::wire`); the generic one on any error. Nothing of the message is logged.
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_net_meskatech_gnobbi_Native_nativeAlert<'l>(
+        mut env: EnvUnowned<'l>, _: JClass<'l>, context: JObject<'l>, files_dir: JString<'l>, account: JString<'l>, room: JString<'l>, event: JString<'l>,
+    ) -> JString<'l> {
+        env.with_env(|env| -> jni::errors::Result<JString<'l>> {
+            // R1: the service's Context for the vault, in the engine's own slot (never ndk_context, which android-activity initializes itself).
+            if !matrix_engine::push::context_ready() {
+                let vm = env.get_java_vm()?;
+                let global = env.new_global_ref(&context)?;
+                matrix_engine::push::init_context(vm.get_raw().cast(), global.as_raw().cast());
+                std::mem::forget(global);
+            }
+            let (files_dir, account, room, event) = (text(env, &files_dir)?, text(env, &account)?, text(env, &room)?, text(env, &event)?);
+            let alert = alert_for(&files_dir, &account, &room, &event);
+            eprintln!("Gnobbi: push alert kind={}", alert.wire().chars().next().unwrap_or('G'));
+            env.new_string(alert.wire())
+        })
+        .resolve::<LogErrorAndDefault>()
+    }
 
     fn text(env: &mut Env, s: &JString) -> jni::errors::Result<String> {
         s.try_to_string(env)
@@ -191,5 +269,33 @@ mod tests {
         assert_eq!(super::token_hex(&[]), "");
         assert_eq!(super::token_class(&[0xAB; 32]), "32 bytes, 64 chars, lowercase hex");
         assert_eq!(super::token_class(&[]), "0 bytes, 0 chars, lowercase hex");
+    }
+
+    fn msg() -> Result<Outcome, Fail> {
+        Ok(Outcome::Message { sender: "Ann".into(), body: "hi\nthere".into(), room: Some("Team".into()) })
+    }
+
+    #[test]
+    fn alert_shows_the_text_only_with_the_switch_and_the_preview_on() {
+        assert_eq!(alert(true, true, msg), Alert::Text { title: "Ann".into(), body: "hi\nthere".into() });
+        assert_eq!(alert(true, false, || panic!("must not fetch with the preview off")), Alert::Generic);
+        assert_eq!(alert(false, true, || panic!("must not fetch with notifications off")), Alert::Suppress);
+    }
+
+    #[test]
+    fn alert_falls_back_to_generic_and_never_invents_content() {
+        for failed in [Err(Fail::Net), Err(Fail::Store), Err(Fail::BadInput), Ok(Outcome::Encrypted)] {
+            assert_eq!(alert(true, true, || failed), Alert::Generic);
+        }
+        assert_eq!(alert(true, true, || Ok(Outcome::Other { sender: "Ann".into(), room: None })), Alert::Sender("Ann".into()));
+        assert_eq!(alert(true, true, || Ok(Outcome::Suppress)), Alert::Suppress);
+    }
+
+    #[test]
+    fn alert_wire_format() {
+        assert_eq!(Alert::Generic.wire(), "");
+        assert_eq!(Alert::Suppress.wire(), "S");
+        assert_eq!(Alert::Sender("A\nB".into()).wire(), "OA B");
+        assert_eq!(Alert::Text { title: "Ann".into(), body: "a\nb".into() }.wire(), "TAnn\na\nb");
     }
 }
