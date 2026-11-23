@@ -1,7 +1,7 @@
 [workspace]
 members = ["crates/matrix-domain", "crates/matrix-engine", "crates/matrix-desktop", "crates/gnobbi-nse"]
 default-members = ["crates/matrix-domain", "crates/matrix-engine"]
-exclude = ["vendor/matrix-sdk-0.19.1", "vendor/egui-6d518fc", "vendor/winit-a517b38"]
+exclude = ["vendor/matrix-sdk-0.19.1", "vendor/matrix-sdk-search-0.19.1", "vendor/egui-6d518fc", "vendor/winit-a517b38"]
 resolver = "3"
 
 [workspace.package]
@@ -35,6 +35,7 @@ codegen-units = 1
 
 [patch.crates-io]
 matrix-sdk = { path = "vendor/matrix-sdk-0.19.1" }
+matrix-sdk-search = { path = "vendor/matrix-sdk-search-0.19.1" }
 # egui frontend: storytold forks of egui (rev 6d518fc) and winit (rev a517b38).
 ecolor = { path = "vendor/egui-6d518fc/crates/ecolor" }
 emath = { path = "vendor/egui-6d518fc/crates/emath" }

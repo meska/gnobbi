@@ -1,9 +1,10 @@
-//! Message search of ONE room (the chat header's lens), the single service behind it. Unencrypted
-//! rooms ask the server (`POST /search`, `room_events`); encrypted rooms (or an unknown state) read
-//! ONLY the SDK event cache, decrypted, and the term never leaves the device. Built like
-//! `UserSearch`: debounce, abort + generation, nothing here logs the term, an excerpt or an event ID.
+//! Message search, the single service behind the chat header's lens (ONE room) and the room list's
+//! «Messaggi» section (ALL rooms). Unencrypted rooms of a one-room search ask the server (`POST /search`,
+//! `room_events`); everything else (encrypted rooms, unknown state, all rooms) reads ONLY the local
+//! message index (`search_index`), and the term never leaves the device. Built like `UserSearch`:
+//! debounce, abort + generation, nothing here logs the term, an excerpt or an event ID.
 use crate::operations::{MessageHit, MessageSearchState, MessageSource, MoreHits};
-use matrix_sdk::{Client, ruma::OwnedRoomId};
+use matrix_sdk::{Client, ruma::{OwnedRoomId, RoomId}};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -20,9 +21,13 @@ pub const DEBOUNCE: Duration = Duration::from_millis(275);
 pub use crate::message_match::MIN_CHARS;
 pub const PAGE: usize = 20;
 pub const TIMEOUT: Duration = Duration::from_secs(20);
-/// Encrypted rooms: how long, and how many events, the cache is paged back before the search reads it.
+/// One room's search: how long, and how many events, the history is paged back before the index is read.
 const FILL_TIMEOUT: Duration = Duration::from_secs(10);
 const FILL_EVENTS: u16 = 2000;
+/// Newest matches taken from each room's index, and kept of all rooms together.
+const PER_ROOM: usize = 30;
+const ROOM_HITS: usize = 200;
+const ALL_HITS: usize = 300;
 const EXCERPT_CHARS: usize = 200;
 
 pub use crate::message_match::find_ranges;
@@ -31,12 +36,31 @@ fn one_line(body: &str) -> String {
     body.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Where the words of `term` are in `text`, in order and without overlaps (a hit is highlighted word by word).
+pub fn word_ranges(text: &str, term: &str) -> Vec<std::ops::Range<usize>> {
+    let mut all: Vec<_> = term.split_whitespace().flat_map(|w| find_ranges(text, w)).collect();
+    all.sort_by_key(|r| (r.start, r.end));
+    let mut merged: Vec<std::ops::Range<usize>> = Vec::new();
+    for r in all {
+        match merged.last_mut() {
+            Some(last) if r.start <= last.end => last.end = last.end.max(r.end),
+            _ => merged.push(r),
+        }
+    }
+    merged
+}
+
+/// Every word of `term` is somewhere in `text`.
+fn has_all_words(text: &str, term: &str) -> bool {
+    term.split_whitespace().all(|w| !find_ranges(text, w).is_empty())
+}
+
 /// At most `EXCERPT_CHARS` characters of `line`, starting a little before the first match.
 fn excerpt_of(line: &str, term: &str) -> String {
     if line.chars().count() <= EXCERPT_CHARS {
         return line.to_owned();
     }
-    let first = find_ranges(line, term).first().map_or(0, |r| line[..r.start].chars().count());
+    let first = word_ranges(line, term).first().map_or(0, |r| line[..r.start].chars().count());
     let skip = first.saturating_sub(40);
     let body: String = line.chars().skip(skip).take(EXCERPT_CHARS).collect();
     if skip > 0 { format!("…{body}") } else { body }
@@ -47,11 +71,12 @@ fn hit_of(event: &Value, body: &str, term: &str, ts: u64) -> Option<MessageHit> 
     let excerpt = excerpt_of(&line, term);
     let relates = &event["content"]["m.relates_to"];
     Some(MessageHit {
+        room_id: String::new(),
         event_id: event["event_id"].as_str()?.to_owned(),
         sender: event["sender"].as_str()?.to_owned(),
         sender_name: String::new(),
         ts,
-        matches: find_ranges(&excerpt, term),
+        matches: word_ranges(&excerpt, term),
         excerpt,
         thread_root: (relates["rel_type"] == "m.thread")
             .then(|| relates["event_id"].as_str().map(str::to_owned))
@@ -75,7 +100,7 @@ pub fn server_hits(results: &[Value], term: &str) -> Vec<MessageHit> {
         .collect()
 }
 
-/// Hits among all cached events of the room, newest first: latest valid edit instead of the
+/// Hits among the given events (an indexed message with its edits and redactions), newest first: latest valid edit instead of the
 /// original, redacted messages out, a message once.
 pub fn local_hits(events: &[Value], term: &str) -> Vec<MessageHit> {
     let redacted: HashSet<&str> = events
@@ -112,7 +137,7 @@ pub fn local_hits(events: &[Value], term: &str) -> Vec<MessageHit> {
                 Some((_, edited)) => edited,
                 None => e["content"]["body"].as_str()?,
             };
-            if find_ranges(&one_line(body), term).is_empty() {
+            if !has_all_words(&one_line(body), term) {
                 return None;
             }
             hit_of(e, body, term, e["origin_server_ts"].as_u64()?)
@@ -139,7 +164,8 @@ struct Paging {
 
 pub struct MessageSearch {
     client: Client,
-    room_id: OwnedRoomId,
+    /// `None`: all rooms.
+    room_id: Option<OwnedRoomId>,
     term: String,
     generation: Arc<Mutex<u64>>,
     tx: Arc<watch::Sender<MessageSearchState>>,
@@ -152,6 +178,15 @@ type Page = (Vec<MessageHit>, Option<String>);
 impl MessageSearch {
     /// Fixed scope: one room. Another room means another `MessageSearch` (the old one aborts on drop).
     pub fn for_room(client: Client, room_id: OwnedRoomId) -> Self {
+        Self::scoped(client, Some(room_id))
+    }
+
+    /// Every joined room, from the local index.
+    pub fn everywhere(client: Client) -> Self {
+        Self::scoped(client, None)
+    }
+
+    fn scoped(client: Client, room_id: Option<OwnedRoomId>) -> Self {
         Self {
             client,
             room_id,
@@ -189,13 +224,19 @@ impl MessageSearch {
         self.task = Some(tokio::spawn(async move {
             tokio::time::sleep(DEBOUNCE).await;
             // Decided on every query: a room can become encrypted. Unknown never reaches the server.
-            let source = source_of(&client, &room_id).await;
-            // The cache is all an encrypted room has: page it back to the room start first (sync can leave a gap).
-            let partial = source == MessageSource::LocalCache && !fill_cache(&client, &room_id).await;
+            let source = match &room_id {
+                Some(id) => source_of(&client, id).await,
+                None => MessageSource::LocalCache,
+            };
+            // One room from the index: page its history back first (sync can leave a gap), indexing it.
+            let partial = match (&room_id, source) {
+                (Some(id), MessageSource::LocalCache) => !crate::search_index::fill(&client, id, FILL_EVENTS, FILL_TIMEOUT).await,
+                _ => false,
+            };
             let first = tokio::time::timeout(TIMEOUT, async {
-                match source {
-                    MessageSource::Server => server_page(&client, &room_id, &term, None).await,
-                    MessageSource::LocalCache => local_all(&client, &room_id, &term).await,
+                match (source, &room_id) {
+                    (MessageSource::Server, Some(id)) => server_page(&client, id, &term, None).await,
+                    _ => indexed(&client, room_id.as_deref(), &term).await,
                 }
             })
             .await
@@ -208,7 +249,7 @@ impl MessageSearch {
                     if source == MessageSource::LocalCache {
                         p.queue = hits.split_off(hits.len().min(PAGE));
                     }
-                    name_senders(&client, &room_id, &mut hits).await;
+                    name_senders(&client, &mut hits).await;
                     p.shown = hits;
                     let state = results(&p);
                     *paging.lock().unwrap() = p;
@@ -242,8 +283,8 @@ impl MessageSearch {
         let (generation, tx) = (self.generation.clone(), self.tx.clone());
         self.task = Some(tokio::spawn(async move {
             let page = tokio::time::timeout(TIMEOUT, async {
-                match p.source {
-                    Some(MessageSource::Server) => server_page(&client, &room_id, &p.term, p.next.clone()).await,
+                match (&p.source, &room_id) {
+                    (Some(MessageSource::Server), Some(id)) => server_page(&client, id, &p.term, p.next.clone()).await,
                     _ => Ok((p.queue.drain(..p.queue.len().min(PAGE)).collect(), None)),
                 }
             })
@@ -261,7 +302,7 @@ impl MessageSearch {
                 Ok((mut hits, next)) => {
                     let known: HashSet<_> = p.shown.iter().map(|h| h.event_id.clone()).collect();
                     hits.retain(|h| !known.contains(&h.event_id));
-                    name_senders(&client, &room_id, &mut hits).await;
+                    name_senders(&client, &mut hits).await;
                     p.shown.extend(hits);
                     if p.source == Some(MessageSource::Server) {
                         p.next = next;
@@ -319,7 +360,7 @@ fn publish(generation: &Mutex<u64>, tx: &watch::Sender<MessageSearchState>, gen_
     }
 }
 
-async fn source_of(client: &Client, room_id: &matrix_sdk::ruma::RoomId) -> MessageSource {
+async fn source_of(client: &Client, room_id: &RoomId) -> MessageSource {
     use matrix_sdk::EncryptionState;
     match client.get_room(room_id) {
         Some(room) => match room.latest_encryption_state().await {
@@ -350,31 +391,48 @@ async fn server_page(client: &Client, room_id: &OwnedRoomId, term: &str, next: O
         .iter()
         .filter_map(|r| serde_json::from_str(r.result.as_ref()?.json().get()).ok())
         .collect();
-    Ok((server_hits(&events, term), found.next_batch))
+    let mut hits = server_hits(&events, term);
+    hits.iter_mut().for_each(|h| h.room_id = room_id.to_string());
+    Ok((hits, found.next_batch))
 }
 
-/// Pages the room's event cache back to the room start (at most `FILL_EVENTS` events, `FILL_TIMEOUT`).
-/// True only when the start was reached: the cache then holds the whole room. Offline or failing: false,
-/// and the search still reads what the cache has.
-async fn fill_cache(client: &Client, room_id: &OwnedRoomId) -> bool {
-    let Some(room) = client.get_room(room_id) else { return false };
-    let Ok((cache, _keep)) = room.event_cache().await else { return false };
-    let paging = tokio::time::timeout(FILL_TIMEOUT, cache.pagination().run_backwards_until(FILL_EVENTS)).await;
-    matches!(paging, Ok(Ok(outcome)) if outcome.reached_start)
-}
-
-async fn local_all(client: &Client, room_id: &OwnedRoomId, term: &str) -> Result<Page, ()> {
-    let events = {
-        let guard = client.event_cache_store().lock().await.map_err(|_| ())?;
-        guard.as_clean().ok_or(())?.get_room_events(room_id, None, None).await.map_err(|_| ())?
+/// Hits of the local index, newest first: the matches of one room, or of every joined room. Each match is
+/// read back from the event cache with its edits (the index only says which messages match), so the text
+/// shown is the latest edit and a redacted message is not listed.
+async fn indexed(client: &Client, room_id: Option<&RoomId>, term: &str) -> Result<Page, ()> {
+    use matrix_sdk::ruma::events::relation::RelationType;
+    let rooms: Vec<_> = match room_id {
+        Some(id) => client.get_room(id).into_iter().collect(),
+        None => client.joined_rooms(),
     };
-    let events: Vec<Value> = events.iter().filter_map(|e| serde_json::from_str(e.raw().json().get()).ok()).collect();
-    Ok((local_hits(&events, term), None))
+    let (per_room, total) = if room_id.is_some() { (ROOM_HITS, ROOM_HITS) } else { (PER_ROOM, ALL_HITS) };
+    let mut hits = Vec::new();
+    for room in rooms {
+        let found = room.search(term, per_room, None).await.map_err(|_| ())?;
+        if found.is_empty() {
+            continue;
+        }
+        let Ok((cache, _keep)) = client.event_cache().room(room.room_id()).await else { continue };
+        for (_, event_id) in found {
+            let Ok(Some((event, related))) = cache.find_event_with_relations(&event_id, Some(vec![RelationType::Replacement])).await else { continue };
+            let events: Vec<Value> = std::iter::once(&event)
+                .chain(&related)
+                .filter_map(|e| serde_json::from_str(e.raw().json().get()).ok())
+                .collect();
+            for mut hit in local_hits(&events, term) {
+                hit.room_id = room.room_id().to_string();
+                hits.push(hit);
+            }
+        }
+    }
+    hits.sort_by_key(|h| std::cmp::Reverse(h.ts));
+    hits.truncate(total);
+    Ok((hits, None))
 }
 
-async fn name_senders(client: &Client, room_id: &OwnedRoomId, hits: &mut [MessageHit]) {
-    let room = client.get_room(room_id);
+async fn name_senders(client: &Client, hits: &mut [MessageHit]) {
     for hit in hits {
+        let room = matrix_sdk::ruma::RoomId::parse(&hit.room_id).ok().and_then(|id| client.get_room(&id));
         let member = match (&room, matrix_sdk::ruma::UserId::parse(&hit.sender)) {
             (Some(room), Ok(user)) => room.get_member_no_sync(&user).await.ok().flatten(),
             _ => None,

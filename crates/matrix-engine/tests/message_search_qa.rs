@@ -63,7 +63,10 @@ async fn build(config: &serde_json::Value, store: Option<&std::path::Path>, url:
         .add_root_certificates(vec![ca])
         .sliding_sync_version_builder(VersionBuilder::DiscoverNative);
     if let Some(path) = store {
-        b = b.sqlite_store(path, Some(PASS));
+        // As the engine does it: the index sits next to the store, encrypted with the store's passphrase.
+        let index = path.with_file_name(format!("{}-search", path.file_name().unwrap().to_str().unwrap()));
+        std::fs::create_dir_all(&index).unwrap();
+        b = b.sqlite_store(path, Some(PASS)).search_index_store(matrix_engine::search_index::store_kind(&index, PASS));
     }
     if url.is_some() {
         // No server behind this URL: do not even ask it for its versions.
@@ -246,9 +249,9 @@ fn message_search_scenarios() {
         report(&mut failed, "e2ee.results-from-local-cache", ids(&enc) == want_enc && matches!(enc, MessageSearchState::Results { source: MessageSource::LocalCache, .. }), format!("n={}", hits(&enc).len()));
         let enc_none = search_until(&a, &enc_id, "inesistente", |s| matches!(s, MessageSearchState::NoResults { .. })).await;
         report(&mut failed, "e2ee.empty-state", matches!(enc_none, MessageSearchState::NoResults { source: MessageSource::LocalCache, .. }), String::new());
-        // Partial words are found locally (contains), unlike the server.
-        let part = search_until(&a, &enc_id, "ifrat", |s| ids(s).len() == 2).await;
-        report(&mut failed, "e2ee.contains-matches-inside-words", ids(&part).len() == 2, String::new());
+        // The local index finds the start of a word (what is being typed), unlike the server.
+        let part = search_until(&a, &enc_id, "cifra", |s| ids(s).len() == 2).await;
+        report(&mut failed, "e2ee.prefix-matches-the-word-being-typed", ids(&part).len() == 2, String::new());
 
         // ---- the same store behind an unreachable server ----
         let session = a.matrix_auth().session().unwrap();

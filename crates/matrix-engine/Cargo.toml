@@ -27,7 +27,7 @@ unicode-normalization = "=0.1.25"
 matrix-domain = { path = "../matrix-domain" }
 matrix-sdk-store-encryption = { version = "=0.19.1", optional = true }
 matrix-sdk-ui = { version = "=0.19.1", optional = true, default-features = false }
-matrix-sdk = { version = "=0.19.1", optional = true, default-features = false, features = ["e2e-encryption", "bundled-sqlite", "rustls-aws-lc-rs", "markdown"] }
+matrix-sdk = { version = "=0.19.1", optional = true, default-features = false, features = ["e2e-encryption", "bundled-sqlite", "rustls-aws-lc-rs", "markdown", "experimental-search"] }
 reqwest = { version = "=0.13.5", optional = true, default-features = false, features = ["rustls"] }
 serde_json = { version = "=1.0.151", optional = true }
 url = { version = "=2.5.8", optional = true }

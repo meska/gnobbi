@@ -225,10 +225,22 @@ impl AccountStore {
                     .timeout(std::time::Duration::from_secs(10)),
             )
             .sqlite_store(&self.path, Some(passphrase))
+            .search_index_store(self.search_store(passphrase)?)
             .build()
             .await
             .map_err(|_| crate::auth::AuthError::Storage)?;
         Ok(client)
+    }
+
+    /// The message index, in its own private directory, encrypted with the store's passphrase.
+    fn search_store(&self, passphrase: &str) -> Result<matrix_sdk::search_index::SearchIndexStoreKind, crate::auth::AuthError> {
+        let dir = self.search_dir();
+        match crate::fsx::create_private_dir(&dir) {
+            Ok(()) => (),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Self::private_directory(&dir).map_err(|_| crate::auth::AuthError::Storage)?,
+            Err(_) => return Err(crate::auth::AuthError::Storage),
+        }
+        Ok(crate::search_index::store_kind(&dir, passphrase))
     }
 
     /// The sqlite store also holds the event cache, sealed with the same key. Subscribing starts the
@@ -316,9 +328,16 @@ impl AccountStore {
         self.path.with_file_name(name)
     }
 
+    /// The message index (encrypted, see `search_index`): next to the account, removed at logout.
+    pub(crate) fn search_dir(&self) -> PathBuf {
+        let mut name = self.path.file_name().unwrap_or_default().to_owned();
+        name.push("-search");
+        self.path.with_file_name(name)
+    }
+
     pub(crate) fn forget(&self) -> Result<(), StoreError> {
         Self::private_directory(&self.path)?;
-        for dir in [self.avatars.dir().to_owned(), self.video_dir()] {
+        for dir in [self.avatars.dir().to_owned(), self.video_dir(), self.search_dir()] {
             match fs::remove_dir_all(dir) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(StoreError::Io),
                 _ => (),

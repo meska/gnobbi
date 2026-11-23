@@ -1,0 +1,170 @@
+diff -ruN a/src/index/mod.rs b/src/index/mod.rs
+--- a/src/index/mod.rs	2026-11-23 14:15:00
++++ b/src/index/mod.rs	2026-11-23 14:23:18
+@@ -26,7 +26,12 @@
+ };
+ use tantivy::{
+     Index, IndexReader, ReloadPolicy, TantivyDocument, collector::TopDocs,
+-    directory::error::OpenDirectoryError, query::QueryParser, schema::Value,
++    DateTime, Order,
++    directory::error::OpenDirectoryError,
++    query::{BooleanQuery, Occur, Query, QueryParser, RegexQuery, TermQuery},
++    schema::{IndexRecordOption, Value},
++    tokenizer::{AsciiFoldingFilter, LowerCaser, RemoveLongFilter, SimpleTokenizer, TextAnalyzer},
++    Term,
+ };
+ use tracing::{debug, error, warn};
+ 
+@@ -149,6 +154,16 @@
+ 
+ impl RoomIndex {
+     pub(crate) fn new_with(index: Index, schema: RoomMessageSchema, room_id: &RoomId) -> RoomIndex {
++        // Gnobbi: the body is matched without case and accents («citta» finds «Città»); the same
++        // analyzer runs when indexing and when searching, so it is registered before either.
++        index.tokenizers().register(
++            "default",
++            TextAnalyzer::builder(SimpleTokenizer::default())
++                .filter(RemoveLongFilter::limit(40))
++                .filter(LowerCaser)
++                .filter(AsciiFoldingFilter)
++                .build(),
++        );
+         let query_parser = QueryParser::for_index(&index, schema.default_search_fields());
+         Self {
+             index,
+@@ -211,28 +226,74 @@
+         Ok(last_commit_opstamp)
+     }
+ 
+-    /// Search the [`RoomIndex`] for some query. Returns a list of
++    /// Gnobbi: search the body for what the user typed, as plain text: every word must be in the
++    /// message and the last one may be unfinished («ciao mo» finds «ciao mondo»). No query syntax.
++    /// Results come newest first (the score of each is 0), otherwise as in [`RoomIndex::search_query`].
++    pub fn search(
++        &self,
++        text: &str,
++        max_number_of_results: usize,
++        pagination_offset: Option<usize>,
++    ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
++        let body = self.schema.default_search_fields()[0];
++        let mut analyzer = self.index.tokenizer_for_field(body)?;
++        let mut stream = analyzer.token_stream(text);
++        let mut words = Vec::new();
++        while stream.advance() {
++            words.push(stream.token().text.clone());
++        }
++        let Some((last, whole)) = words.split_last() else { return Ok(Vec::new()) };
++        let mut clauses: Vec<(Occur, Box<dyn Query>)> = whole
++            .iter()
++            .map(|w| -> (Occur, Box<dyn Query>) {
++                let term = Term::from_field_text(body, w);
++                (Occur::Must, Box::new(TermQuery::new(term, IndexRecordOption::Basic)))
++            })
++            .collect();
++        // The tokenizer keeps letters and digits only: nothing in `last` is a regex operator.
++        clauses.push((Occur::Must, Box::new(RegexQuery::from_pattern(&format!("{last}.*"), body)?)));
++        self.search_with(&BooleanQuery::new(clauses), max_number_of_results, pagination_offset, true)
++    }
++
++    /// Search the [`RoomIndex`] for some query in the query language of tantivy. Returns a list of
+     /// results with a maximum given length. If `pagination_offset` is
+     /// set then the results will start there, i.e.
+     ///
+     /// if `max_number_of_results = 3` and `pagination_offset = 10`
+     /// (and there are a surplus of results)
+     /// then this will return results `11, 12, 13`
+-    pub fn search(
++    pub fn search_query(
+         &self,
+         query: &str,
+         max_number_of_results: usize,
+         pagination_offset: Option<usize>,
+     ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
+         let query = self.query_parser.parse_query(query)?;
++        self.search_with(&query, max_number_of_results, pagination_offset, false)
++    }
++
++    fn search_with(
++        &self,
++        query: &dyn Query,
++        max_number_of_results: usize,
++        pagination_offset: Option<usize>,
++        newest_first: bool,
++    ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
+         let searcher = self.reader()?.searcher();
+ 
+         let offset = pagination_offset.unwrap_or(0);
+ 
+-        let results = searcher.search(
+-            &query,
+-            &TopDocs::with_limit(max_number_of_results).and_offset(offset).order_by_score(),
+-        )?;
++        let top = TopDocs::with_limit(max_number_of_results).and_offset(offset);
++        let results: Vec<(f32, tantivy::DocAddress)> = if newest_first {
++            // The score slot carries nothing here: the order is the date, newest first.
++            searcher
++                .search(query, &top.order_by_fast_field::<DateTime>("date", Order::Desc))?
++                .into_iter()
++                .map(|(_, address)| (0.0, address))
++                .collect()
++        } else {
++            searcher.search(query, &top.order_by_score())?
++        };
+         let mut ret: Vec<(f32, OwnedEventId)> = Vec::new();
+         let pk = self.schema.primary_key();
+ 
+@@ -252,7 +313,7 @@
+ 
+     fn events_to_be_removed(&self, event_id: &EventId) -> Result<Vec<OwnedEventId>, IndexError> {
+         Ok(self
+-            .search(
++            .search_query(
+                 format!(
+                     "{}:\"{event_id}\"",
+                     self.schema.get_field_name(self.schema.deletion_key())
+@@ -418,7 +479,7 @@
+     }
+ 
+     fn contains(&self, event_id: &EventId) -> bool {
+-        let search_result = self.search(
++        let search_result = self.search_query(
+             format!("{}:\"{event_id}\"", self.schema.get_field_name(self.schema.primary_key()))
+                 .as_str(),
+             1,
+@@ -818,5 +879,36 @@
+         assert_eq!(result[0].1, edit_id, "unexpected event id: {result:?}");
+ 
+         Ok(())
++    }
++
++    #[test]
++    fn plain_text_search_matches_prefixes_and_accents() {
++        let mut index = RoomIndexBuilder::new_in_memory(room_id!("!r:x")).build();
++        for (n, body) in ["Ciao mondo, come stai?", "Una città bellissima", "ciao a tutti"].iter().enumerate() {
++            let id = ruma::OwnedEventId::try_from(format!("$e{n}:x")).unwrap();
++            index
++                .execute(RoomIndexOperation::Add(IndexableEvent::new(
++                    id.clone(),
++                    id,
++                    user_id!("@u:x").to_owned(),
++                    Some(MilliSecondsSinceUnixEpoch(UInt::new(10_000 * (n as u64 + 1)).unwrap())),
++                    body.to_string(),
++                )))
++                .unwrap();
++        }
++        let ids = |q: &str| -> Vec<String> {
++            let mut v: Vec<String> = index.search(q, 10, None).unwrap().into_iter().map(|(_, e)| e.to_string()).collect();
++            v.sort();
++            v
++        };
++        assert_eq!(ids("mon"), ["$e0:x"]);
++        assert_eq!(ids("ciao mo"), ["$e0:x"]);
++        assert_eq!(ids("CITTA"), ["$e1:x"]);
++        assert_eq!(ids("citt"), ["$e1:x"]);
++        assert_eq!(ids("ciao"), ["$e0:x", "$e2:x"]);
++        let order: Vec<String> = index.search("ciao", 10, None).unwrap().into_iter().map(|(_, e)| e.to_string()).collect();
++        assert_eq!(order, ["$e2:x", "$e0:x"]);
++        assert!(ids("(\"a:b").is_empty());
++        assert!(ids("   ").is_empty());
+     }
+ }

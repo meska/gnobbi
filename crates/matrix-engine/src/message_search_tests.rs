@@ -89,3 +89,13 @@ fn results_carry_the_partial_flag_of_the_cache() {
     assert!(matches!(results(&p), MessageSearchState::Results { partial: true, .. }));
     assert!(matches!(results(&Paging::default()), MessageSearchState::Results { partial: false, .. }));
 }
+
+#[test]
+fn every_word_must_be_in_the_message_and_each_is_marked() {
+    let events = [msg("$a", "@al:s", 1, "Il mondo dice ciao"), msg("$b", "@al:s", 2, "solo ciao")];
+    let hits = local_hits(&events, "ciao mon");
+    assert_eq!(ids(&hits), ["$a"]);
+    let marked: Vec<&str> = hits[0].matches.iter().map(|r| &hits[0].excerpt[r.clone()]).collect();
+    assert_eq!(marked, ["mon", "ciao"]);
+    assert!(word_ranges("ciao ciao", "ci ia").len() == 2);
+}

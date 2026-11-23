@@ -428,6 +428,9 @@ impl RoomListWorker {
                         // Message search of the open room: one instance, replaced when the room changes.
                         let mut messages: Option<(RoomScope, crate::message_search::MessageSearch)> = None;
                         let mut messages_rx: Option<tokio::sync::watch::Receiver<crate::operations::MessageSearchState>> = None;
+                        // Message search of all rooms (room list): one instance for the account's life.
+                        let mut everywhere = crate::message_search::MessageSearch::everywhere(operation_client.clone());
+                        let mut everywhere_rx = everywhere.subscribe();
                         let rooms_client = operation_client.clone();
                         let mut rooms = crate::search::Search::<(Option<String>, Option<crate::operations::DirectoryKind>), crate::operations::DirectoryRoom>::new(
                             (None, None),
@@ -490,6 +493,12 @@ impl RoomListWorker {
                                     }
                                     continue;
                                 }
+                                Ok(()) = everywhere_rx.changed() => {
+                                    let state = everywhere_rx.borrow_and_update().clone();
+                                    let sent = until_stopped(&operation_stop, operation_results.send(OperationResult::AllMessageSearch { state })).await;
+                                    clean &= matches!(sent, Some(Ok(())) | None);
+                                    continue;
+                                }
                                 Ok(()) = rooms_rx.changed() => {
                                     let state = rooms_rx.borrow_and_update().clone();
                                     let sent = until_stopped(&operation_stop, operation_results.send(OperationResult::RoomSearch { state })).await;
@@ -536,6 +545,14 @@ impl RoomListWorker {
                                     if let Some((_, m)) = &mut messages {
                                         m.set_query(&term);
                                     }
+                                    continue;
+                                }
+                                OperationCommand::SearchAllMessages { term } => {
+                                    everywhere.set_query(&term);
+                                    continue;
+                                }
+                                OperationCommand::MoreAllMessages => {
+                                    everywhere.more();
                                     continue;
                                 }
                                 OperationCommand::MoreMessages => {
@@ -961,11 +978,15 @@ impl RoomListWorker {
                             }
                         }
                         // Runtime drop ends the warm-up with the account; one pass after the first sync.
+                        let index_dir = sync.session.store.as_ref().map(|s| s.search_dir());
                         let start_warm = || {
                             let (client, opened, stop) =
                                 (warm_client.clone(), warm_opened.clone(), warm_stop.clone());
+                            let index_dir = index_dir.clone();
                             tokio::spawn(async move {
                                 crate::warm::warm(&client, &stop, &opened).await;
+                                // Then the message index: what the cache holds, and older history, a little at a time.
+                                crate::search_index::backfill(&client, index_dir.as_deref().filter(|_| !cfg!(windows)), &stop).await;
                             });
                         };
                         crate::sliding::run(&mut sync, &mut sender, start_warm).await;

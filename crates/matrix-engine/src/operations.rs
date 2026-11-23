@@ -60,7 +60,7 @@ pub enum SearchState {
     Error,
 }
 
-/// Message search of one room («Cerca» in the chat header). Same rule as `SearchState`: the
+/// Message search of one room («Cerca» in the chat header) or of all rooms (room list). Same rule as `SearchState`: the
 /// desktop reads these, so they live outside the `sdk` feature. Terms and excerpts are private:
 /// nothing logs them, and no `Debug` shows them in a trace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +71,8 @@ pub enum MessageSource {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct MessageHit {
+    /// The room of the message (search of all rooms; also set by the search of one room).
+    pub room_id: String,
     pub event_id: String,
     pub sender: String,
     /// Display name of the sender in the room, else the user ID.
@@ -229,8 +231,15 @@ pub enum OperationCommand {
         scope: RoomScope,
         term: String,
     },
+    /// Search the messages of every room of the account; an empty term closes the search. Answered with
+    /// `OperationResult::AllMessageSearch` as it progresses.
+    SearchAllMessages {
+        term: String,
+    },
     /// Next page of the open message search.
     MoreMessages,
+    /// Next page of the search of all rooms.
+    MoreAllMessages,
     Inspect {
         tag: crate::RequestTag,
         target: EventId,
@@ -408,6 +417,9 @@ pub enum OperationResult {
     },
     MessageSearch {
         scope: RoomScope,
+        state: MessageSearchState,
+    },
+    AllMessageSearch {
         state: MessageSearchState,
     },
     /// The server accepted the text; `Ok` carries the new event's ID.
