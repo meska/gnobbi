@@ -212,69 +212,82 @@ fn tap_on_a_plain_remote_push_opens_that_account_and_room() {
     }
 }
 
+/// `(identifier, thread id, gnobbi key)`: an empty key or thread is an absent one.
+fn delivered(items: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
+    items.iter().map(|(id, thread, key)| (id.to_string(), thread.to_string(), key.to_string())).collect()
+}
+/// Identifiers removed when the room `room` of worker 7 (catalog account 3) is read.
+fn removed<'a>(d: &'a [(String, String, String)], room: &str) -> Vec<&'a str> {
+    let scope = RoomScope { account_id: AccountId::new(7), room_id: RoomId::new(room) };
+    delivered_to_remove(d, Some(AccountId::new(3)), &scope)
+}
+
 #[test]
 fn reading_a_room_removes_only_its_delivered_alerts() {
-    let d = |id: &str, thread: &str| (id.to_owned(), thread.to_owned());
-    let delivered = [
-        d("apns-1", "!r:s"),               // remote push, rewritten by the extension
-        d("apns-2", "!other:s"),
-        d("3:7:!r:s", ""),                 // our own alert
-        d("3:7:!other:s", ""),
-        d("apns-3", ""),                   // push the extension did not touch
-    ];
-    assert_eq!(delivered_to_remove(&delivered, "!r:s"), ["apns-1", "3:7:!r:s"]);
-    assert!(delivered_to_remove(&delivered, "!none:s").is_empty());
-    assert!(delivered_to_remove(&[], "!r:s").is_empty());
-}
-
-fn delivered(items: &[(&str, &str)]) -> Vec<(String, String)> {
-    items.iter().map(|(id, thread)| (id.to_string(), thread.to_string())).collect()
-}
-
-#[test]
-fn removal_nothing_delivered_or_room_without_alerts() {
-    assert!(delivered_to_remove(&[], "!r:s").is_empty());
-    let d = delivered(&[("apns-1", "!a:s"), ("3:7:!b:s", "")]);
-    assert!(delivered_to_remove(&d, "!r:s").is_empty());
-}
-
-#[test]
-fn removal_only_the_read_room_among_many() {
-    let only = delivered(&[("apns-1", "!r:s"), ("3:7:!r:s", ""), ("0:7:!r:s", "")]);
-    assert_eq!(delivered_to_remove(&only, "!r:s"), ["apns-1", "3:7:!r:s", "0:7:!r:s"]);
-    let mixed = delivered(&[("a", "!x:s"), ("b", "!r:s"), ("3:7:!y:s", ""), ("3:8:!r:s", ""), ("c", "")]);
-    assert_eq!(delivered_to_remove(&mixed, "!r:s"), ["b", "3:8:!r:s"]);
+    let d = delivered(&[
+        ("apns-1", "!r:s", ""),            // remote push, thread set by the extension only
+        ("apns-2", "!other:s", ""),
+        ("3:7:!r:s", "!r:s", "3:7:!r:s"),  // our own alert
+        ("3:7:!other:s", "!other:s", "3:7:!other:s"),
+        ("apns-3", "", ""),                // push the extension did not touch
+        ("3:7:!r:s", "", ""),              // our alert from a build without thread ids
+    ]);
+    assert_eq!(removed(&d, "!r:s"), ["apns-1", "3:7:!r:s", "3:7:!r:s"]);
+    assert!(removed(&d, "!none:s").is_empty());
+    assert!(removed(&[], "!r:s").is_empty());
 }
 
 #[test]
 fn removal_ignores_alerts_without_thread_id_and_foreign_identifiers() {
-    // no thread id and an identifier that is not ours: untouched push, must stay
-    let d = delivered(&[("apns-1", ""), ("garbage:!r:s", ""), ("x:y:!r:s", ""), ("3:7", "")]);
-    assert!(delivered_to_remove(&d, "!r:s").is_empty());
+    let d = delivered(&[("apns-1", "", ""), ("garbage:!r:s", "", ""), ("x:y:!r:s", "", ""), ("3:7", "", "")]);
+    assert!(removed(&d, "!r:s").is_empty());
 }
 
 #[test]
 fn removal_no_false_positive_on_similar_or_prefix_room_ids() {
     let d = delivered(&[
-        ("a", "!r:s2"), ("b", "!r:s:x"), ("c", "!rr:s"), ("d", "!R:s"), ("e", " !r:s"), ("f", "!r:s "),
-        ("3:7:!r:s2", ""), ("3:7:!r:s:x", ""), ("3:7:!rr:s", ""), ("3:7:!r:s ", ""),
+        ("a", "!r:s2", ""), ("b", "!r:s:x", ""), ("c", "!rr:s", ""), ("d", "!R:s", ""), ("e", " !r:s", ""), ("f", "!r:s ", ""),
+        ("3:7:!r:s2", "", ""), ("3:7:!r:s:x", "", ""), ("3:7:!rr:s", "", ""), ("3:7:!r:s ", "", ""),
     ]);
-    assert!(delivered_to_remove(&d, "!r:s").is_empty());
-    // and the other way round: the shorter id must not pull the longer one's alerts
-    assert_eq!(delivered_to_remove(&d, "!r:s2"), ["a", "3:7:!r:s2"]);
+    assert!(removed(&d, "!r:s").is_empty());
+    assert_eq!(removed(&d, "!r:s2"), ["a", "3:7:!r:s2"]);
 }
 
 #[test]
-fn removal_duplicates_keep_every_identifier_in_order() {
-    let d = delivered(&[("a", "!r:s"), ("a", "!r:s"), ("3:7:!r:s", "!r:s"), ("b", "!o:s")]);
-    // an alert matching by both thread and identifier is listed once
-    assert_eq!(delivered_to_remove(&d, "!r:s"), ["a", "a", "3:7:!r:s"]);
-}
-
-#[test]
-#[ignore = "known: an empty room id matches pushes with empty thread id; unreachable with real room ids"]
 fn removal_empty_room_id_matches_nothing_real() {
     // an untouched push has thread id "": an empty room id must not sweep them away
-    let d = delivered(&[("apns-1", ""), ("3:7:!r:s", "")]);
-    assert!(delivered_to_remove(&d, "").is_empty(), "empty room id removes untouched pushes");
+    let d = delivered(&[("apns-1", "", ""), ("3:7:!r:s", "", "")]);
+    assert!(removed(&d, "").is_empty(), "empty room id removes untouched pushes");
+}
+
+#[test]
+fn removal_keeps_the_other_accounts_alerts_in_the_same_room() {
+    let d = delivered(&[
+        ("a", "!r:s", "3:7:!r:s"),  // this account
+        ("b", "!r:s", "4:7:!r:s"),  // same worker id in another profile (catalog 4)
+        ("c", "!r:s", "3:8:!r:s"),  // another worker, same room
+        ("d", "!r:s", "0:7:!r:s"),  // catalog unknown: may be ours
+        ("3:8:!r:s", "", ""),       // old local alert of the other worker
+    ]);
+    assert_eq!(removed(&d, "!r:s"), ["a", "d"]);
+    // the caller does not know its catalog id: the worker still tells accounts apart
+    let scope = RoomScope { account_id: AccountId::new(7), room_id: RoomId::new("!r:s") };
+    assert_eq!(delivered_to_remove(&d, None, &scope), ["a", "b", "d"]);
+}
+
+#[test]
+fn removal_never_overrides_an_explicit_thread_of_another_room() {
+    // local-looking identifier and key of room A, but the thread says room B
+    let d = delivered(&[("3:7:!a:s", "!b:s", "3:7:!a:s"), ("3:7:!a:s", "!b:s", ""), ("apns", "!b:s", "3:7:!a:s")]);
+    assert!(removed(&d, "!a:s").is_empty());
+    // a key of another room does not match through the thread either
+    let d = delivered(&[("x", "!a:s", "3:7:!b:s")]);
+    assert!(removed(&d, "!a:s").is_empty());
+}
+
+#[test]
+fn a_push_delivered_while_the_app_was_closed_goes_once_the_room_is_read() {
+    // Rewritten by the extension (key + thread) or not (thread only): both go; nothing else does.
+    let d = delivered(&[("p1", "!r:s", "3:7:!r:s"), ("p2", "!r:s", ""), ("p3", "!q:s", "3:7:!q:s")]);
+    assert_eq!(removed(&d, "!r:s"), ["p1", "p2"]);
 }

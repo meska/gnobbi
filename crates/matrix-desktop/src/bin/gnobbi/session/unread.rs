@@ -36,13 +36,19 @@ impl Session {
     }
 
     /// A room that had unread messages and has none now (read here, or by a receipt synced from another device): its delivered alerts go.
+    /// Once, when the sync is first ready, every room at zero is swept too: an alert pushed while the app was closed and read
+    /// elsewhere never showed a count above zero here. Not before: until then a zero may be a placeholder.
     pub(super) fn clear_read_alerts(&mut self) {
+        let sweep = !self.alerts_swept && self.sync == Some(RoomSyncStatus::Ready);
+        self.alerts_swept |= sweep;
         for room in self.sidebar.rooms() {
             let id = room.scope.room_id.as_str();
             if room.unread > 0 {
-                self.alerted_unread.insert(id.to_owned());
-            } else if self.alerted_unread.remove(id) {
-                matrix_desktop::notifications::clear_room(&room.scope);
+                if !self.alerted_unread.contains(id) {
+                    self.alerted_unread.insert(id.to_owned());
+                }
+            } else if self.alerted_unread.remove(id) || sweep {
+                matrix_desktop::notifications::clear_room(self.catalog_id, &room.scope);
             }
         }
     }

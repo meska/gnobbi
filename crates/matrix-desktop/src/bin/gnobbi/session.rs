@@ -173,6 +173,8 @@ pub struct Session {
     read_dirty: bool,
     /// Rooms seen with unread messages: when one reaches zero its delivered alerts are removed.
     alerted_unread: std::collections::HashSet<String>,
+    /// The first ready room list was swept for alerts of rooms already read (a push that arrived while the app was closed).
+    alerts_swept: bool,
     /// The shown room was opened with unread messages: first-unread anchor and progressive reading.
     unread_open: Option<unread::UnreadOpen>,
     pub unread_notice: Option<std::time::Instant>,
@@ -364,6 +366,7 @@ impl Session {
             reading: (false, false, true),
             read_dirty: true,
             alerted_unread: Default::default(),
+            alerts_swept: false,
             unread_open: None,
             unread_notice: None,
             mentions: Vec::new(),

@@ -291,28 +291,45 @@ fn parse_remote(account: &str, room: &str) -> Option<(Option<AccountId>, RoomSco
     parse_target(&format!("{catalog}:{worker}:{room}"))
 }
 
-/// Identifiers of the delivered notifications (`(identifier, thread identifier)`) that belong to `room`: a remote push
-/// carries the room as thread id (the extension sets it), our own alert has `<catalog>:<worker>:<room>` as identifier.
+/// Identifiers of the delivered notifications (`(identifier, thread identifier, gnobbi key)`) that belong to `scope`.
+/// The key (`<catalog>:<worker>:<room>`, empty if absent) is on our alerts and on pushes the extension rewrote; it names the
+/// account, so another account's alert in the same room stays. Without a key a push is matched by its thread id (the
+/// extension sets it to the room), and an old local alert by its identifier (the same text). An explicit thread id that
+/// names another room always wins. An unknown catalog id (None or 0) on either side matches any.
 #[cfg(any(target_os = "macos", target_os = "ios", test))]
-fn delivered_to_remove<'a>(delivered: &'a [(String, String)], room: &str) -> Vec<&'a str> {
-    let ours = |id: &str| parse_target(id).is_some_and(|(_, scope)| scope.room_id.as_str() == room);
-    delivered.iter().filter(|(id, thread)| thread == room || ours(id)).map(|(id, _)| id.as_str()).collect()
+fn delivered_to_remove<'a>(delivered: &'a [(String, String, String)], catalog: Option<AccountId>, scope: &RoomScope) -> Vec<&'a str> {
+    let room = scope.room_id.as_str();
+    if room.is_empty() {
+        return Vec::new();
+    }
+    let belongs = |id: &str, thread: &str, key: &str| {
+        if !thread.is_empty() && thread != room {
+            return false;
+        }
+        match parse_target(if key.is_empty() { id } else { key }) {
+            Some((owner, found)) => found == *scope && (owner.is_none() || catalog.is_none() || owner == catalog),
+            None => thread == room,
+        }
+    };
+    delivered.iter().filter(|(id, thread, key)| belongs(id, thread, key)).map(|(id, _, _)| id.as_str()).collect()
 }
 
-/// The room was read (here or on another device): its alerts leave the Notification Center. Best effort, async.
-pub fn clear_room(room: &RoomScope) {
+/// The room was read (here or on another device): its alerts leave the Notification Center. `catalog` is the catalog id of the
+/// account that read it (None: unknown). Best effort, async.
+pub fn clear_room(catalog: Option<AccountId>, room: &RoomScope) {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    macos::clear_room(room.room_id.as_str());
+    macos::clear_room(catalog, room.clone());
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-    let _ = room;
+    let _ = (catalog, room);
 }
 
 /// The app icon's badge: unread messages over all accounts. iOS only (macOS keeps its dock tile untouched).
-pub fn set_badge(unread: u64) {
+/// `active`: the app is in the foreground; coming back to it rewrites the badge, since a push may have set it meanwhile.
+pub fn set_badge(unread: u64, active: bool) {
     #[cfg(target_os = "ios")]
-    macos::set_badge(unread);
+    macos::set_badge(unread, active);
     #[cfg(not(target_os = "ios"))]
-    let _ = unread;
+    let _ = (unread, active);
 }
 
 /// A click that reached the process before (or without) the session that owns it: kept here until that account polls.
@@ -437,36 +454,57 @@ mod macos {
         #[cfg(all(target_os = "ios", debug_assertions))]
         if std::env::var_os("GNOBBI_DEBUG_SKIP_NOTIFICATION_PROMPT").is_some() { return; }
         static AUTH: Once = Once::new();
-        AUTH.call_once(|| UNUserNotificationCenter::currentNotificationCenter().requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &RcBlock::new(|granted: objc2::runtime::Bool, _: *mut NSError| {
+        AUTH.call_once(|| UNUserNotificationCenter::currentNotificationCenter().requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound | UNAuthorizationOptions::Badge, &RcBlock::new(|granted: objc2::runtime::Bool, error: *mut NSError| {
+            // An error is not a grant, whatever `granted` says.
+            let granted = granted.as_bool() && error.is_null();
             // Remote push needs the permission first; every launch asks APNs again, the token may have changed.
             #[cfg(target_os = "ios")]
-            if granted.as_bool() {
+            if granted {
                 crate::push::register();
+                RESET_BADGE.store(true, Ordering::Relaxed); // the next tick writes the total: the badge was refused until now
             }
             #[cfg(not(target_os = "ios"))]
             let _ = granted;
         })));
     }
 
-    pub fn clear_room(room: &str) {
+    pub fn clear_room(catalog: Option<AccountId>, room: RoomScope) {
         if NSBundle::mainBundle().bundleIdentifier().is_none() {
             return;
         }
-        let room = room.to_owned();
         UNUserNotificationCenter::currentNotificationCenter().getDeliveredNotificationsWithCompletionHandler(&RcBlock::new(move |list: std::ptr::NonNull<NSArray<UNNotification>>| {
             // SAFETY: the center passes a live array for the duration of the callback.
-            let delivered: Vec<(String, String)> = unsafe { list.as_ref() }.iter().map(|n| (n.request().identifier().to_string(), n.request().content().threadIdentifier().to_string())).collect();
-            let ids: Vec<Retained<NSString>> = delivered_to_remove(&delivered, &room).into_iter().map(NSString::from_str).collect();
+            let delivered: Vec<(String, String, String)> = unsafe { list.as_ref() }.iter().map(|n| {
+                let content = n.request().content();
+                let key = content.userInfo().objectForKey(&NSString::from_str(KEY)).and_then(|v| v.downcast::<NSString>().ok()).map(|k| k.to_string());
+                (n.request().identifier().to_string(), content.threadIdentifier().to_string(), key.unwrap_or_default())
+            }).collect();
+            let ids: Vec<Retained<NSString>> = delivered_to_remove(&delivered, catalog, &room).into_iter().map(NSString::from_str).collect();
             if !ids.is_empty() {
                 UNUserNotificationCenter::currentNotificationCenter().removeDeliveredNotificationsWithIdentifiers(&NSArray::from_retained_slice(&ids));
             }
         }));
     }
 
+    /// Set when the permission (Badge included) was just granted: the cached total may never have reached the icon.
     #[cfg(target_os = "ios")]
-    pub fn set_badge(unread: u64) {
+    static RESET_BADGE: AtomicBool = AtomicBool::new(false);
+
+    #[cfg(target_os = "ios")]
+    pub fn set_badge(unread: u64, active: bool) {
         static LAST: AtomicU64 = AtomicU64::new(u64::MAX);
-        if NSBundle::mainBundle().bundleIdentifier().is_none() || LAST.swap(unread, Ordering::Relaxed) == unread {
+        static WAS_ACTIVE: AtomicBool = AtomicBool::new(false);
+        if NSBundle::mainBundle().bundleIdentifier().is_none() {
+            return;
+        }
+        // Back in the foreground (or just authorized): APNs may have written the badge meanwhile, so write it even if the total is unchanged.
+        if (active && !WAS_ACTIVE.swap(true, Ordering::Relaxed)) || RESET_BADGE.swap(false, Ordering::Relaxed) {
+            LAST.store(u64::MAX, Ordering::Relaxed);
+        }
+        if !active {
+            WAS_ACTIVE.store(false, Ordering::Relaxed);
+        }
+        if LAST.swap(unread, Ordering::Relaxed) == unread {
             return;
         }
         // The app's deployment target is iOS 17: setBadgeCount (16+) needs no fallback.
@@ -491,6 +529,7 @@ mod macos {
             content.setSubtitle(&NSString::from_str(room));
         }
         content.setBody(&NSString::from_str(&notification.body()));
+        content.setThreadIdentifier(&NSString::from_str(scope.room_id.as_str())); // groups by room, and lets a read match the exact thread
         #[cfg(target_os = "ios")]
         content.setSound(Some(&objc2_user_notifications::UNNotificationSound::defaultSound()));
         let info = NSDictionary::from_retained_objects(&[&*NSString::from_str(KEY)], &[key.clone()]);
