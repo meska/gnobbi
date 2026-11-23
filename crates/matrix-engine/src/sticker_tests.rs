@@ -107,3 +107,64 @@ fn disposable_sticker_made_from_a_picture_is_a_synced_pack_and_reaches_a_second_
         eprintln!("STICKER PACKS ok");
     });
 }
+
+#[test]
+#[ignore = "requires disposable Synapse: STICKER_URL, users alice and bob with STICKER_PASSWORD"]
+fn disposable_sticker_library_never_shows_in_the_room_list_but_others_do() {
+    use crate::{RoomListDiff, room_sync::RoomSync, stickers::{PackEdit, edit, forget_made}};
+    use matrix_sdk::config::SyncSettings;
+    let (url, password) = (std::env::var("STICKER_URL").unwrap(), std::env::var("STICKER_PASSWORD").unwrap());
+    runtime().block_on(async {
+        let login = |who: &'static str| {
+            let (url, password) = (url.clone(), password.clone());
+            async move {
+                let c = matrix_sdk::Client::builder().homeserver_url(url).build().await.unwrap();
+                c.matrix_auth().login_username(who, &password).send().await.unwrap();
+                c
+            }
+        };
+        let sync = |c: &matrix_sdk::Client| {
+            let c = c.clone();
+            async move { c.sync_once(SyncSettings::default().timeout(std::time::Duration::from_millis(500))).await.unwrap(); }
+        };
+        let (alice, bob) = (login("alice").await, login("bob").await);
+        let tag = std::process::id();
+        // bob's room with a sticker pack, alice joined and enabled it; alice's plain room.
+        let pack = serde_json::json!({"images": {}, "pack": {"display_name": "Di bob", "usage": ["sticker"]}});
+        let mut request = matrix_sdk::ruma::api::client::room::create_room::v3::Request::new();
+        request.name = Some(format!("bob-pack-{tag}"));
+        request.initial_state = vec![matrix_sdk::ruma::serde::Raw::from_json(serde_json::value::to_raw_value(&serde_json::json!({"type": "m.room.image_pack", "state_key": "b", "content": pack})).unwrap())];
+        request.invite = vec![alice.user_id().unwrap().to_owned()];
+        let shared = bob.create_room(request).await.unwrap();
+        alice.join_room_by_id(shared.room_id()).await.unwrap();
+        let mut plain = matrix_sdk::ruma::api::client::room::create_room::v3::Request::new();
+        plain.name = Some(format!("plain-{tag}"));
+        let plain = alice.create_room(plain).await.unwrap();
+        sync(&alice).await;
+        edit(&alice, PackEdit::Enable { pack: format!("{}/b", shared.room_id()), on: true }).await.unwrap();
+        let ready = crate::stickers::prepare(64, 64, &[200u8; 64 * 64 * 4], false).unwrap();
+        edit(&alice, PackEdit::Add { pack: None, default_name: "Miei".into(), shortcode: "uno".into(), png: ready.png, side: ready.side }).await.unwrap();
+        // The library is the enabled room alice created, as `library` finds it.
+        let data = alice.account().fetch_account_data(matrix_sdk::ruma::events::GlobalAccountDataEventType::from("m.image_pack.rooms")).await.unwrap().unwrap();
+        let data: serde_json::Value = serde_json::from_str(data.json().get()).unwrap();
+        let library = data["rooms"].as_object().unwrap().keys().find(|k| *k != shared.room_id().as_str()).cloned().expect("library enabled");
+
+        let listed = |diffs: Vec<RoomListDiff>| -> Vec<String> { diffs.into_iter().filter_map(|d| match d { RoomListDiff::Upsert(r) => Some(r.scope.room_id.as_str().to_owned()), _ => None }).collect() };
+        let mut room_sync = RoomSync::from_client(matrix_domain::AccountId::new(1), alice.clone());
+        // Right after the creation, before any sync brought its state or the account data.
+        let early = listed(room_sync.saved_batch().await.unwrap());
+        assert!(!early.contains(&library), "library flashes before the sync: {early:?}");
+        sync(&alice).await;
+        let after = listed(room_sync.saved_batch().await.unwrap());
+        let all: Vec<_> = early.iter().chain(&after).collect();
+        assert!(!all.iter().any(|id| **id == library), "library listed: {all:?}");
+        assert!(all.iter().any(|id| **id == plain.room_id().as_str()) && all.iter().any(|id| **id == shared.room_id().as_str()), "normal rooms missing: {all:?}");
+        // A restart: no memory of the creation, only the synced account data and create event.
+        forget_made();
+        let again = login("alice").await;
+        sync(&again).await;
+        let fresh = listed(RoomSync::from_client(matrix_domain::AccountId::new(1), again).saved_batch().await.unwrap());
+        assert!(!fresh.contains(&library) && fresh.iter().any(|id| id == plain.room_id().as_str()) && fresh.iter().any(|id| id == shared.room_id().as_str()), "{fresh:?}");
+        eprintln!("STICKER LIBRARY HIDDEN ok");
+    });
+}

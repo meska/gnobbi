@@ -1511,6 +1511,9 @@ impl RoomSync {
         rooms: Vec<matrix_sdk::Room>,
     ) -> Result<Vec<RoomListDiff>, SyncError> {
         let client = self.session.client.clone().ok_or(SyncError::LoggedOut)?;
+        // The user's sticker library is not a conversation.
+        let library = crate::stickers::hidden_library(&client).await;
+        let rooms: Vec<_> = rooms.into_iter().filter(|room| library.as_deref() != Some(room.room_id())).collect();
         let mut children_of = self.space_children(&client, &rooms).await;
         let mut current = BTreeMap::new();
         for room in rooms

@@ -342,13 +342,34 @@ mod sdk {
 
     /// The library: the enabled room this account created; the lowest id when there are several.
     async fn library(client: &matrix_sdk::Client) -> Result<Option<OwnedRoomId>, OperationError> {
-        let me = client.user_id().ok_or(OperationError::Unavailable)?;
-        let mut rooms: Vec<_> = enabled_pairs(&read_rooms(client).await?).into_iter().filter_map(|(room, _)| OwnedRoomId::try_from(room).ok()).collect();
+        Ok(library_in(client, &read_rooms(client).await?))
+    }
+
+    fn library_in(client: &matrix_sdk::Client, data: &Value) -> Option<OwnedRoomId> {
+        let me = client.user_id()?;
+        let mut rooms: Vec<_> = enabled_pairs(data).into_iter().filter_map(|(room, _)| OwnedRoomId::try_from(room).ok()).collect();
         rooms.sort();
         rooms.dedup();
-        Ok(rooms.into_iter().find(|id| {
+        rooms.into_iter().find(|id| {
             client.get_room(id).is_some_and(|r| r.state() == matrix_sdk::RoomState::Joined && r.creators().is_some_and(|c| c.iter().any(|u| u.as_str() == me.as_str())))
-        }))
+        })
+    }
+
+    /// Libraries just made here: hidden from the room list before the sync brings `m.image_pack.rooms` and the create event.
+    static MADE: std::sync::Mutex<Vec<OwnedRoomId>> = std::sync::Mutex::new(Vec::new());
+
+    #[cfg(test)]
+    pub fn forget_made() {
+        MADE.lock().unwrap().clear();
+    }
+
+    /// The library as the room list needs it: same recognition as `library`, from the synced account data (no network).
+    pub async fn hidden_library(client: &matrix_sdk::Client) -> Option<OwnedRoomId> {
+        let data = match client.account().account_data_raw(GlobalAccountDataEventType::from(ROOMS)).await {
+            Ok(Some(raw)) => serde_json::from_str(raw.json().get()).unwrap_or_default(),
+            _ => Value::Null,
+        };
+        library_in(client, &data).or_else(|| MADE.lock().ok()?.iter().find(|id| client.get_room(id).is_some()).cloned())
     }
 
     /// A new enabled pack named `name`, in the library (made now when missing: private, invite-only, not encrypted
@@ -366,6 +387,9 @@ mod sdk {
                 request.name = Some(name.to_owned());
                 (request.preset, request.visibility) = (Some(RoomPreset::PrivateChat), Visibility::Private);
                 let made = timed(client.create_room(request)).await?;
+                if let Ok(mut made_here) = MADE.lock() {
+                    made_here.push(made.room_id().to_owned());
+                }
                 // Until the sync brings its state the room is not recognised as the library, and a second sticker would make another.
                 for _ in 0..25 {
                     if made.creators().is_some() {
@@ -675,4 +699,6 @@ mod sdk {
 #[cfg(feature = "sdk")]
 pub use sdk::{Prepared, decode, prepare};
 #[cfg(feature = "sdk")]
-pub(crate) use sdk::{edit, packs, send};
+pub(crate) use sdk::{edit, hidden_library, packs, send};
+#[cfg(all(test, feature = "sdk"))]
+pub(crate) use sdk::forget_made;
