@@ -214,8 +214,8 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     let (mut scroll_ui, bottom) = crate::mobile::extend_list(ui, crate::mobile::touch() && ui.ctx().content_rect().width() < crate::SINGLE_WIDTH);
     let mut margin = ui.spacing().scroll.content_margin;
     margin.bottom = margin.bottom.saturating_add(bottom.round() as i8);
-    egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show_rows(&mut scroll_ui, ROW, visible.len(), |ui, range| {
-        for &index in &visible[range] {
+    // One room row; the same drawing serves the long virtual list and the short list that has messages under it.
+    let mut draw = |ui: &mut egui::Ui, index: usize| {
             let room = &sidebar.rooms()[index];
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
             let resp = crate::metrics::clickable(resp);
@@ -298,11 +298,34 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                     }
                 }));
             }
-        }
-    });
+    };
+    // Messages of every room under the matching chats: the list is short then (a term filters it), so no virtual rows.
+    let found = crate::message_hits::section(&session.all_search, session.query.trim());
+    let mut opened = None;
+    if matches!(found, crate::message_hits::Section::Hidden) {
+        egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show_rows(&mut scroll_ui, ROW, visible.len(), |ui, range| {
+            for &index in &visible[range] {
+                draw(ui, index);
+            }
+        });
+    } else {
+        egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show(&mut scroll_ui, |ui| {
+            for &index in &visible {
+                draw(ui, index);
+            }
+            opened = crate::message_hits::show(ui, &found, |id| sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == id), &session.avatars, t);
+        });
+    }
     if let Some(scope) = pick {
         sidebar.select(&scope);
         chosen = true;
+    }
+    match opened {
+        Some(crate::message_hits::Out::Open(hit)) => {
+            if session.open_message_hit(&hit) { chosen = true; }
+        }
+        Some(crate::message_hits::Out::More) => session.more_all_messages(),
+        None => {}
     }
     if let Some((scope, action)) = action { session.room_action(scope, action); }
     chosen

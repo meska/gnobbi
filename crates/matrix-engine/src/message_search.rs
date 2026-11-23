@@ -407,6 +407,7 @@ async fn indexed(client: &Client, room_id: Option<&RoomId>, term: &str) -> Resul
     };
     let (per_room, total) = if room_id.is_some() { (ROOM_HITS, ROOM_HITS) } else { (PER_ROOM, ALL_HITS) };
     let mut hits = Vec::new();
+    let mut seen = HashSet::new();
     for room in rooms {
         let found = room.search(term, per_room, None).await.map_err(|_| ())?;
         if found.is_empty() {
@@ -414,14 +415,21 @@ async fn indexed(client: &Client, room_id: Option<&RoomId>, term: &str) -> Resul
         }
         let Ok((cache, _keep)) = client.event_cache().room(room.room_id()).await else { continue };
         for (_, event_id) in found {
-            let Ok(Some((event, related))) = cache.find_event_with_relations(&event_id, Some(vec![RelationType::Replacement])).await else { continue };
-            let events: Vec<Value> = std::iter::once(&event)
-                .chain(&related)
-                .filter_map(|e| serde_json::from_str(e.raw().json().get()).ok())
-                .collect();
+            let load = async |id: &matrix_sdk::ruma::EventId| {
+                let (event, related) = cache.find_event_with_relations(id, Some(vec![RelationType::Replacement])).await.ok()??;
+                Some(std::iter::once(&event).chain(&related).filter_map(|e| serde_json::from_str::<Value>(e.raw().json().get()).ok()).collect::<Vec<_>>())
+            };
+            let Some(mut events) = load(&event_id).await else { continue };
+            // The index keeps an edited message under the ID of its latest edit: the message is the original.
+            if let Some(original) = events.first().filter(|e| is_edit(e)).and_then(|e| e["content"]["m.relates_to"]["event_id"].as_str()).and_then(|id| matrix_sdk::ruma::EventId::parse(id).ok()) {
+                let Some(whole) = load(&original).await else { continue };
+                events = whole;
+            }
             for mut hit in local_hits(&events, term) {
-                hit.room_id = room.room_id().to_string();
-                hits.push(hit);
+                if seen.insert(hit.event_id.clone()) {
+                    hit.room_id = room.room_id().to_string();
+                    hits.push(hit);
+                }
             }
         }
     }

@@ -330,6 +330,7 @@ impl LiveOperations {
             | OperationResult::StickerEdited { .. }
             | OperationResult::Members { .. }
             | OperationResult::MessageSearch { .. }
+            | OperationResult::AllMessageSearch { .. }
             | OperationResult::UserSearch { .. } => false,
             OperationResult::Inspected {
                 tag,

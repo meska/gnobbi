@@ -249,6 +249,11 @@ pub struct Session {
     search_sent: String,
     pub search: matrix_engine::operations::MessageSearchState,
     pub search_jump: Option<(EventId, bool)>,
+    /// Messages of every room that match the room list's search field, and the term already sent for them.
+    pub all_search: matrix_engine::operations::MessageSearchState,
+    all_sent: String,
+    /// A message chosen in `all_search` of a room that is not open yet: the jump waits for the room.
+    jump_after_open: Option<(matrix_domain::RoomScope, (EventId, bool))>,
     /// The message a jump landed on and when: drawn lit for a moment.
     pub flash: Option<(EventId, std::time::Instant)>,
     /// The «who reacted» popup: the pill it hangs from and the reaction it lists (a snapshot).
@@ -425,6 +430,9 @@ impl Session {
             search_sent: String::new(),
             search: matrix_engine::operations::MessageSearchState::Idle,
             search_jump: None,
+            all_search: matrix_engine::operations::MessageSearchState::Idle,
+            all_sent: String::new(),
+            jump_after_open: None,
             flash: None,
             who: None,
             media: LiveMedia::default(),
@@ -834,7 +842,7 @@ impl Session {
             self.thread = None;
             self.upload_limit = None;
             self.search_sent.clear();
-            self.search_jump = None;
+            self.search_jump = self.jump_after_open.take().filter(|(room, _)| Some(room) == scope.as_ref()).map(|(_, jump)| jump);
             self.search = matrix_engine::operations::MessageSearchState::Idle;
             self.heights = Default::default();
             self.heights.restore = scope.as_ref().and_then(|s| self.scroll.get(s.room_id.as_str()));
@@ -1045,6 +1053,13 @@ impl Session {
             self.op_queue.retain(|op| !matches!(op, OperationCommand::MoreMessages));
             self.op_pending = Some(OperationCommand::SearchMessages { scope: scope.clone(), term: wanted.clone() });
             self.search_sent = wanted;
+        }
+        // The room list's field also searches the messages of every room (the engine ignores a term that is too short).
+        let wanted = self.query.trim().to_owned();
+        if self.op_pending.is_none() && wanted != self.all_sent {
+            self.op_queue.retain(|op| !matches!(op, OperationCommand::MoreAllMessages));
+            self.op_pending = Some(OperationCommand::SearchAllMessages { term: wanted.clone() });
+            self.all_sent = wanted;
         }
         let wanted = if self.new_open || self.quick_open || self.admin.as_ref().is_some_and(|a| a.inviting) { self.new_term.trim().to_owned() } else { String::new() };
         if self.op_pending.is_none() && wanted != self.new_sent {
@@ -1455,6 +1470,18 @@ impl Session {
         if let Some(changed) = self.result_searches_and_joins(&result) {
             return changed;
         }
+        if let OperationResult::AllMessageSearch { state } = result {
+            use matrix_engine::operations::MessageSearchState as S;
+            let term = match &state {
+                S::Idle => None,
+                S::Searching { term } | S::Results { term, .. } | S::NoResults { term, .. } | S::Error { term } => Some(term.as_str()),
+            };
+            if term.is_none_or(|t| t == self.query.trim()) {
+                self.all_search = state;
+                changed = true;
+            }
+            return changed;
+        }
         if let OperationResult::MessageSearch { scope, state } = result {
             let matches_term = match &state {
                 matrix_engine::operations::MessageSearchState::Idle => self.search_term.trim().len() < matrix_engine::message_match::MIN_CHARS,
@@ -1565,6 +1592,34 @@ impl Session {
 
     pub fn answer_invite(&mut self, scope: matrix_domain::RoomScope, accept: bool) {
         self.op_queue.push(OperationCommand::AnswerInvite { scope, accept });
+    }
+
+    /// The next page of the messages under the room list's field.
+    pub fn more_all_messages(&mut self) {
+        use matrix_engine::operations::{MessageSearchState as S, MoreHits};
+        if let S::Results { term, more: more @ (MoreHits::Available | MoreHits::Failed), .. } = &mut self.all_search
+            && term == self.query.trim()
+        {
+            *more = MoreHits::Loading;
+            self.op_queue.push(OperationCommand::MoreAllMessages);
+        }
+    }
+
+    /// Opens the room of a message found by the room list's search on that message (as a reply's jump does).
+    /// The room may be hidden by the field's own filter: it is opened anyway. False when the room is gone.
+    pub fn open_message_hit(&mut self, hit: &matrix_engine::operations::MessageHit) -> bool {
+        let Some(scope) = self.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == hit.room_id && !r.info.invited).map(|r| r.scope.clone()) else {
+            return false;
+        };
+        let jump = (EventId::new(hit.thread_root.as_deref().unwrap_or(&hit.event_id)), hit.thread_root.is_some());
+        if self.sidebar.selected().is_some_and(|r| r.scope == scope) {
+            self.search_jump = Some(jump);
+        } else {
+            self.jump_after_open = Some((scope.clone(), jump));
+            self.sidebar.select_outside_view(&scope);
+        }
+        self.notice = None;
+        true
     }
 
     pub fn more_messages(&mut self) {

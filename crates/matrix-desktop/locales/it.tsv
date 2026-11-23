@@ -108,6 +108,7 @@ banner	Reply	Risposta
 @plural	{n} status message hidden	{n} messaggio di stato nascosto|{n} messaggi di stato nascosti
 	Search in room	Cerca nella stanza
 	No results	Nessun risultato
+	Messages	Messaggi
 	Search failed	Ricerca non riuscita
 	Retry	Riprova
 	More results	Altri risultati

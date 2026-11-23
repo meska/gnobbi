@@ -28,6 +28,7 @@ mod join;
 mod list;
 mod loading;
 mod members;
+mod message_hits;
 mod metrics;
 mod mobile;
 mod newchat;
@@ -162,6 +163,7 @@ struct App {
     hook_type: bool,
     hook_alias: bool,
     hook_member: bool,
+    hook_hit: bool,
     alias_input: String,
     hook_keys: bool,
     hook_menu_at: Option<std::time::Instant>,
@@ -224,7 +226,7 @@ impl App {
             }
         }
         App { prefs, dirs: dirs.cloned(), list_open: false, nav: mobile::Nav::from_env(), rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: matrix_desktop::hooks::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: matrix_desktop::hooks::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
+            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: matrix_desktop::hooks::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, hook_hit: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: matrix_desktop::hooks::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false, startup, startup_notice: None, account_notice: None, reopening: None, remembered_root: None, signing_in_again: false, recovery_switch: false, add_from: None, discarding: Vec::new() }
     }
 
@@ -1119,6 +1121,19 @@ impl App {
             match view.as_str() {
                 "info" => s.info_open = true,
                 "search" => s.search_open = true,
+                // Test hook: GNOBBI_EGUI_TERM=<text> typed in the room list's field (the messages of every room are searched for real).
+                "list-search" | "list-search-open" if s.query.is_empty() => {
+                    s.query = matrix_desktop::hooks::var("GNOBBI_EGUI_TERM").unwrap_or_default();
+                    s.sidebar.set_query(&s.query);
+                }
+                // The same, then the first message found is chosen once (as a tap would): its room opens on that message.
+                "list-search-open" if !self.hook_hit => {
+                    if let matrix_engine::operations::MessageSearchState::Results { hits, .. } = &s.all_search
+                        && let Some(hit) = hits.first().cloned()
+                    {
+                        self.hook_hit = s.open_message_hit(&hit);
+                    }
+                }
                 "devices" => self.rail.set_devices(true),
                 "new" => s.new_open = true,
                 // Test hook (runs every frame, so only while closed): «Esplora stanze pubbliche», with a term when written «explore-<term>».
