@@ -192,6 +192,8 @@ impl App {
         if dirs.is_some() {
             desktop_entry::install_at_start(prefs.icon, prefs.desktop_entry_dont_ask);
         }
+        #[cfg(target_os = "macos")]
+        mac_dock_icon(prefs.icon);
         let theme = Theme::Classic;
         let candidates = if multi {
             dirs.map(|d| {
@@ -1899,6 +1901,8 @@ impl App {
                 && let Some(icon) = app_icon(new.icon)
             {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Icon(Some(std::sync::Arc::new(icon))));
+                #[cfg(target_os = "macos")]
+                mac_dock_icon(new.icon);
             }
             if new.language != self.prefs.language {
                 matrix_desktop::i18n::apply(new.language, Some(ui.ctx()));
@@ -2442,6 +2446,24 @@ fn register_emoji_font(ctx: &egui::Context) {
 fn app_icon(choice: matrix_desktop::IconChoice) -> Option<egui::IconData> {
     let img = image::load_from_memory_with_format(choice.runtime_png(), image::ImageFormat::Png).ok()?.into_rgba8();
     Some(egui::IconData { width: img.width(), height: img.height(), rgba: img.into_raw() })
+}
+
+/// macOS: winit ignores the window icon, so the Dock icon is set on NSApplication (the menu bar tray keeps its own template glyph).
+#[cfg(target_os = "macos")]
+fn mac_dock_icon(choice: matrix_desktop::IconChoice) {
+    use cocoa::{appkit::NSApp, base::{id, nil}};
+    use objc::{class, msg_send, sel, sel_impl};
+    let png = choice.runtime_png();
+    // SAFETY: called on the main thread (App::new / update) with a live NSApplication; NSData copies the bytes.
+    unsafe {
+        let data: id = msg_send![class!(NSData), dataWithBytes: png.as_ptr() length: png.len()];
+        let image: id = msg_send![class!(NSImage), alloc];
+        let image: id = msg_send![image, initWithData: data];
+        if image != nil {
+            let _: () = msg_send![NSApp(), setApplicationIconImage: image];
+            eprintln!("Gnobbi: Dock icon set to {choice:?}");
+        }
+    }
 }
 
 /// macOS: closing to the tray hides the whole app (like Cmd+H) instead of ordering the window out, because a window that is not
