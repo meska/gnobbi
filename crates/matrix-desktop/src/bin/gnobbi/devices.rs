@@ -379,8 +379,10 @@ pub fn key_view(ui: &mut egui::Ui, key: &str, kept: &mut bool) {
         }
     });
     ui.label(i18n::t("Save it now: it will not be shown again"));
-    if ui.button(i18n::t("Save to file")).clicked()
-        && let Some(path) = crate::pick::save_as(i18n::t("gnobbi-recovery-key.txt"))
+    if ui.button(i18n::t("Save to file")).clicked() {
+        crate::pick::save_start(ui.ctx(), i18n::t("Save to file"), i18n::t("gnobbi-recovery-key.txt"));
+    }
+    if let Some(path) = crate::pick::done(i18n::t("Save to file"))
         && write_key_file(&path, key).is_ok()
     {
         *kept = true;

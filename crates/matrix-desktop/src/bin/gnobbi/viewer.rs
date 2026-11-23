@@ -72,8 +72,9 @@ impl Viewer {
                     if resp.clicked() { action = Action::Close; }
                     if ui.button(i18n::t("Save as")).clicked() {
                         let name = std::path::Path::new(&self.name).file_name().and_then(|s| s.to_str()).unwrap_or("file");
-                        if let Some(path) = crate::pick::save_as(name) { action = Action::Save(path); }
+                        crate::pick::save_start(ctx, i18n::t("Save as"), name);
                     }
+                    if let Some(path) = crate::pick::done(i18n::t("Save as")) { action = Action::Save(path); }
                     if self.video && ui.add_enabled(!self.opening, egui::Button::new(i18n::t("Open"))).clicked() {
                         self.opening = true;
                         action = Action::Open;

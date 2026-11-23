@@ -1,6 +1,7 @@
 //! File pickers: NSOpenPanel / xdg portal / Windows dialog through rfd; on iOS UIDocumentPicker and PHPicker
 //! through robius-file-picker, plus the share sheet. The iOS pickers answer later, so the API is
-//! `start` (on the click) + `done` (every frame): on desktop `start` blocks and `done` hands the answer back at once.
+//! `start` (on the click) + `done` (every frame): on desktop rfd's async dialog runs beside the frame (a blocking
+//! one nests a modal loop inside the winit callback, and AppKit events re-entering it abort the process).
 use matrix_desktop::i18n;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -18,14 +19,25 @@ pub fn done(title: &str) -> Option<PathBuf> {
     if slot.as_ref().is_some_and(|(t, _)| t == title) { slot.take().map(|(_, p)| p) } else { None }
 }
 
-// shortcut: blocks the frame loop while the dialog is open (macOS needs the main thread); move to the async API if that is felt.
+/// Runs an rfd dialog future off the frame and files its answer. The future is created by the caller on the
+/// main thread (macOS opens the sheet right there); the sheet blocks the window, so one dialog at a time.
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
-pub fn start(_ctx: &eframe::egui::Context, title: &str, images_only: bool) {
-    let mut dialog = rfd::FileDialog::new().set_title(title);
+fn run(ctx: &eframe::egui::Context, title: &str, dialog: impl std::future::Future<Output = Option<rfd::FileHandle>> + Send + 'static) {
+    let (ctx, title) = (ctx.clone(), title.to_owned());
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread().build().expect("tokio runtime");
+        store(&title, rt.block_on(dialog).map(|h| h.path().to_path_buf()));
+        ctx.request_repaint();
+    });
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub fn start(ctx: &eframe::egui::Context, title: &str, images_only: bool) {
+    let mut dialog = rfd::AsyncFileDialog::new().set_title(title);
     if images_only {
         dialog = dialog.add_filter(i18n::t("Images"), &["png", "jpg", "jpeg", "gif", "webp"]);
     }
-    store(title, dialog.pick_file());
+    run(ctx, title, dialog.pick_file());
 }
 
 // Android: no picker yet (SAF intent needed through JNI); the attach button answers "nothing picked".
@@ -35,8 +47,8 @@ pub fn start(_ctx: &eframe::egui::Context, title: &str, _images_only: bool) {
 }
 
 #[cfg(target_os = "android")]
-pub fn save_as(_name: &str) -> Option<PathBuf> {
-    None
+pub fn save_start(_ctx: &eframe::egui::Context, key: &str, _name: &str) {
+    store(key, None);
 }
 
 /// Photos from the library (PHPicker) for images, any file (UIDocumentPicker) otherwise.
@@ -66,17 +78,18 @@ pub fn purge_temp() {
     }
 }
 
-/// Where a file to save goes: the folder the user picks on desktop, a private temp file on iOS (shared afterwards).
+/// Where a file to save goes: the file the user picks on desktop, a private temp file on iOS (shared afterwards).
+/// The answer comes from `done(key)`.
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
-pub fn save_as(name: &str) -> Option<PathBuf> {
-    rfd::FileDialog::new().set_title(i18n::t("Save as")).set_file_name(name).save_file()
+pub fn save_start(ctx: &eframe::egui::Context, key: &str, name: &str) {
+    run(ctx, key, rfd::AsyncFileDialog::new().set_title(i18n::t("Save as")).set_file_name(name).save_file());
 }
 
 #[cfg(target_os = "ios")]
-pub fn save_as(name: &str) -> Option<PathBuf> {
+pub fn save_start(_ctx: &eframe::egui::Context, key: &str, name: &str) {
     let path = save_dir().join(safe_name(name));
     let _ = std::fs::remove_file(&path);
-    Some(path)
+    store(key, Some(path));
 }
 
 /// Where «Scarica» writes: Downloads on desktop, a private temp folder on iOS (the app container has no Downloads the user can reach).
