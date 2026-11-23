@@ -168,3 +168,51 @@ fn disposable_sticker_library_never_shows_in_the_room_list_but_others_do() {
         eprintln!("STICKER LIBRARY HIDDEN ok");
     });
 }
+
+#[test]
+#[ignore = "requires disposable Synapse"]
+fn disposable_gif_goes_out_animated_and_joins_the_stickers_with_its_mxc() {
+    use crate::{sending::{Attachment, SendRequest, fresh_transaction_id, send_text, tests::two_frame_gif}, stickers::{PackEdit, edit, packs, send}};
+    runtime().block_on(async {
+        let config = fixture();
+        let rooms_path = "user/@alice:matrix-desktop.test/account_data/m.image_pack.rooms";
+        room_request(&config, "alice", reqwest::Method::PUT, rooms_path, serde_json::json!({"rooms": {}})).await;
+        let alice = login(&config, "alice", 302).await;
+        let account = alice.account_id();
+        let client = alice.client.unwrap();
+        let made = room_request(&config, "alice", reqwest::Method::POST, "createRoom", serde_json::json!({"name": "gif-room", "visibility": "private"})).await;
+        let room = made["room_id"].as_str().unwrap().to_owned();
+        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
+        let scope = RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(&room) };
+        let gif = two_frame_gif(400, 300);
+        let request = SendRequest { scope: scope.clone(), transaction_id: fresh_transaction_id(), body: String::new(), attachment: Some(Attachment { filename: "gatto felice.gif".into(), data: gif.clone(), voice: None }), poll: None, mentions: Vec::new() };
+        let sent = send_text(&client, account, &request).await.expect("gif sent");
+        let event = |id: String| { let (config, room) = (config.clone(), room.clone()); async move { room_request(&config, "alice", reqwest::Method::GET, &format!("rooms/{room}/event/{id}"), serde_json::json!({})).await } };
+        let raw = event(sent.as_str().to_owned()).await;
+        let content = &raw["content"];
+        let url = content["url"].as_str().unwrap().to_owned();
+        println!("GIF_EVENT {}", serde_json::json!({"msgtype": content["msgtype"], "url": url, "info": content["info"]}));
+        assert_eq!((content["msgtype"].as_str(), content["info"]["mimetype"].as_str()), (Some("m.image"), Some("image/gif")));
+        assert_eq!((content["info"]["w"].as_u64(), content["info"]["h"].as_u64(), content["info"]["size"].as_u64()), (Some(400), Some(300), Some(gif.len() as u64)));
+        assert_eq!((content["info"]["thumbnail_info"]["mimetype"].as_str(), content["info"]["thumbnail_info"]["w"].as_u64()), (Some("image/png"), Some(320)));
+        assert!(content["info"]["thumbnail_url"].as_str().is_some_and(|u| u.starts_with("mxc://") && u != url));
+        // The server holds the original bytes, unchanged.
+        let stored = client.media().get_media_content(&matrix_sdk::media::MediaRequestParameters { source: matrix_sdk::ruma::events::room::MediaSource::Plain(url.as_str().into()), format: matrix_sdk::media::MediaFormat::File }, false).await.unwrap();
+        assert_eq!(stored, gif);
+        // «Add to my stickers»: same mxc and mimetype, no new upload; then sent as a sticker.
+        edit(&client, PackEdit::AddMessage { pack: None, default_name: "Miei".into(), room: room.clone(), event: sent.as_str().to_owned() }).await.expect("gif added");
+        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
+        let listed = packs(&client, account, &scope).await.unwrap();
+        let sticker = listed.iter().flat_map(|p| &p.stickers).find(|s| s.shortcode == "gatto_felice").expect("sticker in the pack").clone();
+        assert_eq!((sticker.url.as_str(), sticker.mimetype.as_deref(), sticker.width, sticker.size), (url.as_str(), Some("image/gif"), Some(400), Some(gif.len() as u32)));
+        let as_sticker = send(&client, account, &scope, &sticker).await.expect("sticker sent");
+        let raw = event(as_sticker.as_str().to_owned()).await;
+        println!("GIF_STICKER {}", serde_json::json!({"type": raw["type"], "url": raw["content"]["url"], "info": raw["content"]["info"]}));
+        assert_eq!((raw["type"].as_str(), raw["content"]["url"].as_str(), raw["content"]["info"]["mimetype"].as_str()), (Some("m.sticker"), Some(url.as_str()), Some("image/gif")));
+        // The room timeline (/messages) shows both with the same mxc.
+        let messages = room_request(&config, "alice", reqwest::Method::GET, &format!("rooms/{room}/messages?dir=b&limit=10"), serde_json::json!({})).await;
+        let urls: Vec<_> = messages["chunk"].as_array().unwrap().iter().filter(|e| e["type"] == "m.sticker" || e["content"]["msgtype"] == "m.image").map(|e| (e["type"].as_str().unwrap().to_owned(), e["content"]["url"].as_str().unwrap().to_owned(), e["content"]["info"]["mimetype"].as_str().unwrap().to_owned())).collect();
+        println!("GIF_MESSAGES {urls:?}");
+        assert!(urls.len() == 2 && urls.iter().all(|(_, u, m)| u == &url && m == "image/gif"), "{urls:?}");
+    });
+}

@@ -479,7 +479,7 @@ pub struct ThreadOut {
     pub send: Option<String>,
     pub voice: Option<crate::composer::VoiceAct>,
     pub picked: Option<std::path::PathBuf>,
-    pub pasted: Option<egui::ColorImage>,
+    pub pasted: Option<crate::composer::Pasted>,
     pub save: Option<(matrix_domain::EventId, String)>,
 }
 

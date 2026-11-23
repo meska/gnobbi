@@ -663,8 +663,13 @@ impl Session {
     }
 
     /// «Add to my stickers» on a picture or sticker message: its original, then the editor.
-    pub fn sticker_from_message(&mut self, id: EventId) {
+    /// An `animated` one (GIF, WebP) is saved as it is, with its own mxc, never through the editor's PNG.
+    pub fn sticker_from_message(&mut self, id: EventId, animated: bool) {
         let Some(scope) = self.draft_scope.clone() else { return };
+        if animated {
+            self.stickers.edit(matrix_engine::stickers::PackEdit::AddMessage { pack: None, default_name: i18n::t("Stickers").to_owned(), room: scope.room_id.as_str().to_owned(), event: id.as_str().to_owned() });
+            return;
+        }
         self.media.cancel_original();
         self.media.request_original(scope, id.clone());
         self.sticker_from = Some(id);
@@ -1921,15 +1926,22 @@ impl Session {
         }
     }
 
-    pub fn attach_image(&mut self, image: &egui::ColorImage, thread: bool) {
+    /// A pasted picture goes out as a PNG; a pasted GIF as its original bytes, so it stays animated.
+    pub fn attach_image(&mut self, pasted: crate::composer::Pasted, thread: bool) {
+        use crate::composer::Pasted;
         let occupied = if thread { self.thread.as_ref().is_some_and(|th| th.attachment.is_some()) } else { self.attachment.is_some() };
         if occupied {
             self.notice = Some(i18n::t("Only one attachment is supported").to_owned());
             return;
         }
-        match matrix_desktop::composer_image::prepare(image, self.upload_limit.unwrap_or(50 << 20)) {
-            Ok(data) => self.set_attachment(thread, i18n::t("Image.png").to_owned(), data, None),
-            Err(_) => self.notice = Some(i18n::t("Image cannot be attached").to_owned()),
+        let limit = self.upload_limit.unwrap_or(50 << 20);
+        match pasted {
+            Pasted::Picture(image) => match matrix_desktop::composer_image::prepare(&image, limit) {
+                Ok(data) => self.set_attachment(thread, i18n::t("Image.png").to_owned(), data, None),
+                Err(_) => self.notice = Some(i18n::t("Image cannot be attached").to_owned()),
+            },
+            Pasted::Gif(data) if data.len() as u64 <= limit => self.set_attachment(thread, "Image.gif".to_owned(), data, None),
+            Pasted::Gif(_) => self.notice = Some(i18n::t("Image cannot be attached").to_owned()),
         }
     }
 

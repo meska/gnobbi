@@ -177,7 +177,7 @@ impl Panel {
         std::mem::take(&mut self.open) || self.manage.is_some() || self.editor.is_some()
     }
 
-    fn edit(&mut self, edit: PackEdit) {
+    pub fn edit(&mut self, edit: PackEdit) {
         self.error = None;
         self.busy = true;
         self.edits.push(edit);

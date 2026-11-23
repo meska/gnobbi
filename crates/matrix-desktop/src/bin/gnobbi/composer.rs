@@ -28,7 +28,7 @@ pub enum Mode {
 pub const THREAD: &str = "-thread";
 
 /// `salt` is `""` for the room composer and `THREAD` for the drawer: the same bar minus the poll (attach and voice go into the thread).
-pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<(&str, &[u8], u64)>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>, t: &matrix_desktop::DesignTokens) -> Option<String> {
+pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<(&str, &[u8], u64)>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<Pasted>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>, t: &matrix_desktop::DesignTokens) -> Option<String> {
     let avatars = stickers.as_ref().map(|(_, a)| *a);
     // The suggestions take Up/Down/Enter/Tab/Esc first, so Enter picks instead of sending.
     crate::mention_popup::keys(ui, egui::Id::new(format!("composer-text{salt}")), draft, members, mentions);
@@ -61,12 +61,15 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         });
     }
     let error_id = nid("composer-image-error");
+    if let Some(gif) = take_gif_input(ui, nid("composer-text"), mode != Mode::Edit && recording.is_none() && attachment.is_none()) {
+        *pasted = Some(Pasted::Gif(gif));
+    }
     let image_input = take_image_input(ui, nid("composer-text"), if recording.is_some() { Mode::Edit } else { mode }, attachment.is_some(), draft);
     let inserting_image = image_input.is_some();
     if let Some(result) = image_input {
         match result {
             Ok(image) => {
-                *pasted = Some(image);
+                *pasted = Some(Pasted::Picture(image));
                 ui.data_mut(|d| d.remove::<String>(error_id));
             }
             Err(error) => { ui.data_mut(|d| d.insert_temp(error_id, error)); }
@@ -349,6 +352,51 @@ fn insert_emoji(ctx: &egui::Context, id: egui::Id, draft: &mut String, emoji: &s
     ctx.memory_mut(|m| m.request_focus(id));
 }
 
+/// What a paste or a keyboard insertion hands over: a picture (sent as PNG) or the bytes of a GIF (sent as they are, still animated).
+pub enum Pasted {
+    Picture(egui::ColorImage),
+    Gif(Vec<u8>),
+}
+
+/// A GIF pasted into the focused composer: iOS hands over the pasteboard's own bytes; elsewhere a copied `.gif` file
+/// is read from the clipboard's file list (arboard has no raw GIF data, and a decoded paste would lose the animation).
+/// `free`: nothing else is attached and the composer is not in edit mode; otherwise the usual error is left to `take_image_input`.
+fn take_gif_input(ui: &egui::Ui, id: egui::Id, free: bool) -> Option<Vec<u8>> {
+    type Batch = (Option<egui::Id>, Vec<Result<(Vec<u8>, Option<String>), String>>);
+    if !free || !ui.memory(|m| m.has_focus(id)) { return None; }
+    let key = egui::Id::new("winit_image_insertions");
+    if let Some((Some(owner), items)) = ui.data(|d| d.get_temp::<Batch>(key))
+        && owner == id
+        && let [Ok((bytes, _))] = items.as_slice()
+        && bytes.starts_with(b"GIF8")
+    {
+        ui.data_mut(|d| d.remove::<Batch>(key));
+        return Some(bytes.clone());
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        let asked = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Paste(_) | egui::Event::PasteImage(_))
+            || matches!(e, egui::Event::Key { key: Key::V, pressed: true, modifiers, .. } if modifiers.command)));
+        if asked && let Some(bytes) = clipboard_gif() {
+            ui.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Paste(_) | egui::Event::PasteImage(_))));
+            return Some(bytes);
+        }
+    }
+    None
+}
+
+/// The one `.gif` file on the clipboard (copied in a file manager), if it is one.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn clipboard_gif() -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let files = arboard::Clipboard::new().ok()?.get().file_list().ok()?;
+    let [path] = files.as_slice() else { return None };
+    if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("gif")) { return None; }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path).ok()?.take(matrix_desktop::composer_image::MAX_IMAGE_BYTES as u64 + 1).read_to_end(&mut bytes).ok()?;
+    (bytes.starts_with(b"GIF8") && bytes.len() <= matrix_desktop::composer_image::MAX_IMAGE_BYTES).then_some(bytes)
+}
+
 /// Image events belong only to the focused composer. Text paste remains in egui's event stream.
 fn take_image_input(ui: &egui::Ui, id: egui::Id, mode: Mode, occupied: bool, draft: &mut String) -> Option<Result<egui::ColorImage, String>> {
     if !ui.memory(|m| m.has_focus(id)) { return None; }
@@ -434,6 +482,28 @@ mod image_tests {
         (result, text_paste)
     }
 
+    #[test]
+    fn a_pasted_gif_keeps_its_bytes_and_a_png_stays_on_the_image_path() {
+        let gif = b"GIF89a\x01\x00\x01\x00 whatever follows".to_vec();
+        let run = |bytes: Vec<u8>, free: bool| {
+            let ctx = crate::icons::test_context();
+            let (mut gif_out, mut left) = (None, true);
+            let id = egui::Id::new("composer-text");
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.memory_mut(|m| m.request_focus(id));
+                ui.data_mut(|d| d.insert_temp::<Batch>(egui::Id::new("winit_image_insertions"), (Some(id), vec![Ok((bytes.clone(), None))])));
+                gif_out = take_gif_input(ui, id, free);
+                left = ui.data(|d| d.get_temp::<Batch>(egui::Id::new("winit_image_insertions"))).is_some();
+            });
+            output.textures_delta.clear();
+            (gif_out, left)
+        };
+        assert_eq!(run(gif.clone(), true), (Some(gif.clone()), false));
+        assert_eq!(run(gif, false), (None, true)); // occupied: take_image_input reports it
+        let png = matrix_desktop::composer_image::prepare(&image(), 1 << 20).unwrap();
+        assert_eq!(run(png, true), (None, true));
+    }
+
     fn image() -> egui::ColorImage { egui::ColorImage::filled([2, 1], egui::Color32::RED) }
     fn event() -> egui::Event { egui::Event::PasteImage(std::sync::Arc::new(image())) }
 
@@ -483,7 +553,7 @@ mod image_tests {
                 let (mut cancel, mut drop, mut poll, mut picked, mut pasted, mut voice) = (false, false, false, None, None, None);
                 let sent = show(ui, "", &mut draft, Mode::Send, None, &mut cancel, &mut drop, &mut poll, &mut picked, &mut pasted, None, &mut voice, &[], &mut vec![], None, &matrix_desktop::LIGHT);
                 assert!(sent.is_none());
-                if frame == 3 { assert!(pasted.is_some()); }
+                if frame == 3 { assert!(matches!(pasted, Some(Pasted::Picture(_)))); }
             });
             output.textures_delta.clear();
         }

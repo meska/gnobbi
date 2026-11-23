@@ -160,7 +160,7 @@ pub trait SendControl: Send + Sync {
 pub type ControlSlot = std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<dyn SendControl>>>>;
 
 #[cfg(all(test, feature = "sdk"))]
-mod tests {
+pub(crate) mod tests {
     #[test]
     fn image_size_reads_png_header() {
         let mut png = Vec::new();
@@ -169,6 +169,30 @@ mod tests {
             .unwrap();
         assert_eq!(super::image_size(&png), Some((5, 3)));
         assert_eq!(super::image_size(b"not an image"), None);
+    }
+
+    /// A two-frame GIF, red then blue.
+    pub(crate) fn two_frame_gif(w: u32, h: u32) -> Vec<u8> {
+        let mut gif = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut gif);
+            for color in [[255, 0, 0, 255], [0, 0, 255, 255]] {
+                let frame = image::RgbaImage::from_pixel(w, h, image::Rgba(color));
+                encoder.encode_frame(image::Frame::new(frame)).unwrap();
+            }
+        }
+        gif
+    }
+
+    #[test]
+    fn gif_thumbnail_is_a_static_png_of_the_first_frame() {
+        let thumb = super::gif_thumbnail(&two_frame_gif(400, 300)).unwrap();
+        assert_eq!((thumb.width, thumb.height, thumb.content_type.as_ref()), (320u32.into(), 240u32.into(), "image/png"));
+        assert_eq!(thumb.size, u32::try_from(thumb.data.len()).unwrap().into());
+        let png = image::load_from_memory_with_format(&thumb.data, image::ImageFormat::Png).unwrap().to_rgba8();
+        let [r, _, b, _] = png.get_pixel(0, 0).0;
+        assert!(r > 200 && b < 60, "first frame, not the last: {r} {b}");
+        assert!(super::gif_thumbnail(b"GIF89a nothing").is_none());
     }
 
     use super::{Mention, markdown_content};
@@ -338,6 +362,27 @@ mod tests {
 #[cfg(feature = "sdk")]
 pub fn fresh_transaction_id() -> TransactionId {
     TransactionId::new(matrix_sdk::ruma::TransactionId::new().as_str())
+}
+
+/// A static PNG of a GIF's first frame (at most 320x240), the thumbnail that goes with the animated original.
+#[cfg(feature = "sdk")]
+fn gif_thumbnail(data: &[u8]) -> Option<matrix_sdk::attachment::Thumbnail> {
+    use image::ImageEncoder as _;
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(data), image::ImageFormat::Gif);
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(128 << 20);
+    reader.limits(limits);
+    let picture = reader.decode().ok()?; // the GIF decoder yields the first frame only
+    let picture = if picture.width() > 320 || picture.height() > 240 { picture.thumbnail(320, 240) } else { picture }.to_rgba8();
+    let mut png = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut png).write_image(picture.as_raw(), picture.width(), picture.height(), image::ExtendedColorType::Rgba8).ok()?;
+    Some(matrix_sdk::attachment::Thumbnail {
+        size: u32::try_from(png.len()).ok()?.into(),
+        data: png,
+        content_type: mime_guess::mime::IMAGE_PNG,
+        width: picture.width().into(),
+        height: picture.height().into(),
+    })
 }
 
 /// Pixel size read from the header only, without decoding the image.
@@ -544,7 +589,7 @@ pub(crate) async fn send_attachment(
     };
     use matrix_sdk_ui::timeline::AttachmentConfig;
     let transaction: matrix_sdk::ruma::OwnedTransactionId = request.transaction_id.as_str().into();
-    // shortcut: no client thumbnail and no total-upload progress, add when the timeline shows uploads
+    // shortcut: no total-upload progress, add when the timeline shows uploads; only a GIF gets a client thumbnail
     let mime = mime_guess::from_path(&file.filename).first_or_octet_stream();
     let mut config = AttachmentConfig { txn_id: Some(transaction), ..Default::default() };
     if let Some(voice) = &file.voice {
@@ -570,6 +615,9 @@ pub(crate) async fn send_attachment(
         } else {
             AttachmentInfo::File(BaseFileInfo { size })
         });
+    }
+    if mime == mime_guess::mime::IMAGE_GIF {
+        config.thumbnail = gif_thumbnail(&file.data);
     }
     if !request.body.trim().is_empty() {
         config.caption = Some(TextMessageEventContent::plain(&request.body));

@@ -1663,6 +1663,20 @@ impl WinitView {
         }
     }
 
+    /// A pasted GIF as its own bytes (re-drawing it would flatten the animation), under the same size limits.
+    fn gif_data(&self, data: &NSData) -> Result<Vec<u8>, String> {
+        if data.len() > MAX_BYTES {
+            return Err("Image is too large".into());
+        }
+        let (width, height) = super::image_source::dimensions(data)
+            .ok_or_else(|| "Image cannot be attached".to_owned())?;
+        if !valid_dimensions(width, height) {
+            return Err("Image is too large".into());
+        }
+        let bytes = data.bytes().to_vec();
+        if bytes.starts_with(b"GIF8") { Ok(bytes) } else { Err("Image cannot be attached".into()) }
+    }
+
     fn image_data_to_png(&self, data: &NSData) -> Result<Vec<u8>, String> {
         // UIKit owns the pasteboard/glyph NSData. ImageIO reads metadata before UIImage
         // may decode a raster. Native pasteboard materialization remains UIKit-owned.
@@ -1716,14 +1730,16 @@ impl WinitView {
             } else {
                 // Request encoded data instead of pasteboard.image(), which can materialize
                 // an arbitrarily large raster before we can enforce an encoded-byte limit.
+                // GIF first (index 5): a keyboard's GIF often comes with a still PNG of it too.
                 let mut data = None;
-                for kind in &kinds[1..] {
-                    data = board.dataForPasteboardType_inItemSet(kind, items.as_deref())
+                let mut is_gif = false;
+                for n in [5, 1, 2, 3, 4, 6, 7, 8] {
+                    data = board.dataForPasteboardType_inItemSet(&kinds[n], items.as_deref())
                         .filter(|values| values.len() == 1).map(|values| values.objectAtIndex(0));
-                    if data.is_some() { break; }
+                    if data.is_some() { is_gif = n == 5; break; }
                 }
                 data.as_deref().ok_or_else(|| "Image cannot be attached".to_owned())
-                    .and_then(|data| self.image_data_to_png(data))
+                    .and_then(|data| if is_gif { self.gif_data(data) } else { self.image_data_to_png(data) })
                     .map(|bytes| (bytes, None))
             }
         };

@@ -180,9 +180,10 @@ pub fn apply(ctx: &egui::Context, s: &mut Session, action: Action) {
         }
         Action::Sticker => {
             let id = picture(s);
+            let animated = selected(s).and_then(|e| e.media.as_ref()).is_some_and(|m| m.animated);
             s.close_menu();
             if let Some(id) = id {
-                s.sticker_from_message(id);
+                s.sticker_from_message(id, animated);
             }
         }
         Action::EndPoll if s.confirm_end_poll => s.end_poll(),

@@ -1664,7 +1664,7 @@ impl App {
             } else if recording.is_some() {
                 s.stop_recording(false);
             }
-            if let Some(image) = out.pasted { s.attach_image(&image, true); }
+            if let Some(image) = out.pasted { s.attach_image(image, true); }
             if let Some(path) = out.picked { s.attach(&path, true); }
             match out.voice {
                 Some(composer::VoiceAct::Start) => s.start_recording(true, ui.ctx()),
@@ -1714,7 +1714,7 @@ impl App {
                 let recording = s.recording(false);
                 to_send = composer::show(ui, "", &mut s.draft, mode, attachment, &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)), t);
                 if let Some(image) = pasted_image {
-                    s.attach_image(&image, false);
+                    s.attach_image(image, false);
                 }
                 if drop_file {
                     s.attachment = None;

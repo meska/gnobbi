@@ -2105,8 +2105,9 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
                 body
             }
             // Shown as an inline image; the alt text stays in the accessible label, never as caption.
-            MsgLikeKind::Sticker(_) => {
-                media = Some(crate::history::Media { kind: crate::history::MediaKind::Image, label: "Sticker".into() });
+            MsgLikeKind::Sticker(sticker) => {
+                let animated = crate::history::can_animate(sticker.content().info.mimetype.as_deref());
+                media = Some(crate::history::Media { kind: crate::history::MediaKind::Image, label: "Sticker".into(), animated });
                 String::new()
             }
             MsgLikeKind::Poll(state) => {
@@ -2716,7 +2717,8 @@ fn media_of(msgtype: &MessageType) -> Option<crate::history::Media> {
         MessageType::File(_) => MediaKind::File,
         _ => return None,
     };
-    Some(Media { kind, label: message_label(msgtype) })
+    let animated = matches!(msgtype, MessageType::Image(i) if crate::history::can_animate(i.info.as_ref().and_then(|i| i.mimetype.as_deref())));
+    Some(Media { kind, label: message_label(msgtype), animated })
 }
 
 /// Caption of an attachment, from the SDK only (`caption()` is None when the body is the file name):

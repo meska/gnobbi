@@ -42,6 +42,8 @@ pub struct StickerPack {
 pub enum PackEdit {
     /// Uploads `png` and adds it; with no `pack` the first own pack, created as `default_name` when there is none.
     Add { pack: Option<String>, default_name: String, shortcode: String, png: Vec<u8>, side: u32 },
+    /// Adds a picture or sticker message of `room` as it is (its own mxc and mimetype, so a GIF stays animated); a pack as in `Add`.
+    AddMessage { pack: Option<String>, default_name: String, room: String, event: String },
     Remove { pack: String, shortcode: String },
     Move { pack: String, shortcode: String, to: String },
     Create { name: String },
@@ -430,32 +432,75 @@ mod sdk {
         if found { Ok(()) } else { Err(OperationError::Unavailable) }
     }
 
+    /// The sticker a picture message or sticker event stands for, with the encrypted file when its media is encrypted (the url is then the encrypted one).
+    pub fn original_of(event: &Value) -> Option<(Sticker, Option<matrix_sdk::ruma::events::room::EncryptedFile>)> {
+        let content = event.get("content")?;
+        let kind = event.get("type")?.as_str()?;
+        if kind != "m.sticker" && !(kind == "m.room.message" && content.get("msgtype")?.as_str()? == "m.image") {
+            return None;
+        }
+        let file = content.get("file").and_then(|f| serde_json::from_value::<matrix_sdk::ruma::events::room::EncryptedFile>(f.clone()).ok());
+        let url = match &file {
+            Some(file) => file.url.to_string(),
+            None => content.get("url")?.as_str()?.to_owned(),
+        };
+        if !url.starts_with("mxc://") {
+            return None;
+        }
+        let info = content.get("info");
+        let number = |key| info.and_then(|i| i.get(key)).and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok());
+        let mimetype = info.and_then(|i| i.get("mimetype")).and_then(Value::as_str).filter(|m| m.starts_with("image/"))?.to_owned();
+        let body = content.get("body").and_then(Value::as_str).unwrap_or_default();
+        let name = std::path::Path::new(body).file_stem().and_then(|n| n.to_str()).unwrap_or(body);
+        let shortcode = shortcode_from(name);
+        Some((Sticker { body: shortcode.clone(), shortcode, url, mimetype: Some(mimetype), width: number("w"), height: number("h"), size: number("size") }, file))
+    }
+
+    /// The given pack, else the first own enabled one, else a new one called `default_name`.
+    async fn own_pack(client: &matrix_sdk::Client, pack: Option<String>, default_name: &str) -> Result<String, OperationError> {
+        if let Some(pack) = pack {
+            return Ok(pack);
+        }
+        for (room, key) in enabled_pairs(&read_rooms(client).await?) {
+            if let Ok(id) = OwnedRoomId::try_from(room.as_str()) && can_edit(client, &id).await {
+                return Ok(format!("{room}/{key}"));
+            }
+        }
+        create(client, default_name).await
+    }
+
     pub async fn edit(client: &matrix_sdk::Client, edit: PackEdit) -> Result<(), OperationError> {
         match edit {
             PackEdit::Add { pack, default_name, shortcode, png, side } => {
                 if png.len() > MAX_BYTES || !valid_shortcode(&shortcode) {
                     return Err(OperationError::InvalidInput);
                 }
-                let pack = match pack {
-                    Some(pack) => pack,
-                    None => {
-                        let mut own = None;
-                        for (room, key) in enabled_pairs(&read_rooms(client).await?) {
-                            if let Ok(id) = OwnedRoomId::try_from(room.as_str()) && can_edit(client, &id).await {
-                                own = Some(format!("{room}/{key}"));
-                                break;
-                            }
-                        }
-                        match own {
-                            Some(pack) => pack,
-                            None => create(client, &default_name).await?,
-                        }
-                    }
-                };
+                let pack = own_pack(client, pack, &default_name).await?;
                 let size = u32::try_from(png.len()).ok();
                 let url = timed(async { client.media().upload(&mime_guess::mime::IMAGE_PNG, png, None).await }).await?.content_uri;
                 let sticker = Sticker { body: shortcode.clone(), shortcode, url: url.to_string(), mimetype: Some("image/png".into()), width: Some(side), height: Some(side), size };
                 change_pack(client, &pack, |content| with_sticker(content, &sticker)).await
+            }
+            PackEdit::AddMessage { pack, default_name, room, event } => {
+                let room = OwnedRoomId::try_from(room.as_str()).ok().and_then(|id| client.get_room(&id)).ok_or(OperationError::InvalidInput)?;
+                let event_id = matrix_sdk::ruma::OwnedEventId::try_from(event.as_str()).map_err(|_| OperationError::InvalidInput)?;
+                let raw = timed(room.event(&event_id, None)).await?;
+                let (mut sticker, encrypted) = original_of(&serde_json::from_str(raw.raw().json().get()).map_err(|_| OperationError::InvalidInput)?).ok_or(OperationError::InvalidInput)?;
+                if let Some(file) = encrypted {
+                    // Encrypted media cannot be shared by its mxc: the same bytes (decrypted, never re-encoded) go up again, capped while received.
+                    let request = matrix_sdk::media::MediaRequestParameters { source: matrix_sdk::ruma::events::room::MediaSource::Encrypted(Box::new(file)), format: matrix_sdk::media::MediaFormat::File };
+                    let config = client.request_config().timeout(Some(std::time::Duration::from_secs(60))).max_response_size(Some(MAX_BYTES));
+                    let bytes = timed(matrix_sdk::media::DefaultMediaFetcher.fetch_media_content_with_request_config(client, &request, config)).await?;
+                    let mime: mime_guess::mime::Mime = sticker.mimetype.as_deref().and_then(|m| m.parse().ok()).ok_or(OperationError::InvalidInput)?;
+                    sticker.size = u32::try_from(bytes.len()).ok();
+                    sticker.url = timed(async { client.media().upload(&mime, bytes, None).await }).await?.content_uri.to_string();
+                }
+                let pack = own_pack(client, pack, &default_name).await?;
+                change_pack(client, &pack, |content| {
+                    sticker.shortcode = free_shortcode(&content, &sticker.shortcode);
+                    with_sticker(content, &sticker)
+                })
+                .await
             }
             PackEdit::Remove { pack, shortcode } => change_pack(client, &pack, |content| Ok(without_sticker(content, &pack, &shortcode).0)).await,
             PackEdit::Move { pack, shortcode, to } => {
@@ -562,6 +607,21 @@ mod sdk {
 
         fn sticker(code: &str) -> Sticker {
             Sticker { shortcode: code.into(), body: "Ciao".into(), url: "mxc://x/a".into(), mimetype: Some("image/png".into()), width: Some(64), height: None, size: Some(900) }
+        }
+
+        #[test]
+        fn a_gif_message_becomes_a_sticker_with_its_own_mxc_and_mimetype() {
+            let event = pack(r#"{"type":"m.room.message","content":{"msgtype":"m.image","body":"Gatto Felice.gif","url":"mxc://x/gif","info":{"mimetype":"image/gif","w":320,"h":240,"size":12345}}}"#);
+            let (sticker, file) = original_of(&event).unwrap();
+            assert_eq!((sticker.url.as_str(), sticker.mimetype.as_deref(), sticker.shortcode.as_str()), ("mxc://x/gif", Some("image/gif"), "gatto_felice"));
+            assert_eq!((sticker.width, sticker.height, sticker.size, file.is_none()), (Some(320), Some(240), Some(12345), true));
+            let added = with_sticker(json!({}), &sticker).unwrap();
+            assert_eq!(added["images"]["gatto_felice"]["url"], "mxc://x/gif");
+            assert_eq!(added["images"]["gatto_felice"]["info"]["mimetype"], "image/gif");
+            let animated_sticker = pack(r#"{"type":"m.sticker","content":{"body":"ok","url":"mxc://x/s","info":{"mimetype":"image/webp"}}}"#);
+            assert_eq!(original_of(&animated_sticker).unwrap().0.mimetype.as_deref(), Some("image/webp"));
+            assert!(original_of(&pack(r#"{"type":"m.room.message","content":{"msgtype":"m.text","body":"x","url":"mxc://x/a","info":{"mimetype":"image/gif"}}}"#)).is_none());
+            assert!(original_of(&pack(r#"{"type":"m.sticker","content":{"body":"x","url":"https://x/a","info":{"mimetype":"image/gif"}}}"#)).is_none());
         }
 
         #[test]
