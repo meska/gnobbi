@@ -53,7 +53,7 @@ pub fn set_enabled(on: bool) {
 
 static GRANTED: AtomicBool = AtomicBool::new(false);
 
-/// Android: the POST_NOTIFICATIONS permission is (now) granted. The UI thread picks it up with `take_granted`.
+/// iOS/Android: notification permission is granted. The UI thread picks it up with `take_granted`.
 pub fn permission_granted() {
     GRANTED.store(true, Ordering::Relaxed);
 }

@@ -550,7 +550,7 @@ impl eframe::App for App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
         }
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "ios", target_os = "android"))]
         if matrix_desktop::push::take_granted() && self.dirs.as_ref().is_some_and(matrix_desktop::push::grant_default) {
             self.prefs.notifications = true;
         }

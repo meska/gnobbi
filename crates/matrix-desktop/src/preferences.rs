@@ -367,7 +367,7 @@ pub struct Preferences {
     pub show_status: bool,
     /// «Riduci nel tray alla chiusura»: off by default, so closing the window keeps quitting.
     pub close_to_tray: bool,
-    /// «Notifiche» (tray and panel): one choice for all accounts; off by default.
+    /// «Notifiche» (tray and panel): one choice for all accounts; mobile enables it on permission if unset.
     pub notifications: bool,
     /// «Non chiedere più» on the launcher-entry proposal (Linux); «Aggiungi al menu» clears it.
     pub desktop_entry_dont_ask: bool,

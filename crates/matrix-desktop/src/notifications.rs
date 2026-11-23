@@ -548,6 +548,7 @@ mod macos {
             // Remote push needs the permission first; every launch asks APNs again, the token may have changed.
             #[cfg(target_os = "ios")]
             if granted {
+                crate::push::permission_granted();
                 crate::push::register();
                 RESET_BADGE.store(true, Ordering::Relaxed); // the next tick writes the total: the badge was refused until now
             }
