@@ -71,11 +71,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
     let mut open = true;
     egui::Window::new(i18n::t("New chat")).open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_min_width(crate::dir::fit(ui, 340.));
-        ui.horizontal(|ui| {
-            for (i, label) in [i18n::t("Direct chat"), i18n::t("Room"), i18n::t("Space"), i18n::t("Join a room")].into_iter().enumerate() {
-                ui.selectable_value(&mut form.tab, i as u8, label);
-            }
-        });
+        tabs(ui, &mut form.tab);
         ui.separator();
         match form.tab {
             0 => {
@@ -137,7 +133,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
                 ui.add_enabled_ui(!running, |ui| ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.target).hint_text(i18n::t("#room:server or !id:server"))));
                 ui.add_space(8.);
                 // One row: the spinner takes the button's place for as long as the server is joining, then the outcome.
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     if running {
                         ui.spinner();
                     } else if ui.add_enabled(!form.target.trim().is_empty(), egui::Button::new(i18n::t("Join a room"))).clicked() {
@@ -158,6 +154,15 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
     if !open {
         s.new_open = false;
     }
+}
+
+/// The tab row wraps: at a large text size it is wider than a phone, and a row that does not wrap widens the window past the screen.
+fn tabs(ui: &mut egui::Ui, tab: &mut u8) {
+    ui.horizontal_wrapped(|ui| {
+        for (i, label) in [i18n::t("Direct chat"), i18n::t("Room"), i18n::t("Space"), i18n::t("Join a room")].into_iter().enumerate() {
+            ui.selectable_value(tab, i as u8, label);
+        }
+    });
 }
 
 /// The user search («Cerca persone» and its results); returns the user that was clicked.
@@ -200,6 +205,31 @@ fn read_avatar(ctx: &egui::Context, path: &std::path::Path) -> Option<(SpaceAvat
 
 #[cfg(test)]
 mod tests {
+    use eframe::egui;
+
+    #[test]
+    fn the_tab_row_stays_inside_a_phone_at_large_text() {
+        for (screen, scale) in [(290., 1.5), (262., 1.5), (402., 1.0)] {
+            let ctx = crate::icons::test_context();
+            ctx.set_zoom_factor(1.0);
+            ctx.all_styles_mut(|st| st.text_styles.values_mut().for_each(|f| f.size *= scale));
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(screen, 600.))), ..Default::default() };
+            let mut tab = 0u8;
+            for _ in 0..3 {
+                let mut out = ctx.run_ui(input.clone(), |ui| {
+                    egui::Window::new("d").id(egui::Id::new("dlg")).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ui.ctx(), |ui| {
+                        ui.set_min_width(crate::dir::fit(ui, 340.));
+                        super::tabs(ui, &mut tab);
+                    });
+                });
+                out.textures_delta.clear();
+            }
+            let r = ctx.read_response(egui::Id::new("dlg")).map(|r| r.rect).unwrap();
+            let safe = ctx.content_rect();
+            assert!(r.left() >= safe.left() && r.right() <= safe.right(), "screen={screen} dialog={r:?}");
+        }
+    }
+
     #[test]
     fn a_jpeg_becomes_the_space_avatar_and_other_files_do_not() {
         let dir = std::env::temp_dir();

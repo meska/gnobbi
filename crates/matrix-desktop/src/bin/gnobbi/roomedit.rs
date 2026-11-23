@@ -25,7 +25,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, rights: matrix_engine::EditRig
         if e.failed {
             ui.colored_label(ui.visuals().error_fg_color, i18n::t("Failed"));
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             save = ui.add_enabled(!e.busy && !e.name.trim().is_empty(), egui::Button::new(i18n::t("Save"))).clicked();
             close = ui.button(i18n::t("Cancel")).clicked();
         });

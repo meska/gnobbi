@@ -442,7 +442,7 @@ impl SignOut {
                 ui.label(line);
             }
             let tall = egui::vec2(0., crate::metrics::button());
-            ui.horizontal(|ui| match &self.phase {
+            ui.horizontal_wrapped(|ui| match &self.phase {
                 Phase::Waiting(_) => {
                     ui.spinner();
                 }
