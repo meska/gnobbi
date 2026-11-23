@@ -294,6 +294,23 @@ fn android_insets() -> Option<[f32; 5]> {
     res.ok().flatten()
 }
 
+/// Android: dark system-bar icons on a light theme, light ones on a dark theme (`MainActivity.setBarIcons`, which hops to the UI thread).
+#[cfg(target_os = "android")]
+pub fn set_bar_icons(light_theme: bool) {
+    use jni::{jni_sig, jni_str, objects::JObject};
+    let (Ok(ctx), Some(app)) = (std::panic::catch_unwind(ndk_context::android_context), crate::ANDROID_APP.get()) else { return };
+    // SAFETY: as in android_insets.
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) };
+    let res = vm.attach_current_thread(|env| -> Result<(), jni::errors::Error> {
+        // SAFETY: the activity is a global ref owned by android-activity; JObject has no Drop and is not kept.
+        let activity = unsafe { JObject::from_raw(env, app.activity_as_ptr().cast()) };
+        env.call_method(&activity, jni_str!("setBarIcons"), jni_sig!("(Z)V"), &[light_theme.into()]).map(|_| ())
+    });
+    if let Err(e) = res {
+        log::warn!("gnobbi bar icons: {e:?}");
+    }
+}
+
 /// The insets of the last window event, with the keyboard folded into the bottom one.
 #[derive(Default)]
 pub struct Insets(egui::SafeAreaInsets, bool);

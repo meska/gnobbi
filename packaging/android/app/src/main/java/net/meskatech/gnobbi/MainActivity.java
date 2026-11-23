@@ -7,6 +7,9 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowInsetsController;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 public class MainActivity extends NativeActivity {
@@ -28,9 +31,9 @@ public class MainActivity extends NativeActivity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        // Cold start only; after two refusals Android stops showing the dialog by itself.
-        if (state == null && Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            Native.onPermission();
+        } else if (state == null) { // cold start only; after two refusals Android stops showing the dialog by itself
             requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, 1);
         }
         fetchToken();
@@ -59,7 +62,28 @@ public class MainActivity extends NativeActivity {
         Native.onOpen(account, room);
     }
 
-    // Refusal needs no handling here: Notifier.show() re-checks the permission and drops the push silently.
+    @Override
+    public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(code, permissions, results);
+        if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) Native.onPermission();
+        // Refusal needs no handling here: Notifier.show() re-checks the permission and drops the push silently.
+    }
+
+    /** Called by the engine over JNI with the app theme: dark status/navigation icons on a light theme, light icons on a dark one. */
+    public void setBarIcons(boolean lightTheme) {
+        runOnUiThread(() -> {
+            Window w = getWindow();
+            if (Build.VERSION.SDK_INT >= 30) {
+                WindowInsetsController c = w.getInsetsController();
+                int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                if (c != null) c.setSystemBarsAppearance(lightTheme ? mask : 0, mask);
+            } else {
+                View d = w.getDecorView();
+                int mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR; // minSdk 26: both exist
+                d.setSystemUiVisibility(lightTheme ? d.getSystemUiVisibility() | mask : d.getSystemUiVisibility() & ~mask);
+            }
+        });
+    }
 
     @Override
     protected void onNewIntent(Intent intent) {

@@ -51,6 +51,26 @@ pub fn set_enabled(on: bool) {
     }
 }
 
+static GRANTED: AtomicBool = AtomicBool::new(false);
+
+/// Android: the POST_NOTIFICATIONS permission is (now) granted. The UI thread picks it up with `take_granted`.
+pub fn permission_granted() {
+    GRANTED.store(true, Ordering::Relaxed);
+}
+
+pub fn take_granted() -> bool {
+    GRANTED.swap(false, Ordering::Relaxed)
+}
+
+/// Permission granted and the user never touched the Notifications switch (no saved value): switch it on and save it.
+/// True when it was switched on; a saved choice, off included, always stays.
+pub fn grant_default(dirs: &AppDirs) -> bool {
+    if crate::preferences::read_settings(dirs).contains_key("notifications") {
+        return false;
+    }
+    crate::preferences::update_settings(dirs, |m| { m.insert("notifications".into(), true.into()); }).is_ok()
+}
+
 /// At launch, once the language is applied: the last known token registers the pushers at once, the OS confirms it later.
 /// A token that arrived first (Android: push service started the process) wins over the saved one.
 pub fn init(dirs: &AppDirs) {
@@ -150,6 +170,11 @@ mod android {
 
     fn text(env: &mut Env, s: &JString) -> jni::errors::Result<String> {
         s.try_to_string(env)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_net_meskatech_gnobbi_Native_nativeOnPermission<'l>(_: EnvUnowned<'l>, _: JClass<'l>) {
+        super::permission_granted();
     }
 
     #[unsafe(no_mangle)]
@@ -260,6 +285,21 @@ mod tests {
         assert!(matrix_engine::push::current().unwrap().enabled);
         set_enabled(false);
         assert!(!matrix_engine::push::current().unwrap().enabled);
+        let _ = std::fs::remove_dir_all(&dirs.config);
+    }
+
+    #[test]
+    fn granted_permission_switches_notifications_on_only_if_the_user_never_chose() {
+        let dirs = AppDirs { config: std::env::temp_dir().join(format!("gnobbi-push-grant-{}", std::process::id())), data: Default::default(), cache: Default::default() };
+        std::fs::create_dir_all(&dirs.config).unwrap();
+        let saved = || crate::preferences::read_settings(&dirs).get("notifications").and_then(|v| v.as_bool());
+        assert!(grant_default(&dirs));
+        assert_eq!(saved(), Some(true));
+        crate::preferences::update_settings(&dirs, |m| { m.insert("notifications".into(), false.into()); }).unwrap();
+        assert!(!grant_default(&dirs));
+        assert_eq!(saved(), Some(false), "the user's off stays off");
+        permission_granted();
+        assert!(take_granted() && !take_granted());
         let _ = std::fs::remove_dir_all(&dirs.config);
     }
 

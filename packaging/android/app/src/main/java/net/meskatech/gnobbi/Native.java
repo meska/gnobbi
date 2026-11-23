@@ -7,6 +7,8 @@ import android.util.Log;
 final class Native {
     private Native() {}
 
+    private static native void nativeOnPermission();
+
     private static native void nativeOnToken(String token);
 
     private static native void nativeOnOpen(String account, String room);
@@ -56,6 +58,16 @@ final class Native {
             nativeOnOpen(account, room);
         } catch (UnsatisfiedLinkError e) {
             Log.w("Gnobbi", "tap not delivered to the engine: native side unavailable");
+        }
+    }
+
+    /** POST_NOTIFICATIONS is granted: the engine switches Notifications on if the user never chose. */
+    static void onPermission() {
+        try {
+            System.loadLibrary("gnobbi");
+            nativeOnPermission();
+        } catch (UnsatisfiedLinkError e) {
+            Log.w("Gnobbi", "permission not delivered to the engine: native side unavailable");
         }
     }
 }

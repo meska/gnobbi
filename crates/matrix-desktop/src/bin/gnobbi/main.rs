@@ -466,6 +466,8 @@ impl App {
         let key = (self.theme, self.tokens.accent, self.prefs.text_size, self.prefs.density, self.system_scale.to_bits(), (ctx.content_rect().width() * ctx.zoom_factor()).round() as u32); // the width: a rotation changes the zoom the screen allows
         if self.applied != Some(key) {
             ctx.set_visuals(visuals(&self.tokens, self.theme.is_dark()));
+            #[cfg(target_os = "android")]
+            mobile::set_bar_icons(!self.theme.is_dark());
             metrics::apply(ctx, &self.prefs, self.system_scale);
             self.applied = Some(key);
         }
@@ -547,6 +549,10 @@ impl eframe::App for App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
+        }
+        #[cfg(target_os = "android")]
+        if matrix_desktop::push::take_granted() && self.dirs.as_ref().is_some_and(matrix_desktop::push::grant_default) {
+            self.prefs.notifications = true;
         }
         #[cfg(any(target_os = "ios", target_os = "android"))]
         matrix_desktop::push::set_enabled(self.prefs.notifications);
