@@ -17,17 +17,17 @@ Direction and order only, with no dates or promises. Priorities can change.
 - **Group settings**: banned members and unban, roles, room name and avatar, member details.
 - **GIF / video / WebP library**, stored next to sticker packs, with muted looping video.
 - **Matrix links**: an option to open `matrix:` links with Gnobbi.
-- **Room info**: copy button next to each room address.
 
 ## Later
 - **Voice and video calls** using MatrixRTC, compatible with Element Call. A feasibility spike comes first.
-- **Stickers**: animated stickers, space packs, a settings entry, hiding the library room from the chat list.
+- **Stickers**: animated stickers, space packs, a settings entry.
 
 ## Not planned
 - In-app auto-update: updates come from app stores and GitHub Releases.
 - Non-standard protocols or formats, and Element's integration manager or identity server.
 
 ## Recently shipped
+- Room info: copy button next to each room address; long addresses are shortened.
 - Android: native Gradle shell, system bar and keyboard handling, TLS with bundled roots, push notifications with sender and text.
 - Sticker packs: create and manage, picker with recents, favourites and search, editor.
 - Reactions under messages, with counts and who reacted; touch message menu with quick reactions.
