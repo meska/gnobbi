@@ -4,6 +4,8 @@ use matrix_desktop::read_track::{self, Anchor, ReadRow, ReadTracker};
 
 /// Delay between pagination chunks and retries, to avoid a tight offline loop.
 const RETRY: std::time::Duration = std::time::Duration::from_secs(2);
+/// Longest the saved rows stay hidden while the first unread is looked for: past it the room shows them at the bottom (the same as a missing marker).
+const HIDE_MAX: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The room on screen was opened with unread messages and is read message by message.
 pub(super) struct UnreadOpen {
@@ -17,6 +19,7 @@ pub(super) struct UnreadOpen {
     /// Next allowed retry after a failed marker lookup or pagination chunk.
     retry_at: Option<std::time::Instant>,
     anchored: bool,
+    opened: std::time::Instant,
     /// The newest event known read (the receipt last sent, or the marker found at opening).
     read_id: Option<String>,
     tracker: ReadTracker,
@@ -32,7 +35,7 @@ impl Session {
         self.op_queue.push(OperationCommand::ReadMarkers { scope: scope.clone() });
         // Held hidden (the row is never found) until the anchor is known.
         let saved = self.heights.restore.replace((EventId::new(""), 0.));
-        self.unread_open = Some(UnreadOpen { scope, unread0, saved, markers: None, retry_at: None, anchored: false, read_id: None, tracker: ReadTracker::default() });
+        self.unread_open = Some(UnreadOpen { scope, unread0, saved, markers: None, retry_at: None, anchored: false, opened: std::time::Instant::now(), read_id: None, tracker: ReadTracker::default() });
     }
 
     /// A room that had unread messages and has none now (read here, or by a receipt synced from another device, also after
@@ -96,6 +99,12 @@ impl Session {
         }
         let rows = messages.events();
         if !u.anchored {
+            if !rows.is_empty() && u.opened.elapsed() >= HIDE_MAX {
+                self.heights.restore = None;
+                self.unread_notice = Some(std::time::Instant::now());
+                self.unread_open = None;
+                return false;
+            }
             if u.markers.is_none() && u.retry_at.is_some_and(|at| std::time::Instant::now() >= at) {
                 self.op_queue.push(OperationCommand::ReadMarkers { scope: u.scope.clone() });
                 u.retry_at = None;
