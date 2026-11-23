@@ -114,9 +114,21 @@ pub fn waveform(samples: &[f32], points: usize) -> Vec<f32> {
         .collect()
 }
 
+/// `values` (0..=1) reduced or stretched to exactly `k` bars: the peak of each bucket.
+pub fn bars(values: &[f32], k: usize) -> Vec<f32> {
+    let n = values.len();
+    (0..if n == 0 { 0 } else { k })
+        .map(|i| {
+            let from = i * n / k;
+            let to = ((i + 1) * n / k).clamp(from + 1, n);
+            values[from..to].iter().fold(0.0f32, |m, v| m.max(*v))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{DECODE_RATE, decode_audio, decode_ogg_opus, waveform};
+    use super::{DECODE_RATE, bars, decode_audio, decode_ogg_opus, waveform};
 
     #[test]
     fn decodes_a_pcm_wav_and_refuses_other_formats() {
@@ -203,5 +215,20 @@ mod tests {
         assert_eq!(w.len(), 2);
         assert!(w[0] < 0.05, "{}", w[0]);
         assert!(w[1] > 0.7, "{}", w[1]);
+    }
+
+    #[test]
+    fn bars_take_the_peak_of_each_bucket_and_stretch_short_input() {
+        // 1024-scale amplitudes as Element sends them, 8 values -> 4 bars.
+        let wave: Vec<f32> = [0, 1024, 512, 256, 0, 0, 1024, 768].iter().map(|v| *v as f32 / 1024.).collect();
+        assert_eq!(bars(&wave, 4), vec![1.0, 0.5, 0.0, 1.0]);
+        // 2 values -> 4 bars: each repeated.
+        assert_eq!(bars(&[0.25, 0.75], 4), vec![0.25, 0.25, 0.75, 0.75]);
+        // Raw samples through `waveform` then `bars`: one loud second in the middle shows.
+        let samples: Vec<f32> = (0..48_000).map(|i| if (20_000..28_000).contains(&i) { 0.9 } else { 0.0 }).collect();
+        let b = bars(&waveform(&samples, 100), 50);
+        assert_eq!(b.len(), 50);
+        assert!(b[0] == 0.0 && b[49] == 0.0 && b.iter().any(|v| *v > 0.8));
+        assert!(bars(&[], 5).is_empty() && bars(&wave, 0).is_empty());
     }
 }

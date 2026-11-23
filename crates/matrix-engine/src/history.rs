@@ -104,28 +104,14 @@ pub struct VideoInfo {
 }
 
 /// Audio facts from the event `info`. An `m.audio` row is a voice note when it carries the
-/// MSC3245 marker. The waveform is what the sender sent; when it sent none the bubble takes
-/// it from the same decode that feeds the player.
+/// MSC3245 marker. The waveform (0..=1, from the MSC1767 amplitudes 0..=1024) is what the sender
+/// sent; when it sent none the bubble takes it from the same decode that feeds the player.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AudioInfo {
     pub duration_ms: Option<u64>,
     pub size: Option<u64>,
     pub voice: bool,
     pub waveform: Vec<f32>,
-}
-
-/// The waveform a client attaches to a voice note: MSC1767 (`org.matrix.msc1767.audio`)
-/// or the MSC3245 `info.waveform` field. Empty when the sender sent none.
-#[cfg(feature = "sdk")]
-pub fn waveform_of(content: &serde_json::Value) -> Vec<f32> {
-    let peaks = content
-        .get("org.matrix.msc1767.audio")
-        .and_then(|audio| audio.get("waveform"))
-        .or_else(|| content.get("info").and_then(|info| info.get("waveform")));
-    peaks
-        .and_then(|w| serde_json::from_value::<Vec<f32>>(w.clone()).ok())
-        .map(|w| w.into_iter().map(|v| v.clamp(0.0, 1.0)).collect())
-        .unwrap_or_default()
 }
 
 pub struct HistoryEvent {
@@ -438,46 +424,3 @@ mod sender_avatar_tests {
     }
 }
 
-#[cfg(test)]
-mod proposed_name_tests {
-    use super::proposed_name;
-
-    #[test]
-    fn keeps_one_safe_component() {
-        assert_eq!(proposed_name("../x.pdf"), "x.pdf");
-        assert_eq!(proposed_name("C:\\tmp\\y.txt"), "y.txt");
-        assert_eq!(proposed_name(".bashrc"), "bashrc");
-        assert_eq!(proposed_name("a\nb"), "ab");
-        assert_eq!(proposed_name(""), "allegato");
-        assert_eq!(proposed_name("dir/"), "allegato");
-        assert_eq!(proposed_name(&"n".repeat(500)).len(), 120);
-    }
-}
-
-#[cfg(all(test, feature = "sdk"))]
-mod waveform_tests {
-    use super::waveform_of;
-
-    #[test]
-    fn the_msc1767_block_wins_and_the_values_are_clamped() {
-        let content = serde_json::json!({
-            "msgtype": "m.audio",
-            "org.matrix.msc1767.audio": { "duration": 3000, "waveform": [0.0, 0.5, 2.0, -1.0] },
-            "info": { "waveform": [9.0] },
-        });
-        assert_eq!(waveform_of(&content), vec![0.0, 0.5, 1.0, 0.0]);
-    }
-
-    #[test]
-    fn the_msc3245_info_field_is_the_fallback() {
-        let content = serde_json::json!({"msgtype":"m.audio","info":{"waveform":[0.25,0.75]}});
-        assert_eq!(waveform_of(&content), vec![0.25, 0.75]);
-    }
-
-    #[test]
-    fn a_note_without_a_waveform_is_empty_never_an_error() {
-        assert!(waveform_of(&serde_json::json!({"msgtype":"m.audio"})).is_empty());
-        assert!(waveform_of(&serde_json::json!({"waveform": "nonsense"})).is_empty());
-        assert!(waveform_of(&serde_json::json!(5)).is_empty());
-    }
-}

@@ -199,7 +199,7 @@ fn app_sends_image_file_and_voice_note_plain_and_encrypted() {
             let note = wait_message(&events, alice.as_str(), "m.audio").await["content"].clone();
             assert!(note.get("org.matrix.msc3245.voice").is_some(), "voice marker: {note}");
             assert_eq!(note["org.matrix.msc1767.audio"]["duration"], 2500, "{note}");
-            assert_eq!(note["org.matrix.msc1767.audio"]["waveform"].as_array().map(Vec::len), Some(3), "{note}");
+            assert_eq!(note["org.matrix.msc1767.audio"]["waveform"], serde_json::json!([0, 512, 1024]), "Element's 0..=1024 integers: {note}");
             assert_eq!(note["info"]["duration"], 2500, "{note}");
             assert_eq!(note.get("file").is_some(), encrypted);
             let voice_source: MediaSource = serde_json::from_value(note).unwrap();

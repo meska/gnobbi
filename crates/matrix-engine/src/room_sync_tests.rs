@@ -372,12 +372,15 @@ fn video_info_table_gives_the_values_the_bubble_shows() {
 #[test]
 fn audio_info_takes_duration_size_voice_and_waveform_and_never_a_thumbnail() {
     let audio = |json: serde_json::Value| match serde_json::from_value::<MessageType>(json).unwrap() {
-        MessageType::Audio(a) => audio_info(&a, vec![0.0, 0.5, 1.0]),
+        MessageType::Audio(a) => audio_info(&a),
         _ => unreachable!(),
     };
     let got = audio(serde_json::json!({"msgtype":"m.audio","body":"a","url":"mxc://t/a","info":{"duration":3000,"size":10}}));
     assert_eq!((got.duration_ms, got.size, got.voice), (Some(3000), Some(10), false));
-    assert_eq!(got.waveform, vec![0.0, 0.5, 1.0]);
+    assert!(got.waveform.is_empty());
+    // Element's amplitudes are integers 0..=1024.
+    let waved = audio(serde_json::json!({"msgtype":"m.audio","body":"a","url":"mxc://t/a","org.matrix.msc1767.audio":{"duration":3000,"waveform":[0,512,1024]}}));
+    assert_eq!(waved.waveform, vec![0.0, 0.5, 1.0]);
     // The MSC3245 marker is what makes the row a voice note.
     let voice = audio(serde_json::json!({"msgtype":"m.audio","body":"a","url":"mxc://t/a","org.matrix.msc3245.voice":{}}));
     assert!(voice.voice);

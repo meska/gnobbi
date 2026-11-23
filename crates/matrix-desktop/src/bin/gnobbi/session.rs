@@ -163,6 +163,8 @@ pub struct Session {
     pub info_open: bool,
     /// The voice note being played; dropping the output stops the sound.
     audio: Option<(EventId, matrix_desktop::audio_player::AudioOutput)>,
+    /// Waveform of the decoded note in `audio`: what the bubble draws when the sender sent none.
+    audio_wave: Vec<f32>,
     /// A voice note being recorded (the microphone is open); `voice` is the note waiting to be sent with the next send.
     pub recorder: Option<matrix_desktop::voice_recorder::Recorder>,
     /// The recording was started from the thread's composer: its bar shows there and the note goes into the thread.
@@ -371,6 +373,7 @@ impl Session {
             upload_limit: None,
             info_open: false,
             audio: None,
+            audio_wave: Vec::new(),
             recorder: None,
             record_thread: false,
             voice: None,
@@ -786,6 +789,7 @@ impl Session {
         if let Some((id, result)) = self.media.take_audio() {
             match result {
                 Ok(opened) => {
+                    self.audio_wave = opened.waveform.clone();
                     let player = matrix_desktop::audio_player::Player::new(opened.samples, opened.sample_rate);
                     match matrix_desktop::audio_player::AudioOutput::start(player) {
                         Ok(out) => self.audio = Some((id, out)),
@@ -2179,12 +2183,12 @@ impl Session {
         }
     }
 
-    /// (note, playing, progress) of the loaded note.
-    pub fn audio_now(&self) -> Option<(EventId, bool, f32)> {
+    /// (note, playing, progress, waveform) of the loaded note.
+    pub fn audio_now(&self) -> Option<(EventId, bool, f32, Vec<f32>)> {
         let (id, out) = self.audio.as_ref()?;
         let p = out.player();
         let p = p.lock().unwrap_or_else(|e| e.into_inner());
-        Some((id.clone(), p.is_playing(), p.progress()))
+        Some((id.clone(), p.is_playing(), p.progress(), self.audio_wave.clone()))
     }
 
     pub fn status(&self) -> FormStatus {

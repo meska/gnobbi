@@ -11,7 +11,7 @@ pub struct Acts {
     /// The play/pause button of a voice note was pressed.
     pub play: Option<matrix_domain::EventId>,
     /// Set by the app before drawing: the note being played (or loaded) and how far it is.
-    pub now_playing: Option<(matrix_domain::EventId, bool, f32)>,
+    pub now_playing: Option<(matrix_domain::EventId, bool, f32, Vec<f32>)>,
     pub open_link: Option<matrix_desktop::SafeWebUrl>,
     pub picture: Option<(matrix_domain::EventId, bool, String)>,
     /// The name or picture of a sender (or a mention) was clicked: the member to show.
@@ -469,16 +469,33 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                         crate::reactions::show(ui, e, &shown, group, true, egui::Rect::NOTHING, acts.press, &mut acts.react, t);
                     }
                 }
-                if let (Some(_), matrix_domain::TimelineId::Server(id)) = (&e.audio, &e.id.id) {
-                    let (playing, progress) = acts.now_playing.as_ref().filter(|(p, ..)| p == id).map_or((false, 0.), |(_, pl, pr)| (*pl, *pr));
-                    ui.horizontal(|ui| {
+                if let (Some(audio), matrix_domain::TimelineId::Server(id)) = (&e.audio, &e.id.id) {
+                    let now = acts.now_playing.as_ref().filter(|(p, ..)| p == id);
+                    let (playing, progress) = now.map_or((false, 0.), |(_, pl, pr, _)| (*pl, *pr));
+                    // The sender's waveform; else the one of the decode that is playing; else low flat bars.
+                    let wave = if !audio.waveform.is_empty() { &audio.waveform } else { now.map_or(&[][..], |n| &n.3) };
+                    // One widget id per note: the icon buttons derive theirs from the scope.
+                    ui.push_id(("voice", id), |ui| ui.horizontal(|ui| {
                         if crate::icons::button(ui, if playing { crate::icons::Icon::Pause } else { crate::icons::Icon::Play }, true, if playing { i18n::t("Pause") } else { i18n::t("Play") }).clicked() {
                             acts.play = Some(id.clone());
                         }
-                        ui.add(egui::ProgressBar::new(progress).desired_width(140.).desired_height(8.));
-                    });
-                }
-                if let Some(name) = &e.attachment_name
+                        let width = (inner.min(240.) - 2. * crate::metrics::button() - 2. * ui.spacing().item_spacing.x).max(60.);
+                        let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 24.), egui::Sense::hover());
+                        let bars = matrix_engine::audio_file::bars(if wave.is_empty() { &[0.] } else { wave }, ((width / 4.) as usize).clamp(20, 60));
+                        let step = rect.width() / bars.len() as f32;
+                        let (on, off) = (rgb(t.text), rgb(t.text).gamma_multiply(0.35));
+                        for (i, v) in bars.iter().enumerate() {
+                            let h = (v * rect.height()).max(3.);
+                            let x = rect.left() + (i as f32 + 0.5) * step;
+                            let bar = egui::Rect::from_center_size(egui::pos2(x, rect.center().y), Vec2::new((step - 1.5).max(1.), h));
+                            let bar = crate::dir::flip(rect, bar);
+                            ui.painter().rect_filled(bar, 1.5, if (i as f32 + 0.5) / bars.len() as f32 <= progress { on } else { off });
+                        }
+                        if e.attachment_name.is_some() && !e.redacted && crate::icons::button(ui, crate::icons::Icon::DownloadSimple, false, i18n::t("Save")).clicked() {
+                            save = true;
+                        }
+                    }));
+                } else if let Some(name) = &e.attachment_name
                     && !e.redacted
                     && ui.button(crate::icons::with_label(crate::icons::Icon::DownloadSimple, name)).clicked()
                 {

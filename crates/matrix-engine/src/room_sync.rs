@@ -2084,14 +2084,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
                 };
                 // The waveform is what the sender attached; a decode fills it in when it sent none.
                 audio = match msgtype {
-                    MessageType::Audio(a) => {
-                        let waveform = event
-                            .original_json()
-                            .and_then(|raw| raw.get_field::<serde_json::Value>("content").ok().flatten())
-                            .map(|content| crate::history::waveform_of(&content))
-                            .unwrap_or_default();
-                        Some(audio_info(a, waveform))
-                    }
+                    MessageType::Audio(a) => Some(audio_info(a)),
                     _ => None,
                 };
                 let at_room = message.mentions().is_some_and(|m| m.room);
@@ -2647,14 +2640,14 @@ fn video_info(
 /// Audio facts of an `m.audio` row: duration, size, the voice marker and the waveform.
 fn audio_info(
     a: &matrix_sdk::ruma::events::room::message::AudioMessageEventContent,
-    waveform: Vec<f32>,
 ) -> crate::history::AudioInfo {
     let info = a.info.as_deref();
     crate::history::AudioInfo {
         duration_ms: info.and_then(|i| i.duration).map(|d| d.as_millis() as u64),
         size: info.and_then(|i| i.size).map(Into::into),
         voice: a.voice.is_some(),
-        waveform,
+        // MSC1767 amplitudes are 0..=1024.
+        waveform: a.audio.as_ref().map_or_else(Vec::new, |b| b.waveform.iter().map(|v| u64::from(v.get()) as f32 / 1024.).collect()),
     }
 }
 
