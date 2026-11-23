@@ -451,8 +451,9 @@ impl SignOut {
                     if ui.add(egui::Button::new(i18n::t("Cancel")).min_size(tall)).clicked() {
                         step = Some(if failed { SignOutStep::Restart } else { SignOutStep::Close });
                     }
+                    // Text is the surface colour: tests/mention_contrast.rs holds surface-on-error at >=4.5:1 in every theme.
                     let red = ui.visuals().error_fg_color;
-                    let go = egui::Button::new(RichText::new(i18n::t(if failed { "Remove from this device" } else { "Log out" })).color(egui::Color32::WHITE)).fill(red).min_size(tall);
+                    let go = egui::Button::new(RichText::new(i18n::t(if failed { "Remove from this device" } else { "Log out" })).color(ui.visuals().window_fill)).fill(red).min_size(tall);
                     if ui.add(go).clicked() {
                         step = Some(if failed { SignOutStep::Remove } else { SignOutStep::Start });
                     }
