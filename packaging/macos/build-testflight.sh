@@ -20,31 +20,7 @@ PROFILE=$(grep -l -a "Gnobbi Mac App Store" "$HOME/Library/MobileDevice/Provisio
 rm -rf "$OUT"; mkdir -p "$OUT"
 APP="$OUT/Gnobbi.app"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$bin" "$APP/Contents/MacOS/Gnobbi"
-cat > "$APP/Contents/Info.plist" <<P
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>CFBundleName</key><string>Gnobbi</string>
-<key>CFBundleDevelopmentRegion</key><string>it</string><key>CFBundleLocalizations</key><array><string>it</string><string>en</string></array>
-<key>CFBundleDisplayName</key><string>Gnobbi</string>
-<key>CFBundleIdentifier</key><string>$BID</string>
-<key>CFBundleExecutable</key><string>Gnobbi</string>
-<key>CFBundleIconFile</key><string>Gnobbi</string>
-<key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>$BUILD</string>
-<key>CFBundleShortVersionString</key><string>$VERSION</string>
-<key>LSMinimumSystemVersion</key><string>12.0</string>
-<key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
-<key>ITSAppUsesNonExemptEncryption</key><false/>
-<key>NSHighResolutionCapable</key><true/>
-<key>NSMicrophoneUsageDescription</key><string>Gnobbi usa il microfono per registrare le note vocali.</string>
-<key>CFBundleURLTypes</key><array><dict>
-<key>CFBundleURLName</key><string>Matrix</string>
-<key>CFBundleURLSchemes</key><array><string>matrix</string></array>
-</dict></array>
-<key>NSPrincipalClass</key><string>NSApplication</string>
-</dict></plist>
-P
+"$root/packaging/macos/info-plist.sh" "$BID" "$VERSION" "$BUILD" > "$APP/Contents/Info.plist"
 cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
 cp "$root/packaging/macos/Gnobbi.icns" "$APP/Contents/Resources/Gnobbi.icns"
 cp "$root/THIRD_PARTY_NOTICES.md" "$root/LICENSE-MIT" "$root/LICENSE-APACHE" "$APP/Contents/Resources/"
