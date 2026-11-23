@@ -8,6 +8,8 @@ pub struct AvatarPicture {
     pub rgba: Option<(u32, u32, Vec<u8>)>,
     /// With no picture: the failure was transient (offline, timeout, 5xx), ask again later.
     pub retry: bool,
+    /// Every frame of an animated picture (`rgba` is then its first); only `request_animated` fills it.
+    pub anim: Option<crate::anim::Frames>,
 }
 
 pub trait AvatarSource: Send + Sync {
@@ -17,6 +19,8 @@ pub trait AvatarSource: Send + Sync {
     fn request_large(&self, mxc: String, out: std::sync::mpsc::Sender<AvatarPicture>);
     /// Like `request`, but the picture as uploaded instead of the small thumbnail (to retouch the own avatar). Not cached.
     fn request_original(&self, mxc: String, out: std::sync::mpsc::Sender<AvatarPicture>);
+    /// The picture as uploaded with all its frames, when it is a small animated GIF/WebP/APNG; nothing is sent otherwise. Not cached.
+    fn request_animated(&self, mxc: String, out: std::sync::mpsc::Sender<AvatarPicture>);
 }
 
 /// Key of the big thumbnail of `mxc` in the window's picture map.

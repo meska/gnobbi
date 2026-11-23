@@ -698,6 +698,7 @@ impl Session {
     fn drive_avatars(&mut self, ctx: &egui::Context) -> bool {
         let mut changed = false;
         while let Ok(p) = self.avatar_chan.1.try_recv() {
+            if let Some(frames) = p.anim { crate::animation::insert(p.mxc.clone(), frames); }
             let tex = p.rgba.map(|(w, h, rgba)| ctx.load_texture(&p.mxc, egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba), Default::default()));
             changed |= tex.is_some();
             if tex.is_none() && p.retry {
@@ -731,6 +732,7 @@ impl Session {
             self.avatars.insert(matrix_engine::avatar::large_key(mxc), Avatar::Loading);
             source.request_large(mxc.clone(), self.avatar_chan.0.clone());
         }
+        if let Some(mxc) = crate::animation::take_wanted() { source.request_animated(mxc, self.avatar_chan.0.clone()); }
         let Some(messages) = &self.messages else { return changed };
         let thread = self.thread.iter().filter_map(|th| th.history.as_ref());
         for mxc in messages.sender_avatar_mxcs().chain(thread.flat_map(|h| h.sender_avatar_mxcs())) {
@@ -808,6 +810,7 @@ impl Session {
                     if let (Some(p), Some(id)) = (self.media.take_preview(), self.media.event().cloned()) {
                         let image = egui::ColorImage::from_rgba_unmultiplied([p.width as usize, p.height as usize], &p.rgba);
                         self.pictures.insert(id.clone(), ctx.load_texture(id.as_str(), image, Default::default()));
+                        if let Some(frames) = p.anim { crate::animation::insert(id.as_str().to_owned(), frames); }
                     }
                 }
             }
@@ -865,6 +868,7 @@ impl Session {
             self.viewer = None;
             self.audio = None;
             self.pictures.clear();
+            crate::animation::clear();
             self.members = None;
             self.thread = None;
             self.upload_limit = None;

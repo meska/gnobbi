@@ -135,10 +135,14 @@ impl AvatarCache {
 
     /// The picture as uploaded, for retouching: same fetch as the thumbnail, capped at the media limit while received, never stored.
     pub async fn original(&self, client: &matrix_sdk::Client, mxc: &str) -> Result<Vec<u8>, bool> {
+        self.original_capped(client, mxc, crate::media::MAX_MEDIA_BYTES).await
+    }
+
+    pub async fn original_capped(&self, client: &matrix_sdk::Client, mxc: &str, max_bytes: usize) -> Result<Vec<u8>, bool> {
         let uri = <&MxcUri>::from(mxc);
         crate::media_sdk::checked_source(MediaSource::Plain(uri.to_owned())).map_err(|_| false)?;
         let _permit = self.permits.acquire().await.map_err(|_| false)?;
-        self.fetch(client, uri, MediaFormat::File, crate::media::MAX_MEDIA_BYTES).await
+        self.fetch(client, uri, MediaFormat::File, max_bytes).await
     }
 
     async fn fetch(&self, client: &matrix_sdk::Client, uri: &MxcUri, format: MediaFormat, max_bytes: usize) -> Result<Vec<u8>, bool> {
@@ -251,7 +255,7 @@ impl crate::avatar::AvatarSource for AvatarFetcher {
                 ),
                 Err(retry) => (None, retry),
             };
-            let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba, retry });
+            let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba, retry, anim: None });
         });
     }
 
@@ -262,7 +266,7 @@ impl crate::avatar::AvatarSource for AvatarFetcher {
                 Ok(bytes) => (tokio::task::spawn_blocking(move || decode(&bytes)).await.ok().flatten(), false),
                 Err(retry) => (None, retry),
             };
-            let _ = out.send(crate::avatar::AvatarPicture { mxc: crate::avatar::large_key(&mxc), rgba, retry });
+            let _ = out.send(crate::avatar::AvatarPicture { mxc: crate::avatar::large_key(&mxc), rgba, retry, anim: None });
         });
     }
 
@@ -276,10 +280,23 @@ impl crate::avatar::AvatarSource for AvatarFetcher {
                 }
                 Err(retry) => (None, retry),
             };
-            let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba, retry });
+            let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba, retry, anim: None });
+        });
+    }
+
+    fn request_animated(&self, mxc: String, out: std::sync::mpsc::Sender<crate::avatar::AvatarPicture>) {
+        let me = self.clone();
+        self.runtime.spawn(async move {
+            let Ok(bytes) = me.cache.original_capped(&me.client, &mxc, ANIMATED_MAX_BYTES).await else { return };
+            let Ok(Some(anim)) = tokio::task::spawn_blocking(move || crate::anim::decode(&bytes)).await else { return };
+            let first = (anim.width, anim.height, anim.rgba[0].clone());
+            let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba: Some(first), retry: false, anim: Some(anim) });
         });
     }
 }
+
+/// A sticker animated on hover is a small file; the cap is enforced while it is received.
+const ANIMATED_MAX_BYTES: usize = 2 * 1024 * 1024;
 
 /// Square thumbnails are 96 px; anything much larger is not an avatar we asked for.
 fn decode(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {

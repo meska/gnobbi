@@ -255,7 +255,9 @@ pub(crate) async fn download_png(
                 (file.url.clone(), Some(file))
             }
         };
-        if !original && encrypted_file.is_none() {
+        // A server thumbnail of a GIF (or sticker WebP) is a still: those go for the original, capped while received.
+        let animated = mime == "image/gif" || (mime == "image/webp" && event.raw().get_field::<String>("type").ok().flatten().as_deref() == Some("m.sticker"));
+        if !original && encrypted_file.is_none() && !animated {
             // Server thumbnail first; any miss (404, over the cap, not an image) falls back to the original.
             let request = matrix_sdk::media::MediaRequestParameters {
                 source: matrix_sdk::ruma::events::room::MediaSource::Plain(uri.clone()),
@@ -309,7 +311,7 @@ pub(crate) async fn download_png(
         } else {
             (320, 240)
         };
-        let preview = decode_within(bytes.clone(), &mime, tag, limit).await?;
+        let preview = decode_inner(bytes.clone(), &mime, tag, limit, !original).await?;
         Ok(DownloadedPng {
             bytes,
             preview,
@@ -400,7 +402,7 @@ pub async fn decode_png(
     mime: &str,
     tag: &RequestTag,
 ) -> Result<Preview, MediaError> {
-    decode_within(data, mime, tag, (320, 240)).await
+    decode_inner(data, mime, tag, (320, 240), true).await
 }
 
 /// Same decode, downscaled only when larger than `limit` (width, height).
@@ -409,6 +411,17 @@ pub async fn decode_within(
     mime: &str,
     tag: &RequestTag,
     limit: (u32, u32),
+) -> Result<Preview, MediaError> {
+    decode_inner(data, mime, tag, limit, false).await
+}
+
+/// With `animate`, a GIF/WebP/APNG within the `anim` limits keeps all its frames (the preview is the first, undownscaled).
+async fn decode_inner(
+    data: Vec<u8>,
+    mime: &str,
+    tag: &RequestTag,
+    limit: (u32, u32),
+    animate: bool,
 ) -> Result<Preview, MediaError> {
     #[cfg(test)]
     let _ = VIDEO_DECODE_ENTRIES
@@ -440,6 +453,16 @@ pub async fn decode_within(
         if u64::from(w) * u64::from(h) > crate::media::MAX_IMAGE_PIXELS {
             return Err(MediaError::TooLarge);
         }
+        if animate && let Some(anim) = crate::anim::decode(&data) {
+            return Ok(Preview {
+                width: anim.width,
+                height: anim.height,
+                rgba: anim.rgba[0].clone(),
+                anim: Some(anim),
+                #[cfg(test)]
+                decoded_on: std::thread::current().id(),
+            });
+        }
         let image = reader().decode().map_err(|_| MediaError::InvalidImage)?;
         let image = if image.width() > limit.0 || image.height() > limit.1 {
             image.thumbnail(limit.0, limit.1)
@@ -454,6 +477,7 @@ pub async fn decode_within(
             width: image.width(),
             height: image.height(),
             rgba: image.into_raw(),
+            anim: None,
             #[cfg(test)]
             decoded_on: std::thread::current().id(),
         })

@@ -88,7 +88,7 @@ mod tests {
     use std::sync::mpsc;
 
     fn picture(w: u32, h: u32) -> AvatarPicture {
-        AvatarPicture { mxc: String::new(), rgba: Some((w, h, vec![200; (w * h * 4) as usize])), retry: false }
+        AvatarPicture { mxc: String::new(), rgba: Some((w, h, vec![200; (w * h * 4) as usize])), retry: false, anim: None }
     }
 
     #[test]

@@ -144,6 +144,8 @@ pub struct Preview {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+    /// All the frames when the picture is animated and within the limits; `rgba` is then the first one.
+    pub anim: Option<crate::anim::Frames>,
     #[cfg(all(test, feature = "sdk"))]
     pub(crate) decoded_on: std::thread::ThreadId,
 }

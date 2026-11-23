@@ -457,7 +457,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                             let size = tex.size_vec2();
                             let side = if sticker { 192. } else { 320. };
                             let scale = (max.min(side) / size.x).min(1.).min(side / size.y);
-                            if crate::metrics::clickable(ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)).sense(egui::Sense::click()))).clicked() && matches!(media.kind, matrix_engine::history::MediaKind::Image | matrix_engine::history::MediaKind::Video) {
+                            let picture = ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)).sense(egui::Sense::click()));
+                            crate::animation::step(ui.ctx(), id.as_str(), tex, ui.is_rect_visible(picture.rect));
+                            if crate::metrics::clickable(picture).clicked() && matches!(media.kind, matrix_engine::history::MediaKind::Image | matrix_engine::history::MediaKind::Video) {
                                 acts.picture = Some((id.clone(), media.kind == matrix_engine::history::MediaKind::Video, e.attachment_name.clone().unwrap_or_else(|| i18n::t("image").into())));
                             }
                         }

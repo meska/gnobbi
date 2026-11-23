@@ -240,6 +240,10 @@ fn cell(ui: &mut egui::Ui, side: f32, s: &Sticker, textures: &Avatars) -> egui::
         Some(Avatar::Ready(tex)) => {
             let size = tex.size_vec2();
             let fit = size * ((side - 8.) / size.x.max(size.y));
+            // Desktop only: a phone keeps the still frame.
+            let hover = resp.hovered() && !crate::mobile::touch();
+            if hover { crate::animation::hover(&s.url); }
+            crate::animation::step(ui.ctx(), &s.url, tex, hover);
             egui::Image::new(tex).paint_at(ui, egui::Rect::from_center_size(rect.center(), fit));
         }
         Some(Avatar::Missing) => {

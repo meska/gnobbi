@@ -33,7 +33,8 @@ fn completed_preview_rejects_duplicate_result_without_revealing_pixels() {
             preview: Preview {
                 width: 1,
                 height: 1,
-                rgba: vec![255, 0, 0, 255]
+                rgba: vec![255, 0, 0, 255],
+                anim: None,
             }
         })
     }));
@@ -132,7 +133,8 @@ fn explicit_preview_request_accepts_only_matching_scoped_result() {
             preview: Preview {
                 width: 1,
                 height: 1,
-                rgba: vec![255, 0, 0, 255]
+                rgba: vec![255, 0, 0, 255],
+                anim: None,
             }
         })
     }));
@@ -174,7 +176,8 @@ fn inline_loading_asks_for_one_image_at_a_time_and_never_repeats_a_settled_one()
             preview: Preview {
                 width: 1,
                 height: 1,
-                rgba: vec![0, 0, 0, 255]
+                rgba: vec![0, 0, 0, 255],
+                anim: None,
             }
         })
     }));
@@ -191,6 +194,7 @@ fn large_view_original_is_its_own_lane_and_larger_than_the_thumbnail() {
             width: side,
             height: side,
             rgba: vec![0; (side * side * 4) as usize],
+            anim: None,
         },
     };
     let mut view = LiveMedia::default();
@@ -247,6 +251,7 @@ fn second_original_replaces_the_first_and_closing_drops_the_running_read() {
             width: 8,
             height: 8,
             rgba: vec![0; 256],
+            anim: None,
         },
     };
     let mut view = LiveMedia::default();

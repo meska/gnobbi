@@ -12,6 +12,7 @@ use matrix_engine::RoomSyncStatus;
 use std::time::Duration;
 
 mod accounts;
+mod animation;
 mod avatar;
 mod avatar_editor;
 mod pick;
