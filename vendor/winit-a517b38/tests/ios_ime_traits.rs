@@ -12,6 +12,7 @@ mod window {
         Username,
         Url,
         LoginPassword,
+        Search,
     }
 }
 
@@ -26,14 +27,14 @@ fn only_the_sign_in_fields_are_backed_by_a_native_field() {
     assert_eq!(traits(Username).credential, Some(Credential::Username));
     assert_eq!(traits(LoginPassword).credential, Some(Credential::Password));
     // Composer, search, passphrase, server, terminal: the main view alone, so no Passwords bar there.
-    for p in [Normal, Password, Terminal, Url] {
+    for p in [Normal, Password, Terminal, Url, Search] {
         assert_eq!(traits(p).credential, None, "{p:?}");
     }
 }
 
 #[test]
 fn only_the_server_asks_for_the_url_content_type() {
-    for p in [Normal, Password, Terminal, Username, Url, LoginPassword] {
+    for p in [Normal, Password, Terminal, Username, Url, LoginPassword, Search] {
         assert_eq!(traits(p).url, p == Url, "{p:?}");
     }
 }
@@ -47,7 +48,7 @@ fn secrets_stay_internal_and_raw() {
 
 #[test]
 fn images_require_explicit_message_purpose() {
-    for purpose in [Normal, Message, Password, Terminal, Username, Url, LoginPassword] {
+    for purpose in [Normal, Message, Password, Terminal, Username, Url, LoginPassword, Search] {
         assert_eq!(traits(purpose).images, purpose == Message);
     }
     assert!(!traits(Message).secret);
@@ -73,4 +74,19 @@ fn username_glued_before_the_password_is_cut_off() {
     assert_eq!(split_autofill(None, some("afuser"), Some("afuser")), (None, None), "only the username arrived there");
     assert_eq!(split_autofill(None, some("hunter2"), Some("afuser")), (None, some("hunter2")));
     assert_eq!(split_autofill(None, some("hunter2"), Some("")), (None, some("hunter2")), "no known username: nothing to cut");
+}
+
+#[test]
+fn search_and_the_sign_in_fields_never_autocorrect() {
+    for p in [Search, Username, Url, LoginPassword, Password, Terminal] {
+        assert!(traits(p).raw, "{p:?}");
+    }
+    // Message and Normal keep autocorrection: the composer needs it.
+    for p in [Normal, Message] {
+        assert!(!traits(p).raw, "{p:?}");
+    }
+    for p in [Normal, Message, Password, Terminal, Username, Url, LoginPassword] {
+        assert!(!traits(p).search, "{p:?}");
+    }
+    assert!(traits(Search).search && !traits(Search).secret && traits(Search).credential.is_none() && !traits(Search).images);
 }

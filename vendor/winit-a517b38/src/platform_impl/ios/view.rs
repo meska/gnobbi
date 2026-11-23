@@ -16,7 +16,7 @@ use objc2_ui_kit::{
     UIGraphicsImageRenderer, UIGraphicsImageRendererContext, UIGraphicsImageRendererFormat,
     UIGraphicsImageRendererFormatRange,
     UIPinchGestureRecognizer, UIResponder, UIRotationGestureRecognizer, UITapGestureRecognizer,
-    UITextAutocapitalizationType, UITextAutocorrectionType, UITextInput, UITextInputDelegate, UITextInputStringTokenizer,
+    UIReturnKeyType, UITextAutocapitalizationType, UITextAutocorrectionType, UITextSmartDashesType, UITextSmartInsertDeleteType, UITextSmartQuotesType, UITextInput, UITextInputDelegate, UITextInputStringTokenizer,
     UITextInputTokenizer, UITextInputTraits, UITextLayoutDirection, UITextPosition, UITextRange,
     UITextContentTypePassword, UITextContentTypeURL, UITextContentTypeUsername, UITextSelectionRect, UITextSpellCheckingType, UITouch, UITouchPhase, UITouchType,
     UITraitEnvironment, UIView,
@@ -738,6 +738,26 @@ declare_class!(
             } else {
                 UITextSpellCheckingType::Default
             }
+        }
+
+        #[method(smartQuotesType)]
+        fn smart_quotes_type(&self) -> UITextSmartQuotesType {
+            if self.ivars().ime_traits.get().search { UITextSmartQuotesType::No } else { UITextSmartQuotesType::Default }
+        }
+
+        #[method(smartDashesType)]
+        fn smart_dashes_type(&self) -> UITextSmartDashesType {
+            if self.ivars().ime_traits.get().search { UITextSmartDashesType::No } else { UITextSmartDashesType::Default }
+        }
+
+        #[method(smartInsertDeleteType)]
+        fn smart_insert_delete_type(&self) -> UITextSmartInsertDeleteType {
+            if self.ivars().ime_traits.get().search { UITextSmartInsertDeleteType::No } else { UITextSmartInsertDeleteType::Default }
+        }
+
+        #[method(returnKeyType)]
+        fn return_key_type(&self) -> UIReturnKeyType {
+            if self.ivars().ime_traits.get().search { UIReturnKeyType::UIReturnKeySearch } else { UIReturnKeyType::UIReturnKeyDefault }
         }
     }
 

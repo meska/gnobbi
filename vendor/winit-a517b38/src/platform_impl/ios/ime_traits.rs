@@ -17,6 +17,9 @@ pub(super) struct Traits {
     pub secret: bool,
     /// No autocapitalisation, autocorrection or spell checking.
     pub raw: bool,
+    /// A search field: on top of `raw`, no smart quotes/dashes/insert-delete and a Search return key. Nothing in the field may
+    /// change by itself, least of all when it loses the focus (the results are looked up from its text).
+    pub search: bool,
     /// `UITextContentTypeURL` on the main view (server address); every other field leaves the content type unspecified, which
     /// keeps the Passwords bar away from the composer, search and the like.
     pub url: bool,
@@ -24,9 +27,10 @@ pub(super) struct Traits {
 }
 
 pub(super) fn traits(purpose: ImePurpose) -> Traits {
-    let t = |secret, raw, url, credential| Traits { images: purpose == ImePurpose::Message, secret, raw, url, credential };
+    let t = |secret, raw, url, credential| Traits { images: purpose == ImePurpose::Message, search: purpose == ImePurpose::Search, secret, raw, url, credential };
     match purpose {
         ImePurpose::Terminal => t(false, true, false, None),
+        ImePurpose::Search => t(false, true, false, None),
         ImePurpose::Url => t(false, true, true, None),
         // Other secrets (passphrase, recovery key): kept internal, no AutoFill.
         ImePurpose::Password => t(true, true, false, None),

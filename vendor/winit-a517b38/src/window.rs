@@ -1895,6 +1895,9 @@ pub enum ImePurpose {
     /// Password of a sign-in form (iOS: `UITextContentTypePassword` + `isSecureTextEntry`, Passwords AutoFill).
     /// Elsewhere it is [`ImePurpose::Password`].
     LoginPassword,
+    /// A search field (iOS: no autocorrection, spell checking, autocapitalisation or smart punctuation, Search return key).
+    /// Elsewhere it is [`ImePurpose::Normal`].
+    Search,
 }
 
 /// An opaque token used to activate the [`Window`].
