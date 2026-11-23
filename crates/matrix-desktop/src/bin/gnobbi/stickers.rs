@@ -24,6 +24,12 @@ pub fn width(window: f32) -> f32 {
     (window - 40.).clamp(200., 372.)
 }
 
+/// Height of the tab under its tab row: search row, grid, pack bar; the emoji tab uses it too so the popup keeps one size.
+pub fn body_height(w: f32, spacing: f32) -> f32 {
+    let (_, side) = grid(w);
+    crate::metrics::button() + 3.5 * side + 3. * GAP + GAP + bar_slot() + 2. * spacing
+}
+
 /// Side of a pack-bar slot: the scale's button, never under the 44 pt touch target.
 pub fn bar_slot() -> f32 {
     crate::metrics::button().max(44.)
