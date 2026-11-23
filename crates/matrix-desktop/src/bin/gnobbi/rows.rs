@@ -48,7 +48,7 @@ mod tests {
             };
             let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 200.))), events, ..Default::default() };
             let mut output = ctx.run_ui(input, |ui| {
-                let r = super::person_row(ui, "Marco", "@one:example.org", true, false, &matrix_desktop::LIGHT);
+                let r = super::person_row(ui, "Marco", "@one:example.org", true, false, &crate::avatar::Avatar::Missing, &matrix_desktop::LIGHT);
                 rect = r.rect;
                 clicked |= r.clicked();
             });
@@ -68,7 +68,7 @@ fn font(l: &Line) -> FontId {
     if l.mono { FontId::monospace(l.size) } else { FontId::proportional(l.size) }
 }
 
-pub fn person_row(ui: &mut egui::Ui, name: &str, id: &str, duplicate: bool, selected: bool, t: &matrix_desktop::DesignTokens) -> egui::Response {
+pub fn person_row(ui: &mut egui::Ui, name: &str, id: &str, duplicate: bool, selected: bool, avatar: &crate::avatar::Avatar, t: &matrix_desktop::DesignTokens) -> egui::Response {
     let name = crate::list::clean_single_line(name);
     let clean_id = crate::list::clean_single_line(id);
     let mut lines = vec![Line::new(&name, 14., crate::list::rgb(t.text))];
@@ -76,7 +76,7 @@ pub fn person_row(ui: &mut egui::Ui, name: &str, id: &str, duplicate: bool, sele
     let row = ui.scope(|ui| {
         lines_row(ui, |ui| {
             let (r, _) = ui.allocate_exact_size(Vec2::splat(28.), Sense::hover());
-            crate::avatar::paint(ui, r.center(), 28., crate::list::rgb(matrix_desktop::AVATAR_FALLBACK), &crate::avatar::Avatar::Missing, &matrix_desktop::initials(&name), 12., crate::list::rgb(t.on_accent));
+            crate::avatar::paint(ui, r.center(), 28., crate::list::rgb(matrix_desktop::AVATAR_FALLBACK), avatar, &matrix_desktop::initials(&name), 12., crate::list::rgb(t.on_accent));
         }, &lines, |_| {});
     }).response;
     let resp = crate::metrics::clickable(ui.interact(row.rect, row.id, Sense::click()));

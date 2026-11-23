@@ -12,6 +12,9 @@ pub enum Avatar {
     Missing,
 }
 
+/// Context-data key under which the composer lists the mention suggestions on screen; `drive_avatars` asks only for those.
+pub const MENTION_AVATARS: &str = "mention-avatars";
+
 pub type Avatars = std::collections::HashMap<String, Avatar>;
 
 impl Avatar {

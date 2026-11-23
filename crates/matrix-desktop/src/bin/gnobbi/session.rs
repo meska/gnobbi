@@ -704,7 +704,8 @@ impl Session {
         let Some(source) = slot.as_ref() else { return changed };
         // Room, DM and space pictures of the list and the rail: a few per tick, so a long list does not burst the media worker.
         let mut budget = 6;
-        let mut wanted: Vec<String> = self.sidebar.rooms().iter().filter_map(|r| r.info.avatar.clone()).collect();
+        let mut wanted: Vec<String> = ctx.data_mut(|d| d.remove_temp::<Vec<String>>(egui::Id::new(crate::avatar::MENTION_AVATARS))).unwrap_or_default();
+        wanted.extend(self.sidebar.rooms().iter().filter_map(|r| r.info.avatar.clone()));
         wanted.extend(self.sidebar.navigation_entries().into_iter().filter_map(|e| e.avatar));
         if let Some(crate::space::SpaceView { children: Some(Ok(c)), .. }) = &self.space_view { wanted.extend(c.children.iter().filter_map(|c| c.avatar_url.clone())); }
         wanted.extend(self.sidebar.selected().into_iter().flat_map(|r| &r.info.public_read_receipts).flat_map(|r| &r.users).filter_map(|u| u.avatar.clone()));

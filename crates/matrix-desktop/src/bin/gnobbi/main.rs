@@ -16,6 +16,7 @@ mod avatar;
 mod avatar_editor;
 mod pick;
 mod composer;
+mod mention_popup;
 mod customize;
 mod devices;
 mod dir;
@@ -796,6 +797,8 @@ impl eframe::App for App {
         }
         #[cfg(debug_assertions)]
         stickers::demo(&ctx, &t);
+        #[cfg(debug_assertions)]
+        mention_popup::demo(&ctx, &t);
         #[cfg(debug_assertions)]
         if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("avatar-editor") { self.account_form.demo(&ctx, &t); }
         #[cfg(debug_assertions)]
@@ -2145,7 +2148,7 @@ fn quick_search(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
             for (i, (hit, duplicate)) in users.iter().zip(duplicates).enumerate() {
                 let name = hit.display_name.as_deref().unwrap_or(&hit.user_id);
                 let index = hits.len() + i;
-                let r = ui.push_id(&hit.user_id, |ui| crate::rows::person_row(ui, name, &hit.user_id, duplicate, index == sel, t)).inner;
+                let r = ui.push_id(&hit.user_id, |ui| crate::rows::person_row(ui, name, &hit.user_id, duplicate, index == sel, &crate::avatar::Avatar::Missing, t)).inner;
                 if index == sel && moved { r.scroll_to_me(None); }
                 if r.clicked() { picked = Some(index); }
             }

@@ -29,6 +29,9 @@ pub const THREAD: &str = "-thread";
 
 /// `salt` is `""` for the room composer and `THREAD` for the drawer: the same bar minus the poll (attach and voice go into the thread).
 pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<(&str, &[u8], u64)>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>, t: &matrix_desktop::DesignTokens) -> Option<String> {
+    let avatars = stickers.as_ref().map(|(_, a)| *a);
+    // The suggestions take Up/Down/Enter/Tab/Esc first, so Enter picks instead of sending.
+    crate::mention_popup::keys(ui, egui::Id::new(format!("composer-text{salt}")), draft, members, mentions);
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     // consume_key matches Shift loosely, so Shift+Enter is checked on the event and left to the TextEdit (it inserts the newline).
     let shift_enter = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if modifiers.shift)));
@@ -145,7 +148,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let text_h = scroll.content_size.y.min(max_h);
         ui.allocate_space(egui::vec2(w + 8., text_h));
         let out = scroll.inner;
-        mention_popup(ui, id, &out, draft, members, mentions, t);
+        crate::mention_popup::show(ui, id, out.response.rect, draft, members, mentions, avatars, t);
         // The picker restores focus to the composer after inserting at its saved selection.
         // Icons stay at the bottom of a tall box.
         ui.with_layout(crate::dir::col(), |ui| {
@@ -485,49 +488,6 @@ mod image_tests {
             output.textures_delta.clear();
         }
         assert_eq!(draft, "caption");
-    }
-}
-
-/// «@name»: members matching what is typed after the `@` before the cursor; a click (or Tab) puts «@Name » in the text
-/// and remembers who it is, so the send turns it into a real mention.
-fn mention_popup(ui: &mut egui::Ui, id: egui::Id, out: &egui::text_edit::TextEditOutput, draft: &mut String, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, t: &matrix_desktop::DesignTokens) {
-    // A window the system never focused (headless seat) keeps no text focus: the list then follows the text alone.
-    let focused = out.response.has_focus() || !ui.input(|i| i.focused);
-    if !focused || members.is_empty() {
-        return;
-    }
-    // No cursor yet (text set from outside, nothing clicked): the end of the text.
-    let cursor = out.cursor_range.map_or(draft.len(), |r| draft.char_indices().nth(r.primary.index.into()).map_or(draft.len(), |(b, _)| b));
-    let Some((at, query)) = matrix_desktop::mention_token(draft, cursor) else { return };
-    let matches: Vec<matrix_engine::operations::Member> = matrix_desktop::mention_matches(members, query).into_iter().cloned().collect();
-    if matches.is_empty() {
-        return;
-    }
-    let duplicates = crate::rows::duplicate_names(matches.iter().map(|m| m.name.as_str()));
-    let mut pick = None;
-    let corner = if crate::dir::rtl() { out.response.rect.right_top() } else { out.response.rect.left_top() };
-    egui::Area::new(id.with("mentions")).order(egui::Order::Foreground).pivot(crate::dir::align(egui::Align2::LEFT_TOP)).fixed_pos(corner - egui::vec2(0., 8. + crate::rows::ROW * matches.len() as f32)).show(ui.ctx(), |ui| {
-        egui::Frame::popup(ui.style()).show(ui, |ui| {
-            ui.set_width(260.);
-            for (m, duplicate) in matches.iter().zip(duplicates) {
-                if ui.push_id(&m.user_id, |ui| crate::rows::person_row(ui, &m.name, &m.user_id, duplicate, false, t)).inner.clicked() {
-                    pick = Some(m.clone());
-                }
-            }
-        });
-    });
-    if pick.is_none() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab)) {
-        pick = matches.first().cloned();
-    }
-    if let Some(m) = pick {
-        let label = format!("@{}", m.name.trim_start_matches('@'));
-        draft.replace_range(at..cursor, &format!("{label} "));
-        mentions.push(matrix_engine::sending::Mention { user_id: m.user_id, label: label.clone() });
-        let end = draft[..at].chars().count() + label.chars().count() + 1;
-        let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
-        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(end))));
-        state.store(ui.ctx(), id);
-        ui.ctx().memory_mut(|m| m.request_focus(id));
     }
 }
 
