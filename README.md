@@ -2,6 +2,17 @@
 
 Client desktop [Matrix](https://matrix.org/) open source, scritto in Rust con interfaccia [egui](https://github.com/emilk/egui) (eframe). Gnobbi si collega direttamente al proprio homeserver, senza gateway o servizi intermedi: account, messaggi e chiavi restano tra il client e il server scelto.
 
+<table>
+  <tr>
+    <td width="66%"><img src="screenshots/desktop-dark.png" alt="Gnobbi desktop, dark theme: chat list on the left and the Design team conversation with reactions and an image"></td>
+    <td width="34%"><img src="screenshots/phone-chat.png" alt="Gnobbi on a phone, dark theme: a conversation with reactions, a file and an image"></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/desktop-light.png" alt="Gnobbi desktop, light theme: chat list and an open conversation"></td>
+    <td><img src="screenshots/phone-list.png" alt="Gnobbi on a phone, dark theme: the chat list with unread badges"></td>
+  </tr>
+</table>
+
 Caratteristiche principali:
 
 - accesso con ID e password al proprio homeserver (Synapse e Tuwunel sono i server di riferimento);
