@@ -594,12 +594,6 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.refresh(&ctx);
-        if self.prefs.debug && mobile::diagnostic_overlay(&ctx) {
-            self.prefs.debug = false;
-            settings::persist(self.dirs.as_ref(), &self.prefs);
-        }
-        // The overlay reads the preceding frame; clear it so a list without a composer reports n/a.
-        mobile::note_composer(0.);
         ctx.request_repaint_after(Duration::from_secs(60));
         if let Some((path, frame)) = &mut self.shot {
             let secs: u64 = matrix_desktop::hooks::var("GNOBBI_EGUI_SHOT_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
@@ -1628,7 +1622,7 @@ impl App {
     /// The composer at the bottom of the chat.
     fn composer_bar(&mut self, ui: &mut egui::Ui, t: &DesignTokens, covered: bool) {
         let mut to_send = None;
-        let composer_rect = composer::panel(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
+        composer::panel(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
             if let Some(s) = &mut self.session
                 && s.messages.is_some()
                 && !covered
@@ -1674,8 +1668,7 @@ impl App {
                     s.cancel_target();
                 }
             }
-        })).response.rect;
-        mobile::note_composer(composer_rect.bottom());
+        }));
         if let (Some(body), Some(s)) = (to_send, &mut self.session) {
             s.submit_draft(body);
         }

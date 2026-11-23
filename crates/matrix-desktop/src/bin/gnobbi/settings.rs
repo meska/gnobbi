@@ -95,8 +95,6 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                     changed |= switch(ui, tr("Message preview"), &mut p.message_preview, t);
                     section(ui, tr("Notifications"), t);
                     changed |= switch(ui, tr("Notifications"), &mut p.notifications, t);
-                    section(ui, tr("Advanced"), t);
-                    changed |= switch(ui, tr("Keyboard diagnostics"), &mut p.debug, t);
                     // iOS has no tray (nor other desktop-only system rows): no System section.
                     #[cfg(not(target_os = "ios"))]
                     {
@@ -158,7 +156,6 @@ pub fn persist(dirs: Option<&AppDirs>, p: &Preferences) {
             saved.message_preview = new.message_preview;
             saved.notifications = new.notifications;
             saved.close_to_tray = new.close_to_tray;
-            saved.debug = new.debug;
             saved.language = new.language;
             saved.text_size = new.text_size;
             saved.density = new.density;
