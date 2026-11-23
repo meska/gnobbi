@@ -168,7 +168,6 @@ async fn attachment(
     event: &EventId,
     any: bool,
 ) -> Result<(MediaSource, Option<u64>, Option<String>), MediaError> {
-    use matrix_sdk::ruma::events::room::message::{MessageType, RoomMessageEventContent};
     if tag.scope().account_id != account {
         return Err(MediaError::InvalidScope);
     }
@@ -184,8 +183,24 @@ async fn attachment(
         .event(&event_id, None)
         .await
         .map_err(|_| MediaError::Failed)?;
-    let content = event
-        .raw()
+    attachment_content(event.raw(), any)
+}
+
+fn attachment_content<T>(raw: &matrix_sdk::ruma::serde::Raw<T>, any: bool) -> Result<(MediaSource, Option<u64>, Option<String>), MediaError> {
+    use matrix_sdk::ruma::events::room::message::{MessageType, RoomMessageEventContent};
+    if raw.get_field::<String>("type").ok().flatten().as_deref() == Some("m.sticker") {
+        use matrix_sdk::ruma::events::sticker::{StickerEventContent, StickerMediaSource};
+        if !any { return Err(MediaError::UnsupportedType); }
+        let sticker = raw.get_field::<StickerEventContent>("content")
+            .map_err(|_| MediaError::UnsupportedType)?.ok_or(MediaError::UnsupportedType)?;
+        let source = match sticker.source {
+            StickerMediaSource::Plain(uri) => MediaSource::Plain(uri),
+            StickerMediaSource::Encrypted(file) => MediaSource::Encrypted(file),
+            _ => return Err(MediaError::UnsupportedType),
+        };
+        return Ok((source, sticker.info.size.map(u64::from), sticker.info.mimetype));
+    }
+    let content = raw
         .get_field::<RoomMessageEventContent>("content")
         .map_err(|_| MediaError::UnsupportedType)?
         .ok_or(MediaError::UnsupportedType)?;
@@ -311,6 +326,18 @@ mod tests {
     use matrix_domain::{AccountId, RoomId, RoomScope};
     use matrix_sdk::ruma::{api::MatrixVersion, owned_mxc_uri};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn save_accepts_sticker_media_source() {
+        let event = matrix_sdk::ruma::serde::Raw::<serde_json::Value>::from_json_string(
+            r#"{"type":"m.sticker","content":{"body":"sticker","url":"mxc://example.org/sticker","info":{"mimetype":"image/png","size":42}}}"#.to_owned()
+        ).unwrap();
+        let (source, size, mime) = attachment_content(&event, true).expect("stickers can be saved");
+        assert!(matches!(source, MediaSource::Plain(_)));
+        assert_eq!(size, Some(42));
+        assert_eq!(mime.as_deref(), Some("image/png"));
+        assert!(attachment_content(&event, false).is_err());
+    }
 
     #[test]
     fn parameterized_audio_mime_keeps_ogg_extension() {
