@@ -201,6 +201,7 @@ pub struct Session {
     pub profile_saved: Option<Result<(), &'static str>>,
     /// The file the running save writes; on iOS it goes to the share sheet when the save is done.
     share_after: std::path::PathBuf,
+    sharing: bool,
     /// Composer (thread or room) that asked for the microphone while the permission prompt was up.
     mic_pending: Option<bool>,
     pub new_open: bool,
@@ -398,6 +399,7 @@ impl Session {
             profile_busy: false,
             profile_saved: None,
             share_after: std::path::PathBuf::new(),
+            sharing: false,
             mic_pending: None,
             new_open: false,
             new_term: String::new(),
@@ -752,12 +754,21 @@ impl Session {
             self.media.mark_videos(videos);
             self.media.next_inline(scope.clone(), wanted);
         }
-        if let Some((name, ok)) = self.media.take_saved().map(|(_, r)| (String::new(), r.is_ok())) {
-            let _ = name;
+        if let Some(ok) = self.media.take_saved().map(|(_, r)| r.is_ok()) {
+            if ok && cfg!(target_os = "ios") {
+                // iOS: the file sits in a private folder until the share sheet takes it; «Saved» waits for the sheet's answer.
+                crate::pick::share(&crate::pick::with_extension(&std::mem::take(&mut self.share_after)));
+                self.sharing = true;
+            } else {
+                    self.notice_shown = None;
+                self.notice = Some(i18n::t(if ok { "Saved" } else { "Saving failed" }).to_owned());
+            }
+            changed = true;
+        }
+        if self.sharing && let Some(ok) = crate::pick::shared() {
+            self.sharing = false;
             self.notice_shown = None;
-            self.notice = Some(if ok { i18n::t("Saved").to_owned() } else { i18n::t("Saving failed").to_owned() });
-            // iOS: the file sits in a private folder until the share sheet takes it (no-op on desktop).
-            if ok && cfg!(target_os = "ios") { crate::pick::share(&std::mem::take(&mut self.share_after)); }
+            self.notice = Some(i18n::t(if ok { "Saved" } else { "Saving failed" }).to_owned());
             changed = true;
         }
         if let Some((id, result)) = self.media.take_audio() {

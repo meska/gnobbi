@@ -74,15 +74,21 @@ impl Viewer {
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) { return Action::Close; }
         let mut action = Action::None;
-        let size = ctx.content_rect().size();
-        egui::Window::new(if self.video { i18n::t(i18n::t("Video")) } else { i18n::t("Image") })
-            .collapsible(false).resizable(true).default_size(size * 0.8)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        let screen = ctx.content_rect();
+        let phone = crate::mobile::touch();
+        let window = egui::Window::new(if self.video { i18n::t(i18n::t("Video")) } else { i18n::t("Image") }).collapsible(false);
+        // Phone: the whole safe area, no title bar to drag; desktop: a resizable window.
+        let window = if phone {
+            window.title_bar(false).resizable(false).fixed_rect(screen)
+        } else {
+            window.resizable(true).default_size(screen.size() * 0.8).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        };
+        window
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     let resp = crate::icons::button(ui, crate::icons::Icon::X, false, matrix_desktop::i18n::t("Close"));
                     if resp.clicked() { action = Action::Close; }
-                    if !self.avatar && ui.button(i18n::t("Save as")).clicked() {
+                    if !self.avatar && ui.add(egui::Button::new(i18n::t("Save as")).min_size(egui::Vec2::splat(crate::mobile::target(0.)))).clicked() {
                         let name = std::path::Path::new(&self.name).file_name().and_then(|s| s.to_str()).unwrap_or("file");
                         crate::pick::save_start(ctx, i18n::t("Save as"), name);
                     }

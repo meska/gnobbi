@@ -112,13 +112,22 @@ pub fn safe_name(name: &str) -> String {
     if base.is_empty() { "file".to_owned() } else { base.to_owned() }
 }
 
-/// Opens the share sheet (save to Files, AirDrop, other apps) for a finished file.
+/// How the last share sheet ended: Some(true) an action finished, Some(false) it failed, None while open or cancelled.
+static SHARED: Mutex<Option<bool>> = Mutex::new(None);
+
+/// The outcome of the share sheet, once; cancelling gives nothing.
+pub fn shared() -> Option<bool> {
+    SHARED.lock().unwrap_or_else(|e| e.into_inner()).take()
+}
+
+/// Opens the share sheet (save to Files, AirDrop, other apps) for a finished file; `shared` tells how it went.
 #[cfg(target_os = "ios")]
 pub fn share(path: &Path) {
-    use objc2::{MainThreadMarker, MainThreadOnly, rc::Retained, runtime::AnyObject};
+    use block2::RcBlock;
+    use objc2::{MainThreadMarker, MainThreadOnly, rc::Retained, runtime::{AnyObject, Bool}};
     use objc2_core_foundation::{CGPoint, CGRect, CGSize};
-    use objc2_foundation::{NSArray, NSString, NSURL};
-    use objc2_ui_kit::{UIActivityViewController, UIApplication};
+    use objc2_foundation::{NSArray, NSError, NSString, NSURL};
+    use objc2_ui_kit::{UIActivityType, UIActivityViewController, UIApplication, UIDevice, UIUserInterfaceIdiom};
     let Some(mtm) = MainThreadMarker::new() else { return };
     let Some(root) = UIApplication::sharedApplication(mtm).keyWindow().and_then(|w| w.rootViewController()) else { return };
     let mut top = root;
@@ -126,8 +135,15 @@ pub fn share(path: &Path) {
     let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
     let items: Retained<NSArray<AnyObject>> = NSArray::from_retained_slice(&[Retained::into_super(Retained::into_super(url))]);
     let sheet = unsafe { UIActivityViewController::initWithActivityItems_applicationActivities(UIActivityViewController::alloc(mtm), &items, None) };
-    // iPad shows the sheet as a popover and traps without an anchor.
-    if let (Some(pop), Some(view)) = (sheet.popoverPresentationController(), top.view()) {
+    *SHARED.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    let done = RcBlock::new(|_: *mut UIActivityType, completed: Bool, _: *mut NSArray, error: *mut NSError| {
+        *SHARED.lock().unwrap_or_else(|e| e.into_inner()) = if !error.is_null() { Some(false) } else { completed.as_bool().then_some(true) };
+    });
+    unsafe { sheet.setCompletionWithItemsHandler(&*done as *const _ as *mut _) };
+    // Only the iPad shows the sheet as a popover (and traps without an anchor); on the iPhone an anchor displaces the standard bottom sheet.
+    if UIDevice::currentDevice(mtm).userInterfaceIdiom() == UIUserInterfaceIdiom::Pad
+        && let (Some(pop), Some(view)) = (sheet.popoverPresentationController(), top.view())
+    {
         let b = view.bounds();
         pop.setSourceView(Some(&view));
         pop.setSourceRect(CGRect::new(CGPoint::new(b.size.width / 2., b.size.height / 2.), CGSize::new(0., 0.)));
@@ -137,6 +153,27 @@ pub fn share(path: &Path) {
 
 #[cfg(not(target_os = "ios"))]
 pub fn share(_path: &Path) {}
+
+/// The file extension the content says it has, for a saved file whose name lacks one (stickers arrive named «Image»).
+pub fn extension_of(bytes: &[u8]) -> Option<&'static str> {
+    match bytes {
+        [0x89, b'P', b'N', b'G', ..] => Some("png"),
+        [0xFF, 0xD8, 0xFF, ..] => Some("jpg"),
+        [b'G', b'I', b'F', b'8', ..] => Some("gif"),
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some("webp"),
+        _ => None,
+    }
+}
+
+/// Gives a saved extensionless file the extension of its content; returns the path to share.
+pub fn with_extension(path: &Path) -> PathBuf {
+    if path.extension().is_some() { return path.to_owned(); }
+    let mut head = [0u8; 12];
+    let n = std::fs::File::open(path).and_then(|mut f| std::io::Read::read(&mut f, &mut head)).unwrap_or(0);
+    let Some(ext) = extension_of(&head[..n]) else { return path.to_owned() };
+    let renamed = path.with_extension(ext);
+    if std::fs::rename(path, &renamed).is_ok() { renamed } else { path.to_owned() }
+}
 
 #[cfg(test)]
 mod tests {
@@ -150,6 +187,23 @@ mod tests {
         assert_eq!(done("Allega un file"), None, "taken once");
         store("Allega un file", None); // dialog closed
         assert_eq!(done("Allega un file"), None);
+    }
+
+    #[test]
+    fn extension_follows_the_content() {
+        assert_eq!(extension_of(b"RIFF\0\0\0\0WEBPVP8 "), Some("webp"));
+        assert_eq!(extension_of(&[0x89, b'P', b'N', b'G', 13, 10]), Some("png"));
+        assert_eq!(extension_of(b"GIF89a"), Some("gif"));
+        assert_eq!(extension_of(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("jpg"));
+        assert_eq!(extension_of(b"hello"), None);
+        let dir = std::env::temp_dir().join(format!("gnobbi-ext-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bare = dir.join("Image");
+        std::fs::write(&bare, b"GIF89a....").unwrap();
+        assert_eq!(with_extension(&bare), dir.join("Image.gif"));
+        assert!(!bare.exists());
+        assert_eq!(with_extension(&dir.join("a.png")), dir.join("a.png"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
