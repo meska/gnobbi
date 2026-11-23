@@ -1,7 +1,7 @@
 #!/bin/sh
 # Unsigned Gnobbi.app for a real iPhone (aarch64-apple-ios, dist-ios profile, current SDK). Signing/IPA is a separate step.
 # Usage (macOS with Rust + Xcode): packaging/ios/bundle-device.sh [target-dir]   -> target-dir/ios-device/Gnobbi.app
-# Env: GNOBBI_BUILD (CFBundleVersion, default = commit count), GNOBBI_VERSION (default 1.0)
+# Env: GNOBBI_BUILD (CFBundleVersion, default = commit count), GNOBBI_COMMIT (short SHA compiled into the app; set it when the tree has no .git), GNOBBI_VERSION (default 1.0)
 set -eu
 here=$(cd "$(dirname "$0")" && pwd); root=$(cd "$here/../.." && pwd)
 t=${1:-target}; triple=aarch64-apple-ios

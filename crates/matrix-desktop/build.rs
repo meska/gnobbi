@@ -27,7 +27,12 @@ fn main() {
         .filter(|b| !b.is_empty())
         .or_else(|| git(&["rev-list", "--count", "HEAD"]))
         .unwrap_or_else(|| "sconosciuto".into());
-    let sha = git(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "sconosciuto".into());
+    // A tree without .git (update-mac.sh, the iOS bundle) gets the commit from GNOBBI_COMMIT, like the build number.
+    let sha = std::env::var("GNOBBI_COMMIT")
+        .ok()
+        .filter(|c| !c.is_empty())
+        .or_else(|| git(&["rev-parse", "--short", "HEAD"]))
+        .unwrap_or_else(|| "sconosciuto".into());
     let secs = std::env::var("SOURCE_DATE_EPOCH")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -49,6 +54,7 @@ fn main() {
     println!("cargo:rustc-env=GNOBBI_BUILD_DATE={}", ymd(secs));
     println!("cargo:rustc-env=GNOBBI_MATRIX_SDK_VERSION={sdk}");
     println!("cargo:rerun-if-env-changed=GNOBBI_BUILD");
+    println!("cargo:rerun-if-env-changed=GNOBBI_COMMIT");
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
     println!("cargo:rerun-if-changed=../../Cargo.lock");
     if let Some(head) = git(&["rev-parse", "--git-path", "HEAD"]) {
