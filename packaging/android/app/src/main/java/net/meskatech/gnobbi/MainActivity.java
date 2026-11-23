@@ -10,6 +10,21 @@ import android.util.Log;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 public class MainActivity extends NativeActivity {
+    /** True between onResume and onPause: after onPause no frame runs, so the engine's «room visible» flag would stay stale. */
+    static volatile boolean resumed;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        resumed = true;
+    }
+
+    @Override
+    protected void onPause() {
+        resumed = false;
+        super.onPause();
+    }
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);

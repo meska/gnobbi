@@ -22,7 +22,7 @@ final class Native {
     static String alert(Context ctx, PushPayload p) {
         try {
             System.loadLibrary("gnobbi");
-            String a = nativeAlert(ctx.getApplicationContext(), ctx.getFilesDir().getCanonicalPath(), p.account, p.roomId, p.eventId);
+            String a = nativeAlert(ctx.getApplicationContext(), ctx.getFilesDir().getCanonicalPath(), p.account, p.roomId, p.eventId == null ? "" : p.eventId); // "": a null would fail before the engine checks the switch
             return a == null ? "" : a;
         } catch (UnsatisfiedLinkError | java.io.IOException e) {
             return "";

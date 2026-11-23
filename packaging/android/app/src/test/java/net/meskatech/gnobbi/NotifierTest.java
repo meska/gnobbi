@@ -80,6 +80,12 @@ public class NotifierTest {
         assertEquals(0, Shadows.shadowOf(nm).size());
     }
 
+    @Test public void backgroundActivityNeverCountsAsRoomOnScreen() {
+        assertFalse(GnobbiPushService.roomOnScreen(false, true)); // engine flag stale after onPause
+        assertTrue(GnobbiPushService.roomOnScreen(true, true));
+        assertFalse(GnobbiPushService.roomOnScreen(true, false));
+    }
+
     @Test public void withoutTheNativeLibraryTheNotificationIsShown() {
         assertFalse(Native.isRoomVisible("3:7:a", "!r:x"));
     }

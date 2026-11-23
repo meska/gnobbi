@@ -91,6 +91,7 @@ fn account_of(tag: &AccountTag, worker: AccountId) -> String {
 /// read with that client, never with a second one on the same crypto store.
 static LIVE: Mutex<Vec<(PathBuf, AccountId, Client, tokio::runtime::Handle)>> = Mutex::new(Vec::new());
 
+// shortcut: removes by root, so an old worker of the same root ending after its successor started drops the new entry too; upgrade if workers ever overlap.
 struct LiveGuard(PathBuf);
 
 impl Drop for LiveGuard {
@@ -156,7 +157,8 @@ pub(crate) async fn keep_registered(client: Client, device_name: &'static str, r
         let current = rx.borrow_and_update().clone();
         let tag = tag_rx.borrow_and_update().get(&root).cloned();
         let retry = match current.zip(tag) {
-            Some((s, _)) if !s.enabled => match registered.take() {
+            // No saved pushkey (build that never wrote the file, failed save): remove the current ids anyway, deleting a missing pusher is a server no-op.
+            Some((s, _)) if !s.enabled => match registered.take().or_else(|| Some(ids_of(&s))) {
                 Some(old) if !matches!(tokio::time::timeout(Duration::from_secs(10), client.pusher().delete(old.clone())).await, Ok(Ok(()))) => {
                     eprintln!("Gnobbi: push removal failed");
                     registered = Some(old);
@@ -204,8 +206,15 @@ fn load_registered(root: &std::path::Path) -> Option<PusherIds> {
 }
 
 fn save_registered(root: &std::path::Path, ids: &PusherIds) {
-    if let Ok(json) = serde_json::to_vec(ids) {
-        let _ = std::fs::write(registered_file(root), json);
+    use std::io::Write;
+    let Ok(json) = serde_json::to_vec(ids) else { return };
+    let (path, tmp) = (registered_file(root), root.join("push-registered.json.tmp"));
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    if opts.open(&tmp).and_then(|mut f| f.write_all(&json)).and_then(|()| std::fs::rename(&tmp, path)).is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
@@ -413,6 +422,26 @@ mod tests {
         set(Some(on));
         tokio::time::sleep(Duration::from_millis(800)).await;
         assert_eq!(count("\"kind\":\"http\""), 2);
+        run.abort();
+        set(None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// No saved pushkey (older install, failed save) and the switch off: the current token is removed anyway.
+    #[tokio::test]
+    async fn switch_off_without_a_saved_pushkey_removes_the_current_pusher() {
+        let _turn = LOCK.lock().await;
+        let root = std::env::temp_dir().join(format!("gnobbi-push-nofile-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let (url, log) = mock_homeserver().await;
+        let client = Client::builder().homeserver_url(&url).build().await.unwrap();
+        client.matrix_auth().login_username("@a:t", "x").send().await.unwrap();
+        set(Some(PushSettings { platform: PushPlatform::Fcm, token: "token-C".into(), enabled: false, ..settings() }));
+        set_account(root.clone(), tag());
+        let run = tokio::spawn(keep_registered(client, "Gnobbi (Android)", Some(root.clone()), AccountId::new(1)));
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let off: Vec<String> = log.lock().unwrap().iter().filter(|l| l.contains("/pushers/set")).cloned().collect();
+        assert!(off.len() == 1 && off[0].contains("\"kind\":null") && off[0].contains("token-C") && off[0].contains(APP_ID_ANDROID), "{off:?}");
         run.abort();
         set(None);
         std::fs::remove_dir_all(&root).ok();
