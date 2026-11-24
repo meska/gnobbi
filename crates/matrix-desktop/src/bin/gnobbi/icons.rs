@@ -71,6 +71,12 @@ icons! {
     ArrowUp = 0xe08e "arrow-up",
     FolderSimple = 0xe25a "folder-simple",
     Bell = 0xe0ce "bell",
+    BellSlash = 0xe0d4 "bell-slash",
+    ChatCircle = 0xe168 "chat-circle",
+    Checks = 0xe53a "checks",
+    PushPinSlash = 0xe3e4 "push-pin-slash",
+    Archive = 0xe00c "archive",
+    FolderSimpleMinus = 0xe25c "folder-simple-minus",
 }
 
 static REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Phosphor-subset.ttf");
