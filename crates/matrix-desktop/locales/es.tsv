@@ -618,3 +618,8 @@ menu	Bring All to Front	Traer todo al frente
 	selected	seleccionada
 	Based on {votes}	Basado en {votes}
 @plural	{n} vote	{n} voto|{n} votos
+	Generate gnome	Generar gnomo
+	Male gnome	Gnomo
+	Female gnome	Gnoma
+	Another one	Otro
+	Could not get the gnome. Try again later.	No se pudo obtener el gnomo. Inténtalo de nuevo más tarde.

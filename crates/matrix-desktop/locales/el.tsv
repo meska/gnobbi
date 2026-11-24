@@ -703,3 +703,8 @@ menu	Bring All to Front	Όλα μπροστά
 	selected	επιλεγμένη
 	Based on {votes}	Βάσει {votes}
 @plural	{n} vote	{n} ψήφος|{n} ψήφοι
+	Generate gnome	Δημιουργία νάνου
+	Male gnome	Νάνος
+	Female gnome	Νάνα
+	Another one	Άλλος ένας
+	Could not get the gnome. Try again later.	Δεν ήταν δυνατή η λήψη του νάνου. Δοκιμάστε ξανά αργότερα.

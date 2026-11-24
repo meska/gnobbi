@@ -90,6 +90,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         }
     }
     if let Some(e) = &mut f.editor {
+        e.user_id.clone_from(&shown.0);
         if let Some((path, preview)) = e.show(ui.ctx(), t) {
             f.photo = Photo::Set(path, preview);
         }

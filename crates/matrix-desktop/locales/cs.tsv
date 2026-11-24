@@ -617,3 +617,8 @@ menu	Bring All to Front	Všechna okna do popředí
 	selected	vybráno
 	Based on {votes}	Na základě {votes}
 @plural	{n} vote	{n} hlas|{n} hlasy|{n} hlasů
+	Generate gnome	Vytvořit skřítka
+	Male gnome	Skřítek
+	Female gnome	Skřítka
+	Another one	Další
+	Could not get the gnome. Try again later.	Skřítka se nepodařilo získat. Zkuste to později.

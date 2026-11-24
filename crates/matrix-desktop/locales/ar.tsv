@@ -618,3 +618,8 @@ menu	Bring All to Front	إحضار الكل إلى المقدمة
 	selected	محدد
 	Based on {votes}	بناءً على {votes}
 @plural	{n} vote	{n} صوت|{n} صوت|{n} صوتان|{n} أصوات|{n} صوتًا|{n} صوت
+	Generate gnome	إنشاء قزم
+	Male gnome	قزم
+	Female gnome	قزمة
+	Another one	واحد آخر
+	Could not get the gnome. Try again later.	تعذّر الحصول على القزم. حاول مرة أخرى لاحقًا.

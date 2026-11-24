@@ -618,3 +618,8 @@ menu	Bring All to Front	Tout ramener au premier plan
 	selected	sélectionnée
 	Based on {votes}	Basé sur {votes}
 @plural	{n} vote	{n} vote|{n} votes
+	Generate gnome	Générer un gnome
+	Male gnome	Gnome
+	Female gnome	Gnome femelle
+	Another one	Un autre
+	Could not get the gnome. Try again later.	Impossible d'obtenir le gnome. Réessayez plus tard.

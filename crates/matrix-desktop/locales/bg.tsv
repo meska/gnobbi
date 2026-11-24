@@ -703,3 +703,8 @@ menu	Bring All to Front	Всички най-отпред
 	selected	избрана
 	Based on {votes}	Въз основа на {votes}
 @plural	{n} vote	{n} глас|{n} гласа
+	Generate gnome	Генерирай гном
+	Male gnome	Гном
+	Female gnome	Гномка
+	Another one	Друг
+	Could not get the gnome. Try again later.	Гномът не можа да бъде получен. Опитайте отново по-късно.

@@ -618,3 +618,8 @@ menu	Bring All to Front	Összes előtérbe hozása
 	selected	kiválasztva
 	Based on {votes}	Alapja: {votes}
 @plural	{n} vote	{n} szavazat|{n} szavazat
+	Generate gnome	Manó készítése
+	Male gnome	Manó
+	Female gnome	Mannó
+	Another one	Másik
+	Could not get the gnome. Try again later.	Nem sikerült letölteni a manót. Próbáld újra később.

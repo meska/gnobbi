@@ -703,3 +703,8 @@ menu	Bring All to Front	Все окна — на передний план
 	selected	выбрано
 	Based on {votes}	На основе: {votes}
 @plural	{n} vote	{n} голос|{n} голоса|{n} голосов
+	Generate gnome	Создать гнома
+	Male gnome	Гном
+	Female gnome	Гномиха
+	Another one	Другой
+	Could not get the gnome. Try again later.	Не удалось получить гнома. Попробуйте позже.

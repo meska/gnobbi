@@ -235,6 +235,39 @@ pub fn render(picture: &RgbaImage, pose: &Pose, look: &Look, out: u32) -> RgbaIm
     result
 }
 
+/// Where the gnome pictures come from; the only place the address is written.
+const GNOME_BASE_URL: &str = "https://avatargen.gnobbi.chat";
+const GNOME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+/// A 512 px PNG is far below this; the cap is counted while the bytes arrive.
+const GNOME_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+/// The address of the gnome of `user_id`. Only the md5 of the id leaves the machine; `counter` 0 is the first gnome, then each «Un altro» asks for the next.
+pub fn gnome_url(user_id: &str, counter: u32, female: bool) -> String {
+    let seed = if counter == 0 { user_id.to_owned() } else { format!("{user_id}{counter}") };
+    format!("{GNOME_BASE_URL}/v1/{:x}.png?size={OUT_SIDE}&g={}", md5::compute(seed), if female { 'f' } else { 'm' })
+}
+
+/// The bytes at `url`: GET with a timeout and a size cap, any answer but 200 is an error.
+fn fetch_gnome(url: &str) -> Result<Vec<u8>, &'static str> {
+    let failed = i18n::t("Could not get the gnome. Try again later.");
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_| failed)?;
+    runtime.block_on(async {
+        let client = reqwest::Client::builder().user_agent("Gnobbi").timeout(GNOME_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build().map_err(|_| failed)?;
+        let mut resp = client.get(url).send().await.map_err(|_| failed)?;
+        if resp.status() != reqwest::StatusCode::OK {
+            return Err(failed);
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = resp.chunk().await.map_err(|_| failed)? {
+            if body.len() + chunk.len() > GNOME_MAX_BYTES {
+                return Err(failed);
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(body)
+    })
+}
+
 /// Side of the pictures in the filter row.
 const THUMB_SIDE: u32 = 112;
 /// Width of one column of controls; the preview is centred in it.
@@ -248,6 +281,15 @@ struct Loaded {
     thumb: RgbaImage,
 }
 
+impl Loaded {
+    fn new(p: &RgbaImage) -> Self {
+        let work = bounded(p, WORK_SIDE);
+        let preview = bounded(&work, PREVIEW_SIDE);
+        let thumb = render(&preview, &Pose::default(), &Look::default(), THUMB_SIDE);
+        Loaded { work: Arc::new(work), preview, thumb }
+    }
+}
+
 fn pixels(picture: &RgbaImage) -> egui::ColorImage {
     egui::ColorImage::from_rgba_unmultiplied([picture.width() as usize, picture.height() as usize], picture.as_raw())
 }
@@ -257,6 +299,11 @@ fn pixels(picture: &RgbaImage) -> egui::ColorImage {
 pub struct Editor {
     pub open: bool,
     loading: Option<mpsc::Receiver<Result<Loaded, &'static str>>>,
+    /// The account's Matrix id: the seed of its gnome (set by the card).
+    pub user_id: String,
+    gnome: Option<mpsc::Receiver<Result<Loaded, &'static str>>>,
+    female: bool,
+    counter: u32,
     picture: Option<Loaded>,
     /// The preview with the colours of that look.
     texture: Option<(Look, egui::TextureHandle)>,
@@ -278,13 +325,7 @@ impl Editor {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let loaded = picture().map(|p| {
-                let work = bounded(&p, WORK_SIDE);
-                let preview = bounded(&work, PREVIEW_SIDE);
-                let thumb = render(&preview, &Pose::default(), &Look::default(), THUMB_SIDE);
-                Loaded { work: Arc::new(work), preview, thumb }
-            });
-            let _ = tx.send(loaded);
+            let _ = tx.send(picture().map(|p| Loaded::new(&p)));
             ctx.request_repaint();
         });
         Self { open: true, loading: Some(rx), out, ..Default::default() }
@@ -320,6 +361,35 @@ impl Editor {
         }
     }
 
+    /// Downloads the gnome for the current choice and, when it arrives, puts it in the editor as a freshly chosen picture.
+    fn fetch(&mut self, ctx: &egui::Context) {
+        let url = gnome_url(&self.user_id, self.counter, self.female);
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let loaded = fetch_gnome(&url).and_then(|bytes| {
+                let picture = matrix_engine::profile::decode_bytes(&bytes).map_err(|_| i18n::t("Could not get the gnome. Try again later."))?;
+                Ok(Loaded::new(&picture.into_rgba8()))
+            });
+            let _ = tx.send(loaded);
+            ctx.request_repaint();
+        });
+        self.gnome = Some(rx);
+        self.error = None;
+    }
+
+    fn install(&mut self, ctx: &egui::Context, p: Loaded) {
+        self.thumbs = Filter::ALL
+            .iter()
+            .map(|&filter| {
+                let mut small = p.thumb.clone();
+                Look { filter, ..Default::default() }.paint(&mut small);
+                ctx.load_texture(format!("avatar-filter-{filter:?}"), pixels(&small), Default::default())
+            })
+            .collect();
+        self.picture = Some(p);
+    }
+
     fn apply(&mut self, ctx: &egui::Context) {
         let Some(p) = &self.picture else { return };
         let (tx, rx) = mpsc::channel();
@@ -350,21 +420,24 @@ impl Editor {
             self.loading = None;
             match done {
                 Ok(p) => {
-                    self.thumbs = Filter::ALL
-                        .iter()
-                        .map(|&filter| {
-                            let mut small = p.thumb.clone();
-                            Look { filter, ..Default::default() }.paint(&mut small);
-                            ctx.load_texture(format!("avatar-filter-{filter:?}"), pixels(&small), Default::default())
-                        })
-                        .collect();
-                    self.picture = Some(p);
+                    self.install(ctx, p);
                     #[cfg(debug_assertions)]
                     self.hook();
                     if self.auto_apply {
                         self.apply(ctx);
                     }
                 }
+                Err(line) => self.error = Some(line),
+            }
+        }
+        if let Some(Ok(done)) = self.gnome.as_ref().map(|rx| rx.try_recv()) {
+            self.gnome = None;
+            match done {
+                Ok(p) => {
+                    self.install(ctx, p);
+                    (self.pose, self.look, self.texture) = Default::default();
+                }
+                // The picture in the editor stays as it was.
                 Err(line) => self.error = Some(line),
             }
         }
@@ -395,6 +468,7 @@ impl Editor {
         // On touch the column takes the whole width.
         let column = if touch && !wide { screen.x - 72. } else { COLUMN.min(screen.x - 72.) };
         let (mut close, mut apply, mut reset) = (false, false, false);
+        let mut gnome = None;
         let frame = egui::Frame::popup(&ctx.style_of(ctx.theme())).fill(rgb(t.surface)).stroke(egui::Stroke::NONE).corner_radius(12).inner_margin(20);
         let modal = egui::Modal::new(egui::Id::new("avatar-editor")).frame(frame).show(ctx, |ui| crate::dir::scope(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 8.;
@@ -406,7 +480,7 @@ impl Editor {
             });
             let ready = self.picture.is_some();
             // Title and buttons stay in view; a short window scrolls what is between them.
-            let room = (screen.y - 72. - 2. * crate::metrics::button() - 32.).max(120.);
+            let room = (screen.y - 72. - 3. * crate::metrics::button() - 32.).max(120.);
             egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
                 ui.add_enabled_ui(ready && self.saving.is_none(), |ui| {
                     if wide {
@@ -418,6 +492,21 @@ impl Editor {
                     } else {
                         self.frame_side(ui, column, t);
                         self.colour_side(ui, column, t);
+                    }
+                });
+            });
+            ui.add_enabled_ui(self.saving.is_none() && self.gnome.is_none(), |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.selectable_value(&mut self.female, false, i18n::t("Male gnome"));
+                    ui.selectable_value(&mut self.female, true, i18n::t("Female gnome"));
+                    if ui.button(i18n::t("Generate gnome")).clicked() {
+                        gnome = Some(0);
+                    }
+                    if ui.button(i18n::t("Another one")).clicked() {
+                        gnome = Some(self.counter + 1);
+                    }
+                    if self.gnome.is_some() {
+                        ui.spinner();
                     }
                 });
             });
@@ -436,6 +525,10 @@ impl Editor {
                 });
             });
         }));
+        if let Some(counter) = gnome {
+            self.counter = counter;
+            self.fetch(ctx);
+        }
         if reset {
             (self.pose, self.look) = Default::default();
         }
@@ -819,6 +912,37 @@ mod tests {
         // Filter and sliders add up: black and white stays grey whatever the saturation slider says.
         let mono = Look { filter: Filter::Mono, saturation: 1., ..Default::default() }.apply(px);
         assert!(mono[0] == mono[1] && mono[1] == mono[2]);
+    }
+
+    #[test]
+    fn the_gnome_address_carries_only_the_lowercase_md5_of_the_id() {
+        // md5("a") = 0cc175b9c0f1b6a831c399e269772661; the counter form is compared with the plain form of the joined text.
+        let url = gnome_url("a", 0, false);
+        assert_eq!(url, format!("{GNOME_BASE_URL}/v1/0cc175b9c0f1b6a831c399e269772661.png?size=512&g=m"));
+        assert!(gnome_url("a", 0, true).ends_with("&g=f"));
+        assert!(!gnome_url("@marco:gnobbi.chat", 0, false).contains("marco"));
+        assert_ne!(gnome_url("a", 1, false), url);
+        assert_eq!(gnome_url("a", 1, false), gnome_url("a1", 0, false));
+    }
+
+    #[test]
+    fn a_failed_download_is_an_error_line_not_a_picture() {
+        let serve = |answer: &'static str| {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/", listener.local_addr().unwrap());
+            std::thread::spawn(move || {
+                use std::io::Write;
+                if let Ok((mut c, _)) = listener.accept() {
+                    let _ = c.write_all(answer.as_bytes());
+                }
+            });
+            url
+        };
+        assert!(fetch_gnome(&serve("HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")).is_err());
+        assert_eq!(fetch_gnome(&serve("HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok")), Ok(b"ok".to_vec()));
+        // Nobody listens: the connection is refused.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        assert!(fetch_gnome(&format!("http://{closed}/")).is_err());
     }
 
     #[test]
