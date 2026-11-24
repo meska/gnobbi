@@ -76,6 +76,14 @@ impl Pose {
         self.clamp(w, h);
     }
 
+    /// One frame of a gesture: `zoom` multiplies, `rotation` (radians, clockwise on screen) adds to the tilt,
+    /// `pan` (points) drags like one finger on a preview `view` points wide. Everything ends up clamped.
+    pub fn apply_gesture(&mut self, zoom: f32, rotation: f32, pan: [f32; 2], view: f32, w: f32, h: f32) {
+        self.zoom = (self.zoom * zoom).clamp(1., MAX_ZOOM);
+        self.set_tilt((self.tilt() + rotation.to_degrees()).clamp(-MAX_FINE, MAX_FINE));
+        self.drag(pan[0], pan[1], view, w, h);
+    }
+
     /// A quarter turn as seen on screen (a mirrored picture turns the other way underneath).
     pub fn turn(&mut self, clockwise: bool) {
         self.quarters = (self.quarters + if clockwise != self.flip { 1 } else { 3 }) % 4;
@@ -450,21 +458,21 @@ impl Editor {
             if resp.clicked() {
                 resp.request_focus();
             }
-            if resp.dragged() {
-                let d = resp.drag_delta();
-                self.pose.drag(d.x, d.y, side, w, h);
+            // Two fingers that started on the preview: egui's own pinch, twist and pan (their zoom is also in `zoom_delta`).
+            let touch = ui.input(|i| i.multi_touch()).filter(|m| rect.contains(m.start_pos));
+            let pan = touch.map_or_else(|| resp.drag_delta(), |m| m.translation_delta);
+            let (turn, mut factor) = (touch.map_or(0., |m| m.rotation_delta), 1.);
+            if touch.is_some() || resp.hovered() {
+                // Wheel and trackpad pinch zoom here instead of scrolling the window.
+                factor = ui.input(|i| i.zoom_delta() * (i.smooth_scroll_delta.y / 600.).exp());
+                ui.input_mut(|i| i.smooth_scroll_delta = Vec2::ZERO);
+            }
+            if resp.dragged() || touch.is_some() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
             } else if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
             }
-            if resp.hovered() {
-                // Wheel and pinch zoom here instead of scrolling the window.
-                let factor = ui.input(|i| i.zoom_delta() * (i.smooth_scroll_delta.y / 600.).exp());
-                if factor != 1. {
-                    self.pose.zoom *= factor;
-                    ui.input_mut(|i| i.smooth_scroll_delta = Vec2::ZERO);
-                }
-            }
+            self.pose.apply_gesture(factor, turn, [pan.x, pan.y], side, w, h);
             if resp.has_focus() {
                 // Arrows move the picture instead of the focus; plus and minus zoom.
                 ui.memory_mut(|m| m.set_focus_lock_filter(resp.id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() }));
@@ -654,6 +662,21 @@ mod tests {
         assert_eq!(p.center, [0.625, 0.5], "pulled left as far as the right edge allows, no room up or down");
         p.drag(40., 0., 240., 800., 600.);
         assert!((p.center[0] - (0.625 - 100. / 800.)).abs() < 1e-5, "40 of 240 points is a sixth of the 600 px crop");
+    }
+
+    #[test]
+    fn a_gesture_zooms_turns_and_pans_within_the_limits() {
+        let mut p = Pose::default();
+        p.apply_gesture(1.5, 0.1, [0., 0.], 240., 400., 400.);
+        assert!((p.zoom - 1.5).abs() < 1e-6 && (p.tilt() - 0.1f32.to_degrees()).abs() < 1e-4);
+        p.apply_gesture(100., 10., [0., 0.], 240., 400., 400.);
+        assert_eq!((p.zoom, p.fine), (MAX_ZOOM, MAX_FINE));
+        p.apply_gesture(0.001, -10., [0., 0.], 240., 400., 400.);
+        assert_eq!((p.zoom, p.fine), (1., -MAX_FINE));
+        let (mut a, mut b) = (Pose { zoom: 2., ..Default::default() }, Pose { zoom: 2., ..Default::default() });
+        a.apply_gesture(1., 0., [24., -12.], 240., 400., 400.);
+        b.drag(24., -12., 240., 400., 400.);
+        assert_eq!(a, b, "one finger is the existing drag");
     }
 
     #[test]
