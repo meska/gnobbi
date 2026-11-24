@@ -149,4 +149,108 @@ mod tests {
         let _ = std::fs::remove_file(&f);
         assert_eq!(r, Err(super::super::verify::UpdateError::Sha256Mismatch));
     }
+
+    #[test]
+    fn malformed_or_hostile_manifests_never_panic_and_never_offer() {
+        let ok = |v: Value| manifest(|m| m["artifacts"]["linux-x86_64-appimage"] = v);
+        // JSON that is valid but of the wrong shape: nothing to offer.
+        for body in [&b"null"[..], b"[]", b"42", b"\"x\"", b"{\"schema\":1}", b"{\"schema\":\"1\"}", b"{\"schema\":1,\"build\":\"812\"}"] {
+            assert_eq!(parse_manifest(body, LINUX_APPIMAGE).unwrap(), None, "{}", String::from_utf8_lossy(body));
+        }
+        // Not JSON / cut JSON / empty: error (the caller falls back or stays silent).
+        for body in [&b""[..], b"{\"schema\":1,", b"\xff\xfe", b"<html>"] {
+            assert!(parse_manifest(body, LINUX_APPIMAGE).is_err());
+        }
+        for bad in [Value::Null, "x".into(), 7.into(), serde_json::json!([]), serde_json::json!({}), serde_json::json!({"name": "a", "size": 1.5, "sha256": H, "url": "u"})] {
+            assert_eq!(parse(&ok(bad), LINUX_APPIMAGE), None);
+        }
+        let k = |f: &str, v: Value| manifest(|m| m["artifacts"]["linux-x86_64-appimage"][f] = v);
+        assert_eq!(parse(&k("size", (-1).into()), LINUX_APPIMAGE), None);
+        assert_eq!(parse(&k("size", "1000".into()), LINUX_APPIMAGE), None, "size as a string");
+        assert_eq!(parse(&k("name", "".into()), LINUX_APPIMAGE), None);
+        assert_eq!(parse(&k("name", "..".into()), LINUX_APPIMAGE), None);
+        assert_eq!(parse(&k("name", "a\\b.zip".into()), LINUX_APPIMAGE), None, "backslash");
+        assert_eq!(parse(&k("name", "a b".into()), LINUX_APPIMAGE), None);
+        assert_eq!(parse(&manifest(|m| m["version"] = "x".repeat(65).into()), LINUX_APPIMAGE), None);
+        assert_eq!(parse(&manifest(|m| m["build"] = (-3).into()), LINUX_APPIMAGE), None);
+        assert_eq!(parse(&manifest(|m| m["build"] = 1.5.into()), LINUX_APPIMAGE), None);
+        // The URL may not smuggle a query/fragment or a trailing slash onto the exact asset path.
+        let base = "https://github.com/meska/gnobbi/releases/download/nightly/Gnobbi-0.1.0-nightly.20261124.812-linux-x86_64.AppImage";
+        for u in [format!("{base}?x=1"), format!("{base}#f"), format!("{base}/"), format!(" {base}"), base.replace("github.com", "github.com.evil.test")] {
+            assert_eq!(parse(&k("url", u.clone().into()), LINUX_APPIMAGE), None, "{u}");
+        }
+    }
+
+    #[test]
+    fn a_manifest_without_our_platform_offers_nothing() {
+        let only_windows = manifest(|m| { m["artifacts"].as_object_mut().unwrap().retain(|k, _| k.starts_with("windows")); });
+        assert_eq!(parse(&only_windows, LINUX_APPIMAGE), None);
+        assert!(parse(&only_windows, WINDOWS_ZIP).is_some());
+        assert_eq!(parse(&manifest(|m| { m.as_object_mut().unwrap().remove("artifacts"); }), LINUX_APPIMAGE), None);
+        // macOS has an asset in the manifest but is out of scope: no key maps to it.
+        assert_eq!(parse(&manifest(|_| {}), "macos-arm64-dmg").map(|f| f.candidate.size), Some(3000), "parser is generic");
+        assert_ne!(LINUX_APPIMAGE, WINDOWS_ZIP);
+    }
+
+    #[test]
+    fn the_same_asset_resolves_to_one_url_whatever_the_order_of_keys() {
+        let a = parse(&manifest(|_| {}), LINUX_APPIMAGE).unwrap();
+        let b = parse(br#"{"artifacts":{"linux-x86_64-appimage":{"size":1000,"sha256":"d2358579a99e69a151932fe9805328e88c226dbf8fdd72cc5aff1085931fad40","url":"https://github.com/meska/gnobbi/releases/download/nightly/Gnobbi-0.1.0-nightly.20261124.812-linux-x86_64.AppImage","name":"Gnobbi-0.1.0-nightly.20261124.812-linux-x86_64.AppImage"}},"version":"0.1.0-nightly.20261124.812","build":812,"schema":1}"#, LINUX_APPIMAGE).unwrap();
+        assert_eq!(a, b);
+    }
+
+    /// One-shot local HTTP server: answers every connection with `raw` (no real network).
+    fn raw_server(raw: Vec<u8>) -> String {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        std::thread::spawn(move || for mut s in l.incoming().flatten() {
+            let _ = s.read(&mut [0u8; 2048]);
+            let _ = s.write_all(&raw);
+        });
+        format!("http://{addr}/latest.json")
+    }
+    fn client() -> reqwest::Client { reqwest::Client::builder().redirect(redirect_policy()).timeout(Duration::from_secs(5)).build().unwrap() }
+    fn http(status: &str, extra: &str, body: &[u8]) -> Vec<u8> {
+        let mut v = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n{extra}\r\n", body.len()).into_bytes();
+        v.extend_from_slice(body);
+        v
+    }
+
+    #[tokio::test]
+    async fn get_maps_statuses_without_reading_a_body_as_manifest() {
+        assert_eq!(get(&client(), &raw_server(http("200 OK", "", b"{}"))).await, Ok(b"{}".to_vec()));
+        for (line, code) in [("404 Not Found", 404), ("403 Forbidden", 403), ("429 Too Many Requests", 429), ("500 Internal Server Error", 500), ("503 Service Unavailable", 503)] {
+            assert_eq!(get(&client(), &raw_server(http(line, "", b"{\"schema\":1}"))).await, Err(CheckError::Status(code)), "{line}");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_aborts_a_body_over_the_cap_even_if_content_length_lies() {
+        let big = vec![b'x'; MAX_MANIFEST_BYTES + 1];
+        assert_eq!(get(&client(), &raw_server(http("200 OK", "", &big))).await, Err(CheckError::TooLarge));
+        // Declares 10 bytes, sends the oversize body anyway (chunked: no length at all).
+        let mut chunked = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n".to_vec();
+        for _ in 0..3 { chunked.extend_from_slice(format!("{:x}\r\n", MAX_MANIFEST_BYTES / 2).as_bytes()); chunked.extend(vec![b'y'; MAX_MANIFEST_BYTES / 2]); chunked.extend_from_slice(b"\r\n"); }
+        assert_eq!(get(&client(), &raw_server(chunked)).await, Err(CheckError::TooLarge));
+        let exact = vec![b' '; MAX_MANIFEST_BYTES];
+        assert_eq!(get(&client(), &raw_server(http("200 OK", "", &exact))).await.map(|b| b.len()), Ok(MAX_MANIFEST_BYTES));
+    }
+
+    #[tokio::test]
+    async fn get_without_network_is_a_network_error() {
+        let dead = { let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap(); l.local_addr().unwrap() };
+        assert_eq!(get(&client(), &format!("http://{dead}/latest.json")).await, Err(CheckError::Network));
+        // Connection cut in the middle of the body.
+        let cut = http("200 OK", "", b"{}");
+        let head = String::from_utf8_lossy(&cut).replace("Content-Length: 2", "Content-Length: 500").into_bytes();
+        assert_eq!(get(&client(), &raw_server(head)).await, Err(CheckError::Network));
+    }
+
+    #[tokio::test]
+    async fn redirects_are_followed_only_from_github_and_never_to_http() {
+        // 127.0.0.1 is not github.com: a redirect from it is not followed, the 302 surfaces as a status.
+        let r = http("302 Found", "Location: http://127.0.0.1:1/evil\r\n", b"");
+        assert_eq!(get(&client(), &raw_server(r)).await, Err(CheckError::Status(302)));
+    }
 }
