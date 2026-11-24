@@ -391,7 +391,9 @@ impl Editor {
         }
         let screen = ctx.content_rect().size();
         let wide = screen.x >= 2. * COLUMN + 120.;
-        let column = COLUMN.min(screen.x - 72.);
+        let touch = crate::mobile::touch();
+        // On touch the column takes the whole width.
+        let column = if touch && !wide { screen.x - 72. } else { COLUMN.min(screen.x - 72.) };
         let (mut close, mut apply, mut reset) = (false, false, false);
         let frame = egui::Frame::popup(&ctx.style_of(ctx.theme())).fill(rgb(t.surface)).stroke(egui::Stroke::NONE).corner_radius(12).inner_margin(20);
         let modal = egui::Modal::new(egui::Id::new("avatar-editor")).frame(frame).show(ctx, |ui| crate::dir::scope(ui, |ui| {
@@ -447,7 +449,8 @@ impl Editor {
 
     /// The round preview with move, zoom and rotation.
     fn frame_side(&mut self, ui: &mut egui::Ui, column: f32, t: &DesignTokens) {
-        let side = PREVIEW.min(column);
+        // On touch the preview is a full-width square, but not taller than a third of the screen, so the filters stay in view.
+        let side = if crate::mobile::touch() { column.min((ui.ctx().content_rect().height() * 0.36).max(160.)) } else { PREVIEW.min(column) };
         let (row, _) = ui.allocate_exact_size(Vec2::new(column, side), egui::Sense::hover());
         let rect = egui::Rect::from_center_size(row.center(), Vec2::splat(side));
         let (c, r) = (rect.center(), side / 2.);
@@ -526,6 +529,10 @@ impl Editor {
                 self.pose.mirror();
             }
         });
+        // Fingers zoom and turn the preview; no sliders on touch.
+        if crate::mobile::touch() {
+            return;
+        }
         let names = [i18n::t("Zoom"), i18n::t("Rotation")];
         let wide = label_width(ui, &names, column);
         slider(ui, names[0], wide, &mut self.pose.zoom, 1. ..=MAX_ZOOM, column, t, |v| format!("{v:.1}×"));
@@ -537,34 +544,47 @@ impl Editor {
     /// The filter row and the three colour sliders.
     fn colour_side(&mut self, ui: &mut egui::Ui, column: f32, t: &DesignTokens) {
         const GAP: f32 = 8.;
-        let cell = Vec2::new((column - 3. * GAP) / 4., 84.);
-        for line in Filter::ALL.chunks(4) {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = GAP;
-                for &filter in line {
-                    let (rect, resp) = ui.allocate_exact_size(cell, egui::Sense::click());
-                    let resp = crate::metrics::clickable(resp);
-                    let on = self.look.filter == filter;
-                    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, on, filter.label()));
-                    let picture = egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 32.), Vec2::splat(56.));
-                    match self.thumbs.get(Filter::ALL.iter().position(|f| *f == filter).unwrap_or(0)) {
-                        Some(texture) => egui::Image::new(texture).corner_radius(egui::CornerRadius::same(10)).paint_at(ui, picture),
-                        None => {
-                            ui.painter().rect_filled(picture, 10., rgb(t.input));
+        let touch = crate::mobile::touch();
+        let cell = if touch { Vec2::new(64., 84.) } else { Vec2::new((column - 3. * GAP) / 4., 84.) };
+        let per_line = if touch { Filter::ALL.len() } else { 4 };
+        let mut lines = |ui: &mut egui::Ui| {
+            for line in Filter::ALL.chunks(per_line) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = GAP;
+                    for &filter in line {
+                        let (rect, resp) = ui.allocate_exact_size(cell, egui::Sense::click());
+                        let resp = crate::metrics::clickable(resp);
+                        let on = self.look.filter == filter;
+                        resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, on, filter.label()));
+                        let picture = egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 32.), Vec2::splat(56.));
+                        match self.thumbs.get(Filter::ALL.iter().position(|f| *f == filter).unwrap_or(0)) {
+                            Some(texture) => egui::Image::new(texture).corner_radius(egui::CornerRadius::same(10)).paint_at(ui, picture),
+                            None => {
+                                ui.painter().rect_filled(picture, 10., rgb(t.input));
+                            }
+                        }
+                        if on || resp.hovered() || resp.has_focus() {
+                            let ring = if on { rgb(t.accent) } else { rgb(t.secondary) };
+                            ui.painter().rect_stroke(picture.expand(3.), 13., egui::Stroke::new(2., ring), egui::StrokeKind::Inside);
+                        }
+                        let ink = if on { rgb(t.text) } else { rgb(t.secondary) };
+                        let name = crate::list::one_line(ui, filter.label(), 11., ink, cell.x);
+                        ui.painter().galley(egui::pos2(rect.center().x - name.size().x / 2., picture.bottom() + 7.), name, ink);
+                        if resp.clicked() {
+                            self.look.filter = filter;
                         }
                     }
-                    if on || resp.hovered() || resp.has_focus() {
-                        let ring = if on { rgb(t.accent) } else { rgb(t.secondary) };
-                        ui.painter().rect_stroke(picture.expand(3.), 13., egui::Stroke::new(2., ring), egui::StrokeKind::Inside);
-                    }
-                    let ink = if on { rgb(t.text) } else { rgb(t.secondary) };
-                    let name = crate::list::one_line(ui, filter.label(), 11., ink, cell.x);
-                    ui.painter().galley(egui::pos2(rect.center().x - name.size().x / 2., picture.bottom() + 7.), name, ink);
-                    if resp.clicked() {
-                        self.look.filter = filter;
-                    }
-                }
-            });
+                });
+            }
+        };
+        if touch {
+            // One row that scrolls sideways; a vertical drag on it is passed on to the window's scroll.
+            let row = egui::ScrollArea::horizontal().id_salt("avatar-filters").show(ui, |ui| lines(ui));
+            if let Some(drag) = ui.ctx().read_response(row.id.with("area")).filter(|r| r.dragged()) {
+                ui.scroll_with_delta(Vec2::new(0., drag.drag_delta().y));
+            }
+        } else {
+            lines(ui);
         }
         let percent = |v: f32| format!("{:+.0}", v * 100.);
         let names = [i18n::t("Brightness"), i18n::t("Contrast"), i18n::t("Saturation")];
