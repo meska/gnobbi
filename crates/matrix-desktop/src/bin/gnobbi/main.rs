@@ -1462,7 +1462,7 @@ impl App {
             }
             // More than one running account and no account or space picked in the rail: the list holds the rooms of all of them.
             let merged = !self.rail.one_account && !self.parked.is_empty() && session.sidebar.active_space().is_none();
-            let unified = merged.then(|| list::Unified { parked: &self.parked, cache: &mut self.merged, open: &mut self.merged_open });
+            let unified = merged.then(|| list::Unified { parked: &mut self.parked, cache: &mut self.merged, open: &mut self.merged_open });
             if !narrow || show_list {
                 // Narrow: the list takes the whole width left of the rail and the chat is not drawn; a tap on a row, the open one too, goes to the chat.
                 let list_fill = list_fill(t);

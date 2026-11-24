@@ -219,7 +219,7 @@ struct AccountMark {
 /// The other running accounts and the merged-list state, when «Non lette» or «Tutte le chat» lists every account: slot 0 is the shown
 /// account, slot `n` is `parked[n - 1]`. A click on a row of another account leaves `(index in parked, room)` in `open`.
 pub(crate) struct Unified<'a> {
-    pub parked: &'a [crate::Parked],
+    pub parked: &'a mut [crate::Parked],
     pub cache: &'a mut matrix_desktop::UnifiedList,
     pub open: &'a mut Option<(usize, matrix_domain::RoomScope)>,
 }
@@ -326,10 +326,13 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     if let Some(Unified { parked, cache, open }) = unified {
         let rows = cache.rows(Unified::sidebars((&session.sidebar, &session.user), parked), session.sidebar.unread_view(), &session.query);
         let (mut pick, mut opened) = (None, None);
-        let found = crate::message_hits::section(&session.all_search, session.query.trim());
+        // Taken out of the session while the rows draw: a row's menu needs its session mutably.
+        let search = std::mem::replace(&mut session.all_search, matrix_engine::operations::MessageSearchState::Idle);
+        let found = crate::message_hits::section(&search, session.query.trim());
         let shown = session.sidebar.selected().map(|r| r.scope.clone());
-        let draw = |ui: &mut egui::Ui, (slot, i): (usize, usize), pick: &mut Option<(usize, matrix_domain::RoomScope)>| {
-            let owner = if slot == 0 { &*session } else { &parked[slot - 1].session };
+        let mut menu_pick = None;
+        let draw = |ui: &mut egui::Ui, (slot, i): (usize, usize), pick: &mut Option<(usize, matrix_domain::RoomScope)>, menu_pick: &mut Option<(usize, matrix_domain::RoomScope, crate::session::RoomAction)>, session: &mut crate::session::Session, parked: &mut [crate::Parked]| {
+            let owner = if slot == 0 { session } else { &mut parked[slot - 1].session };
             let room = &owner.sidebar.rooms()[i];
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
             let resp = crate::metrics::clickable(resp);
@@ -341,20 +344,30 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             if resp.clicked() {
                 *pick = Some((slot, room.scope.clone()));
             }
+            // Another account's room: no space entries (the space window belongs to the shown account), the rest works on its own session.
+            if !room.info.invited && let Some(choice) = room_menu(egui::Popup::context_menu(&resp), room, &owner.space_choices, &mut owner.confirm_leave, &mut owner.space_pick, t) {
+                *menu_pick = Some((slot, room.scope.clone(), choice));
+            }
         };
         if matches!(found, crate::message_hits::Section::Hidden) {
             egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show_rows(&mut scroll_ui, ROW, rows.len(), |ui, range| {
                 for &row in &rows[range] {
-                    draw(ui, row, &mut pick);
+                    draw(ui, row, &mut pick, &mut menu_pick, &mut *session, &mut *parked);
                 }
             });
         } else {
             egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show(&mut scroll_ui, |ui| {
                 for &row in rows {
-                    draw(ui, row, &mut pick);
+                    draw(ui, row, &mut pick, &mut menu_pick, &mut *session, &mut *parked);
                 }
                 opened = crate::message_hits::show(ui, &found, |id| session.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == id), &session.avatars, t);
             });
+        }
+        session.all_search = search;
+        match menu_pick {
+            Some((0, scope, act)) => session.room_action(scope, act),
+            Some((slot, scope, act)) => parked[slot - 1].session.room_action(scope, act),
+            None => {}
         }
         if let Some((slot, scope)) = pick {
             choose(open, &mut session.sidebar, slot, scope);
@@ -394,45 +407,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                     // No pointer in a headless run: the menu is pinned to the row instead.
                     if view == "room-menu" { menu = menu.open(true).at_position(rect.center()); }
                 }
-                menu.show(|ui| crate::dir::popup(ui, |ui| {
-                    use crate::session::RoomAction;
-                    ui.spacing_mut().item_spacing.y = 2.;
-                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // an entry never wraps: the menu grows (and the area shifts into the screen) instead
-                    let (pinned, low) = (sidebar.is_favourite(&room.scope), sidebar.has_tag(&room.scope, "m.lowpriority"));
-                    for (icon, label, choice) in [
-                        (read_icon(room.unread, room.info.marked_unread), mark_read_entry(room.unread, room.info.marked_unread), RoomAction::Mark(room.unread > 0 || room.info.marked_unread)),
-                        if pinned { (Icon::PushPinSlash, i18n::t("Unpin"), RoomAction::Tag("m.favourite")) } else { (Icon::PushPin, i18n::t("Pin to top"), RoomAction::Tag("m.favourite")) },
-                        if low { (Icon::ArrowUp, i18n::t("Remove from low priority"), RoomAction::Tag("m.lowpriority")) } else { (Icon::Archive, i18n::t("Mark as low priority"), RoomAction::Tag("m.lowpriority")) },
-                    ] {
-                        if menu_item(ui, icon, label, None, t).clicked() { action = Some((room.scope.clone(), choice)); ui.close(); }
-                    }
-                    if let Some((asked, Some(choices))) = &session.space_choices && asked == &room.scope {
-                        let (add, remove) = space_entries(choices);
-                        if add && menu_item(ui, Icon::FolderSimple, i18n::t("Add to a space…"), None, t).clicked() { session.space_pick = Some((room.scope.clone(), None)); ui.close(); }
-                        for space in remove {
-                            if menu_item(ui, Icon::FolderSimpleMinus, &i18n::t("Remove from {name}").replace("{name}", &space.name), None, t).clicked() { action = Some((room.scope.clone(), RoomAction::RemoveFrom(space.scope.clone()))); ui.close(); }
-                        }
-                    }
-                    let current = sidebar.notify_mode(&room.scope);
-                    menu_divider(ui, Some((if current == matrix_domain::notifications::RoomNotifyMode::Mute { Icon::BellSlash } else { Icon::Bell }, i18n::t("Notifications"))), t);
-                    ui.scope(|ui| {
-                        ui.style_mut().visuals.indent_has_left_vline = false;
-                        ui.indent("notify-modes", |ui| {
-                            for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
-                                // The check slot is always there (invisible when not chosen), so the three texts line up.
-                                let mut job = item_job(Icon::Check, mode_label(mode), None, t);
-                                if current != mode { job.sections[0].format.color = Color32::TRANSPARENT; }
-                                if ui.button(job).clicked() { action = Some((room.scope.clone(), RoomAction::Mode(mode))); ui.close(); }
-                            }
-                        });
-                    });
-                    menu_divider(ui, None, t);
-                    let label = if session.confirm_leave.as_ref() == Some(&room.scope) { i18n::t("Leave?") } else { i18n::t("Leave") };
-                    if menu_item(ui, Icon::SignOut, label, Some(rgb(t.error)), t).clicked() && confirm_leave(&mut session.confirm_leave, &room.scope) {
-                        action = Some((room.scope.clone(), RoomAction::Leave));
-                        ui.close();
-                    }
-                }));
+                if let Some(choice) = room_menu(menu, room, &session.space_choices, &mut session.confirm_leave, &mut session.space_pick, t) { action = Some((room.scope.clone(), choice)); }
             }
     };
     // Messages of every room under the matching chats: the list is short then (a term filters it), so no virtual rows.
@@ -465,6 +440,51 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     }
     if let Some((scope, action)) = action { session.room_action(scope, action); }
     chosen
+}
+
+/// The room menu on `menu` (a context menu or a pinned one); what the user picked. Shared by the single list and the multi-account list.
+fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>, confirm: &mut Option<matrix_domain::RoomScope>, pick: &mut Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>, t: &DesignTokens) -> Option<crate::session::RoomAction> {
+    let mut action = None;
+    menu.show(|ui| crate::dir::popup(ui, |ui| {
+        use crate::session::RoomAction;
+        ui.spacing_mut().item_spacing.y = 2.;
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // an entry never wraps: the menu grows (and the area shifts into the screen) instead
+        let (pinned, low) = (room.pinned(), room.info.tags.iter().any(|t| t == "m.lowpriority"));
+        for (icon, label, choice) in [
+            (read_icon(room.unread, room.info.marked_unread), mark_read_entry(room.unread, room.info.marked_unread), RoomAction::Mark(room.unread > 0 || room.info.marked_unread)),
+            if pinned { (Icon::PushPinSlash, i18n::t("Unpin"), RoomAction::Tag("m.favourite")) } else { (Icon::PushPin, i18n::t("Pin to top"), RoomAction::Tag("m.favourite")) },
+            if low { (Icon::ArrowUp, i18n::t("Remove from low priority"), RoomAction::Tag("m.lowpriority")) } else { (Icon::Archive, i18n::t("Mark as low priority"), RoomAction::Tag("m.lowpriority")) },
+        ] {
+            if menu_item(ui, icon, label, None, t).clicked() { action = Some(choice); ui.close(); }
+        }
+        if let Some((asked, Some(choices))) = &choices && asked == &room.scope {
+            let (add, remove) = space_entries(choices);
+            if add && menu_item(ui, Icon::FolderSimple, i18n::t("Add to a space…"), None, t).clicked() { *pick = Some((room.scope.clone(), None)); ui.close(); }
+            for space in remove {
+                if menu_item(ui, Icon::FolderSimpleMinus, &i18n::t("Remove from {name}").replace("{name}", &space.name), None, t).clicked() { action = Some(RoomAction::RemoveFrom(space.scope.clone())); ui.close(); }
+            }
+        }
+        let current = room.info.notification_mode;
+        menu_divider(ui, Some((if current == matrix_domain::notifications::RoomNotifyMode::Mute { Icon::BellSlash } else { Icon::Bell }, i18n::t("Notifications"))), t);
+        ui.scope(|ui| {
+            ui.style_mut().visuals.indent_has_left_vline = false;
+            ui.indent("notify-modes", |ui| {
+                for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
+                    // The check slot is always there (invisible when not chosen), so the three texts line up.
+                    let mut job = item_job(Icon::Check, mode_label(mode), None, t);
+                    if current != mode { job.sections[0].format.color = Color32::TRANSPARENT; }
+                    if ui.button(job).clicked() { action = Some(RoomAction::Mode(mode)); ui.close(); }
+                }
+            });
+        });
+        menu_divider(ui, None, t);
+        let label = if confirm.as_ref() == Some(&room.scope) { i18n::t("Leave?") } else { i18n::t("Leave") };
+        if menu_item(ui, Icon::SignOut, label, Some(rgb(t.error)), t).clicked() && confirm_leave(confirm, &room.scope) {
+            action = Some(RoomAction::Leave);
+            ui.close();
+        }
+    }));
+    action
 }
 
 /// Space entries of the room menu: whether «Aggiungi a uno spazio…» shows, and the spaces behind «Togli da <spazio>».
@@ -503,6 +523,29 @@ pub fn space_picker(ctx: &egui::Context, session: &mut crate::session::Session) 
 
 #[cfg(test)]
 mod tests {
+    use super::room_menu;
+    use eframe::egui;
+
+    /// A right click on a room row opens the room menu: the one body behind the single list and every row of the multi-account list.
+    #[test]
+    fn right_click_on_a_row_opens_the_room_menu() {
+        use matrix_domain::{AccountId, RoomId, RoomScope};
+        let room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
+        let ctx = crate::icons::test_context();
+        let (mut confirm, mut pick) = (None, None);
+        let at = egui::pos2(50., 30.);
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() };
+        for events in [vec![egui::Event::PointerMoved(at)], vec![button(true)], vec![button(false)], vec![]] {
+            let input = eframe::egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 400.))), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                let (_, resp) = ui.allocate_exact_size(egui::vec2(300., 52.), egui::Sense::click());
+                room_menu(egui::Popup::context_menu(&resp), &room, &None, &mut confirm, &mut pick, &matrix_desktop::DARK);
+            });
+            out.textures_delta.clear();
+        }
+        assert!(egui::Popup::is_any_open(&ctx));
+    }
+
     #[test]
     fn a_space_without_the_right_gives_no_menu_entry() {
         use matrix_domain::{AccountId, RoomId, RoomScope};
