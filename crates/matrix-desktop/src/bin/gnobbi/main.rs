@@ -123,6 +123,9 @@ struct App {
     recorded: bool,
     /// The other accounts of the catalog, running at the same time as the shown one (own worker, own notifications).
     parked: Vec<Parked>,
+    /// The merged chat list of «Non lette» / «Tutte le chat» over every account, and the room a click on another account's row chose.
+    merged: matrix_desktop::UnifiedList,
+    merged_open: Option<(usize, matrix_domain::RoomScope)>,
     trust: Option<Vec<u8>>,
     /// A parked account to bring forward at the end of the frame (a click on one of its notifications).
     wake: Option<usize>,
@@ -228,7 +231,7 @@ impl App {
                 }
             }
         }
-        App { prefs, dirs: dirs.cloned(), list_open: false, nav: mobile::Nav::from_env(), rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: matrix_desktop::hooks::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        App { prefs, dirs: dirs.cloned(), list_open: false, nav: mobile::Nav::from_env(), rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, merged: Default::default(), merged_open: None, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: matrix_desktop::hooks::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: matrix_desktop::hooks::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, hook_hit: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: matrix_desktop::hooks::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false, startup, startup_notice: None, account_notice: None, reopening: None, remembered_root: None, signing_in_again: false, recovery_switch: false, add_from: None, discarding: Vec::new() }
     }
@@ -252,6 +255,24 @@ impl App {
         self.remembered_root = None;
         self.reset_account_ui();
         self.remember_current();
+    }
+
+    /// A row of another account in the merged list: that account comes forward with the same view and search, and the room opens in it.
+    fn open_merged_room(&mut self, parked: usize, scope: matrix_domain::RoomScope) {
+        let (unread_view, query) = self.session.as_ref().map(|s| (s.sidebar.unread_view(), s.query.clone())).unwrap_or_default();
+        self.switch_to(parked);
+        let Some(s) = &mut self.session else { return };
+        if s.sidebar.active_space().is_some() {
+            s.sidebar.set_space(None);
+        }
+        s.sidebar.set_unread_view(unread_view);
+        if s.query != query {
+            s.sidebar.set_query(&query);
+            s.query = query;
+        }
+        if !s.sidebar.select(&scope) {
+            s.sidebar.select_outside_view(&scope);
+        }
     }
 
     fn reset_account_ui(&mut self) {
@@ -1325,8 +1346,12 @@ impl App {
         }
         let show_list = self.list_open || both;
         let (pick_account, list_only) = self.rail_and_list(ui, t, (narrow, single), both, list_dx, show_list);
+        if let Some((i, scope)) = self.merged_open.take() {
+            self.open_merged_room(i, scope);
+        }
         let (pick, list_only) = account_switch_effect(pick_account, &self.root, list_only);
         if let Some(root) = pick {
+            self.rail.one_account = true;
             self.open_account(root);
         }
         if list_only {
@@ -1435,13 +1460,16 @@ impl App {
                 if single { mobile::rail_background(ui, chat_background(t), list_dx); }
                 pick_account = rail_panel(ui, session, &mut self.rail, account, totals, &others, (&active_label, &active_id), t);
             }
+            // More than one running account and no account or space picked in the rail: the list holds the rooms of all of them.
+            let merged = !self.rail.one_account && !self.parked.is_empty() && session.sidebar.active_space().is_none();
+            let unified = merged.then(|| list::Unified { parked: &self.parked, cache: &mut self.merged, open: &mut self.merged_open });
             if !narrow || show_list {
                 // Narrow: the list takes the whole width left of the rail and the chat is not drawn; a tap on a row, the open one too, goes to the chat.
                 let list_fill = list_fill(t);
                 if narrow {
-                    narrow_list(ui, session, &mut self.list_open, &mut self.rail, single, list_fill, t);
+                    narrow_list(ui, session, &mut self.list_open, &mut self.rail, single, list_fill, unified, t);
                 } else {
-                    wide_list(ui, session, &mut self.prefs, self.dirs.as_ref(), list_fill, t);
+                    wide_list(ui, session, &mut self.prefs, self.dirs.as_ref(), list_fill, unified, t);
                 }
                 if narrow && !both {
                     list_only = true;
@@ -2872,7 +2900,10 @@ fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::S
         egui::Popup::menu(&resp).align(if dir::rtl() { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START }).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| crate::dir::popup(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.;
             if !others.is_empty() {
-                accounts::switch_row(ui, name, active_id, &session.own_avatar(), true, 0, t);
+                if accounts::switch_row(ui, name, active_id, &session.own_avatar(), true, 0, t).clicked() {
+                    rail_state.one_account = true;
+                    ui.close();
+                }
                 for (root, other, id, pic, unread) in others {
                     if accounts::switch_row(ui, other, id, pic, false, unread.unwrap_or(0), t).clicked() {
                         pick_account = Some(root.clone());
@@ -2893,7 +2924,7 @@ fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::S
 }
 
 /// Narrow window: the list takes the whole width left of the rail; a tap on a row, the open one too, goes to the chat.
-fn narrow_list(ui: &mut egui::Ui, session: &mut Session, list_open: &mut bool, rail_state: &mut rail::State, single: bool, list_fill: egui::Color32, t: &DesignTokens) {
+fn narrow_list(ui: &mut egui::Ui, session: &mut Session, list_open: &mut bool, rail_state: &mut rail::State, single: bool, list_fill: egui::Color32, unified: Option<list::Unified>, t: &DesignTokens) {
         dir::panel_start("list-narrow").exact_size(ui.available_width()).resizable(false).show_separator_line(false).frame(bar(t).fill(list_fill)).show(ui, |ui| dir::scope(ui, |ui| {
             let mut new_chat = false;
             // One column: the chat header has no room for the app's own windows, they sit in one menu here.
@@ -2906,7 +2937,7 @@ fn narrow_list(ui: &mut egui::Ui, session: &mut Session, list_open: &mut bool, r
                     devices = ui.button(i18n::t("Devices")).clicked();
                     if settings || accounts || devices { ui.close(); }
                 }));
-            }) {
+            }, unified) {
                 *list_open = false;
             }
             session.new_open |= new_chat;
@@ -2917,7 +2948,7 @@ fn narrow_list(ui: &mut egui::Ui, session: &mut Session, list_open: &mut bool, r
 }
 
 /// Wide window: the resizable list, its width remembered once the drag is over.
-fn wide_list(ui: &mut egui::Ui, session: &mut Session, prefs: &mut Preferences, dirs: Option<&AppDirs>, list_fill: egui::Color32, t: &DesignTokens) {
+fn wide_list(ui: &mut egui::Ui, session: &mut Session, prefs: &mut Preferences, dirs: Option<&AppDirs>, list_fill: egui::Color32, unified: Option<list::Unified>, t: &DesignTokens) {
         let max = list_max_width(ui.ctx().content_rect().width());
         let resize_id = ui.scope_id().with_salt(egui::IdSalt::new("list")).with("__resize");
         let hovered = ui.style().visuals.widgets.hovered.fg_stroke;
@@ -2932,7 +2963,7 @@ fn wide_list(ui: &mut egui::Ui, session: &mut Session, prefs: &mut Preferences, 
                 ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
                 ui.style_mut().visuals.widgets.active.fg_stroke = active;
                 let mut new_chat = false;
-                dir::scope(ui, |ui| list::rooms(ui, session, &mut new_chat, t, &mut |_| {}));
+                dir::scope(ui, |ui| list::rooms(ui, session, &mut new_chat, t, &mut |_| {}, unified));
                 session.new_open |= new_chat;
             });
         ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;

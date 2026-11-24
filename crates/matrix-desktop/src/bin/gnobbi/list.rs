@@ -138,9 +138,79 @@ pub fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) -> egu
     r
 }
 
+/// The look of one room row (avatar, name, stamp, preview, badge, mark), the same in a single account's list and in the merged one;
+/// `account` adds the small picture of the account over the room avatar (merged list with more than one account).
+fn paint_row(ui: &mut egui::Ui, rect: egui::Rect, resp: &egui::Response, room: &matrix_desktop::SidebarRoom, mark_id: egui::Id, avatars: &crate::avatar::Avatars, selected: bool, account: Option<&AccountMark>, t: &DesignTokens) {
+    let row_color = if selected { rgb(t.selected) } else if resp.hovered() { rgb(t.input) } else { crate::list_fill(t) };
+    if selected || resp.hovered() {
+        ui.painter().rect_filled(rect, 0., row_color);
+    }
+    // Worked out for LTR; `flip`/`place` put each piece on its side.
+    let (flip, place) = (|p: egui::Pos2| crate::dir::flip_pos(rect, p), |p: egui::Pos2, g: &egui::Galley| crate::dir::place(rect, p, g.size().x));
+    let c = flip(egui::pos2(rect.left() + 36., rect.center().y));
+    crate::avatar::paint(ui, c, 40., rgb(room.color), &crate::avatar::lookup(avatars, room.info.avatar.as_deref()), &room.initials, 15., rgb(t.avatar_text));
+    if let Some(m) = account {
+        // A ring in the list colour keeps the small picture apart from the room's.
+        let o = flip(egui::pos2(rect.left() + 36. + 14., rect.center().y + 14.));
+        ui.painter().circle_filled(o, 10., row_color);
+        crate::avatar::paint(ui, o, 17., rgb(crate::AVATAR), &m.avatar, &m.initial, 9., rgb(t.on_accent));
+    }
+    let p = ui.painter();
+    let text_left = rect.left() + 68.;
+    let stamp = room.stamp();
+    let stamp_w = stamp.as_ref().map_or(0., |s| p.layout_no_wrap(s.clone(), FontId::proportional(12.), rgb(t.secondary)).size().x);
+    let name = one_line(ui, &room.name, 15., rgb(t.text), (rect.right() - 12. - text_left - stamp_w - 8.).max(20.));
+    ui.painter().galley(place(egui::pos2(text_left, rect.top() + 8.), &name), name, rgb(t.text));
+    if let Some(s) = stamp {
+        ui.painter().text(flip(egui::pos2(rect.right() - 12., rect.top() + 10.)), crate::dir::align(Align2::RIGHT_TOP), s, FontId::proportional(12.), rgb(t.secondary));
+    }
+    let row_mark = mark(room.pinned(), room.low_priority());
+    let preview = one_line(ui, matrix_desktop::row_text::engine_placeholder(&room.preview), 13., rgb(t.secondary), (rect.right() - 12. - text_left - right_reserved(room.unread > 0, row_mark)).max(20.));
+    ui.painter().galley(place(egui::pos2(text_left, rect.top() + 29.), &preview), preview, rgb(t.secondary));
+    let mut mark_right = rect.right() - 12.;
+    if room.unread > 0 {
+        let b = badge(ui, flip(egui::pos2(rect.right() - 24., rect.top() + 38.)), room.unread, t);
+        mark_right = rect.right() - 24. - b.width() / 2. - 4.;
+    }
+    if let Some(m) = row_mark {
+        draw_mark(ui, mark_id, m, flip(egui::pos2(mark_right - MARK / 2., rect.top() + 38.)), t);
+    }
+}
+
+/// The account a row of the merged list belongs to: its picture and initial, and its name for screen readers.
+struct AccountMark {
+    avatar: crate::avatar::Avatar,
+    initial: String,
+    name: String,
+}
+
+/// The other running accounts and the merged-list state, when «Non lette» or «Tutte le chat» lists every account: slot 0 is the shown
+/// account, slot `n` is `parked[n - 1]`. A click on a row of another account leaves `(index in parked, room)` in `open`.
+pub(crate) struct Unified<'a> {
+    pub parked: &'a [crate::Parked],
+    pub cache: &'a mut matrix_desktop::UnifiedList,
+    pub open: &'a mut Option<(usize, matrix_domain::RoomScope)>,
+}
+
+impl Unified<'_> {
+    /// The sidebars in slot order.
+    fn sidebars<'s>(shown: (&'s Sidebar, &'s str), parked: &'s [crate::Parked]) -> impl Iterator<Item = (&'s Sidebar, &'s str)> + Clone {
+        std::iter::once(shown).chain(parked.iter().map(|p| (&p.session.sidebar, p.session.user.as_str())))
+    }
+}
+
+/// The shown account's row opens at once; another account's is handed to the app, which brings that account forward.
+fn choose(open: &mut Option<(usize, matrix_domain::RoomScope)>, shown: &mut Sidebar, slot: usize, scope: matrix_domain::RoomScope) {
+    if slot > 0 {
+        *open = Some((slot - 1, scope));
+    } else if !shown.select(&scope) {
+        shown.select_outside_view(&scope);
+    }
+}
+
 /// Header with the search field, then the rows. Selection goes through `Sidebar::select`; true when a room was chosen, the open one too.
 /// `more` adds the caller's buttons left of «+».
-pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens, more: &mut dyn FnMut(&mut egui::Ui)) -> bool {
+pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens, more: &mut dyn FnMut(&mut egui::Ui), mut unified: Option<Unified>) -> bool {
     let (title, _, _) = session.sidebar.list_header();
     let in_space = session.sidebar.active_space().is_some();
     ui.add_space(12.);
@@ -181,12 +251,19 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
         }
         // Enter opens the first match, Escape clears the search: the keyboard way to change room.
         if r.has_focus() {
-            if ui.input(|i| i.key_pressed(egui::Key::Enter))
-                && let Some(&first) = sidebar.visible_indices().first()
-            {
-                let scope = sidebar.rooms()[first].scope.clone();
-                sidebar.select(&scope);
-                chosen = true;
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if let Some(Unified { parked, cache, open }) = unified.as_mut() {
+                    let first = cache.rows(Unified::sidebars((&*sidebar, &session.user), parked), sidebar.unread_view(), query).first().copied();
+                    if let Some((slot, i)) = first {
+                        let scope = if slot == 0 { sidebar.rooms()[i].scope.clone() } else { parked[slot - 1].session.sidebar.rooms()[i].scope.clone() };
+                        choose(open, sidebar, slot, scope);
+                        chosen = true;
+                    }
+                } else if let Some(&first) = sidebar.visible_indices().first() {
+                    let scope = sidebar.rooms()[first].scope.clone();
+                    sidebar.select(&scope);
+                    chosen = true;
+                }
             }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 query.clear();
@@ -214,40 +291,58 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     let (mut scroll_ui, bottom) = crate::mobile::extend_list(ui, crate::mobile::touch() && ui.ctx().content_rect().width() < crate::SINGLE_WIDTH);
     let mut margin = ui.spacing().scroll.content_margin;
     margin.bottom = margin.bottom.saturating_add(bottom.round() as i8);
+    if let Some(Unified { parked, cache, open }) = unified {
+        let rows = cache.rows(Unified::sidebars((&session.sidebar, &session.user), parked), session.sidebar.unread_view(), &session.query);
+        let (mut pick, mut opened) = (None, None);
+        let found = crate::message_hits::section(&session.all_search, session.query.trim());
+        let shown = session.sidebar.selected().map(|r| r.scope.clone());
+        let draw = |ui: &mut egui::Ui, (slot, i): (usize, usize), pick: &mut Option<(usize, matrix_domain::RoomScope)>| {
+            let owner = if slot == 0 { &*session } else { &parked[slot - 1].session };
+            let room = &owner.sidebar.rooms()[i];
+            let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
+            let resp = crate::metrics::clickable(resp);
+            let who = if owner.account_name.is_empty() { &owner.user } else { &owner.account_name };
+            let mark = AccountMark { avatar: owner.own_avatar(), initial: who.trim_start_matches('@').chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned()), name: who.clone() };
+            let spoken = format!("{}, {}", room.name, mark.name);
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &spoken));
+            paint_row(ui, rect, &resp, room, egui::Id::new(("row-mark", slot, i)), &owner.avatars, slot == 0 && shown.as_ref() == Some(&room.scope), Some(&mark), t);
+            if resp.clicked() {
+                *pick = Some((slot, room.scope.clone()));
+            }
+        };
+        if matches!(found, crate::message_hits::Section::Hidden) {
+            egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show_rows(&mut scroll_ui, ROW, rows.len(), |ui, range| {
+                for &row in &rows[range] {
+                    draw(ui, row, &mut pick);
+                }
+            });
+        } else {
+            egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show(&mut scroll_ui, |ui| {
+                for &row in rows {
+                    draw(ui, row, &mut pick);
+                }
+                opened = crate::message_hits::show(ui, &found, |id| session.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == id), &session.avatars, t);
+            });
+        }
+        if let Some((slot, scope)) = pick {
+            choose(open, &mut session.sidebar, slot, scope);
+            chosen = true;
+        }
+        match opened {
+            Some(crate::message_hits::Out::Open(hit)) => {
+                if session.open_message_hit(&hit) { chosen = true; }
+            }
+            Some(crate::message_hits::Out::More) => session.more_all_messages(),
+            None => {}
+        }
+        return chosen;
+    }
     // One room row; the same drawing serves the long virtual list and the short list that has messages under it.
     let mut draw = |ui: &mut egui::Ui, index: usize| {
             let room = &sidebar.rooms()[index];
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
             let resp = crate::metrics::clickable(resp);
-            if selected.as_ref() == Some(&room.scope) {
-                ui.painter().rect_filled(rect, 0., rgb(t.selected));
-            } else if resp.hovered() {
-                ui.painter().rect_filled(rect, 0., rgb(t.input));
-            }
-            // Worked out for LTR; `flip`/`place` put each piece on its side.
-            let (flip, place) = (|p: egui::Pos2| crate::dir::flip_pos(rect, p), |p: egui::Pos2, g: &egui::Galley| crate::dir::place(rect, p, g.size().x));
-            let c = flip(egui::pos2(rect.left() + 36., rect.center().y));
-            crate::avatar::paint(ui, c, 40., rgb(room.color), &crate::avatar::lookup(&session.avatars, room.info.avatar.as_deref()), &room.initials, 15., rgb(t.avatar_text));
-            let p = ui.painter();
-            let text_left = rect.left() + 68.;
-            let stamp = room.stamp();
-            let stamp_w = stamp.as_ref().map_or(0., |s| p.layout_no_wrap(s.clone(), FontId::proportional(12.), rgb(t.secondary)).size().x);
-            let name = one_line(ui, &room.name, 15., rgb(t.text), (rect.right() - 12. - text_left - stamp_w - 8.).max(20.));
-            ui.painter().galley(place(egui::pos2(text_left, rect.top() + 8.), &name), name, rgb(t.text));
-            if let Some(s) = stamp {
-                ui.painter().text(flip(egui::pos2(rect.right() - 12., rect.top() + 10.)), crate::dir::align(Align2::RIGHT_TOP), s, FontId::proportional(12.), rgb(t.secondary));
-            }
-            let row_mark = mark(room.pinned(), room.low_priority());
-            let preview = one_line(ui, matrix_desktop::row_text::engine_placeholder(&room.preview), 13., rgb(t.secondary), (rect.right() - 12. - text_left - right_reserved(room.unread > 0, row_mark)).max(20.));
-            ui.painter().galley(place(egui::pos2(text_left, rect.top() + 29.), &preview), preview, rgb(t.secondary));
-            let mut mark_right = rect.right() - 12.;
-            if room.unread > 0 {
-                let b = badge(ui, flip(egui::pos2(rect.right() - 24., rect.top() + 38.)), room.unread, t);
-                mark_right = rect.right() - 24. - b.width() / 2. - 4.;
-            }
-            if let Some(m) = row_mark {
-                draw_mark(ui, egui::Id::new(("row-mark", index)), m, flip(egui::pos2(mark_right - MARK / 2., rect.top() + 38.)), t);
-            }
+            paint_row(ui, rect, &resp, room, egui::Id::new(("row-mark", index)), &session.avatars, selected.as_ref() == Some(&room.scope), None, t);
             if resp.clicked() {
                 pick = Some(room.scope.clone());
             }

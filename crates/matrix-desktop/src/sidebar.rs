@@ -52,6 +52,11 @@ pub struct NavigationEntry {
     pub avatar: Option<String>,
 }
 
+fn next_revision() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 const FAVOURITE: &str = "m.favourite";
 const LOW_PRIORITY: &str = "m.lowpriority";
 
@@ -116,6 +121,8 @@ pub struct Sidebar {
     mode_error: Option<&'static str>,
     /// Rooms in «Non lette» and unread messages of the unmuted rooms, kept up to date by `refresh_counts` (read every frame by the rail).
     counts: (u64, u64),
+    /// Changes (globally unique) whenever a room or a count does: the merged multi-account list is rebuilt only then.
+    revision: u64,
 }
 
 impl Sidebar {
@@ -144,6 +151,7 @@ impl Sidebar {
             mode: None,
             mode_error: None,
             counts: (0, 0),
+            revision: next_revision(),
         }
     }
 
@@ -271,6 +279,7 @@ impl Sidebar {
             mode: None,
             mode_error: None,
             counts: (0, 0),
+            revision: next_revision(),
         }
     }
 
@@ -655,7 +664,26 @@ impl Sidebar {
         self.counts
     }
 
+    /// Position of the room in the SDK order (0 = most recent), `usize::MAX` while the SDK has not placed it.
+    pub fn rank(&self, room: &SidebarRoom) -> usize {
+        self.order.get(&room.scope).copied().unwrap_or(usize::MAX)
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Indices into `rooms()` of the rows «Tutte le chat» (or, with `unread_view`, «Non lette») shows for the lowercase `needle`
+    /// in the multi-account list: the same filter as `set_query` without a space.
+    pub fn unified_matches<'a>(&'a self, unread_view: bool, needle: &'a str) -> impl Iterator<Item = usize> + 'a {
+        self.rooms.iter().enumerate().filter_map(move |(i, room)| {
+            let shown = (room.info.invited || !room.info.is_space) && (needle.is_empty() || room.name.to_lowercase().contains(needle)) && (!unread_view || Self::in_unread_view(room));
+            shown.then_some(i)
+        })
+    }
+
     fn refresh_counts(&mut self) {
+        self.revision = next_revision();
         self.counts = self.rooms.iter().fold((0, 0), |(rooms, all), r| {
             (rooms + u64::from(Self::in_unread_view(r)), if r.info.muted() { all } else { all.saturating_add(r.unread) })
         });

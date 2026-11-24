@@ -106,9 +106,11 @@ pub mod row_text;
 pub mod time_fmt;
 pub mod poll_text;
 mod sidebar;
+mod unified;
 pub mod tray_menu;
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub mod tray; // tray-icon does not exist on iOS or Android
+pub use unified::UnifiedList;
 pub use sidebar::{InviteState, Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]

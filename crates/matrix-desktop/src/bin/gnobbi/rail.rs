@@ -29,6 +29,8 @@ pub struct Move {
 #[derive(Default)]
 pub struct State {
     pub layouts: RailLayouts,
+    /// The list shows only the shown account (picked in the account menu); «Non lette» and «Tutte le chat» clear it and list every account.
+    pub one_account: bool,
     /// Parent spaces shown with their subspaces (room ids); this run only.
     pub open: HashSet<String>,
     pub edit: bool,
@@ -331,9 +333,11 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
         ui.add_space(4.);
         if item(ui, avatars, t, Icon::Unread, i18n::t("Unread"), unread_rooms, unread_view).clicked() {
             sidebar.set_unread_view(true);
+            state.one_account = false;
         }
         if item(ui, avatars, t, Icon::All, i18n::t("All chats"), all, !unread_view && !in_space).clicked() {
             sidebar.set_space(None);
+            state.one_account = false;
         }
         for row in &rows {
             let resp = item(ui, avatars, t, Icon::Space(row), &row.name, row.unread, row.selected);
