@@ -530,7 +530,7 @@ impl Editor {
             }
         });
         // Fingers zoom and turn the preview; no sliders on touch.
-        if crate::mobile::touch() {
+        if !show_sliders(crate::mobile::touch()) {
             return;
         }
         let names = [i18n::t("Zoom"), i18n::t("Rotation")];
@@ -593,6 +593,11 @@ impl Editor {
         slider(ui, names[1], wide, &mut self.look.contrast, -1. ..=1., column, t, percent);
         slider(ui, names[2], wide, &mut self.look.saturation, -1. ..=1., column, t, percent);
     }
+}
+
+/// The Zoom and Rotation sliders are for mouse users: on touch the fingers do it.
+fn show_sliders(touch: bool) -> bool {
+    !touch
 }
 
 /// Width of the name column of a group of sliders: the longest name in the current language, at most 40% of the column (then it is cut with «…»).
@@ -810,5 +815,85 @@ mod tests {
         let mut picture = RgbaImage::from_pixel(2, 2, image::Rgba([200, 100, 50, 7]));
         Look { filter: Filter::Mono, ..Default::default() }.paint(&mut picture);
         assert_eq!(picture.get_pixel(1, 1).0, [124, 124, 124, 7]);
+    }
+
+    #[test]
+    fn zoom_and_rotation_sliders_are_desktop_only() {
+        assert!(show_sliders(false));
+        assert!(!show_sliders(true));
+    }
+
+    #[test]
+    fn neutral_gesture_deltas_change_nothing() {
+        let mut p = Pose { zoom: 2.5, quarters: 1, fine: 12., flip: true, center: [0.4, 0.6] };
+        let before = p;
+        p.apply_gesture(1., 0., [0., 0.], 240., 400., 400.);
+        assert_eq!(p, before);
+    }
+
+    #[test]
+    fn zoom_delta_is_multiplicative_and_stops_at_one_and_the_maximum() {
+        let zoomed = |start: f32, factor: f32| {
+            let mut p = Pose { zoom: start, ..Default::default() };
+            p.apply_gesture(factor, 0., [0., 0.], 240., 400., 400.);
+            p.zoom
+        };
+        assert_eq!(zoomed(1., 0.5), 1., "pinching in below 1 stays at 1");
+        assert_eq!(zoomed(2., 0.5), 1.);
+        assert_eq!(zoomed(2., 1.5), 3.);
+        assert_eq!(zoomed(3., 2.), MAX_ZOOM, "above the maximum stays at the maximum");
+        assert_eq!(zoomed(MAX_ZOOM, 1.01), MAX_ZOOM);
+        let mut p = Pose::default();
+        for _ in 0..3 {
+            p.apply_gesture(1.2, 0., [0., 0.], 240., 400., 400.);
+        }
+        assert!((p.zoom - 1.728).abs() < 1e-4, "frames accumulate: {}", p.zoom);
+    }
+
+    #[test]
+    fn rotation_delta_accumulates_in_degrees_and_stops_at_the_fine_limit() {
+        let mut p = Pose::default();
+        for _ in 0..3 {
+            p.apply_gesture(1., 10f32.to_radians(), [0., 0.], 240., 400., 400.);
+        }
+        assert!((p.tilt() - 30.).abs() < 1e-3, "{}", p.tilt());
+        for _ in 0..10 {
+            p.apply_gesture(1., 10f32.to_radians(), [0., 0.], 240., 400., 400.);
+        }
+        assert_eq!(p.tilt(), MAX_FINE);
+        p.apply_gesture(1., -std::f32::consts::TAU, [0., 0.], 240., 400., 400.);
+        assert_eq!(p.tilt(), -MAX_FINE);
+        let mut mirrored = Pose { flip: true, ..Default::default() };
+        mirrored.apply_gesture(1., 10f32.to_radians(), [0., 0.], 240., 400., 400.);
+        assert!((mirrored.tilt() - 10.).abs() < 1e-3 && mirrored.fine < 0., "clockwise on screen, whatever the mirror");
+        assert_eq!(mirrored.quarters, 0, "a gesture never changes the quarter turns");
+    }
+
+    #[test]
+    fn translation_delta_stops_at_the_picture_edges() {
+        let mut p = Pose { zoom: 2., ..Default::default() };
+        // 400x400 at zoom 2: the crop is 200 px, so its centre stays within 0.25..0.75.
+        p.apply_gesture(1., 0., [-100_000., -100_000.], 240., 400., 400.);
+        assert_eq!(p.center, [0.75, 0.75], "dragged left and up: the picture shows its bottom right");
+        p.apply_gesture(1., 0., [100_000., 100_000.], 240., 400., 400.);
+        assert_eq!(p.center, [0.25, 0.25]);
+        let mut at_one = Pose::default();
+        at_one.apply_gesture(1., 0., [50., -50.], 240., 400., 400.);
+        assert_eq!(at_one.center, [0.5, 0.5], "zoom 1 on a square picture: no room to move");
+    }
+
+    /// Fixed pose, look and picture: sample pixels of the result, taken from the code before the gestures were added.
+    #[test]
+    fn render_of_fixed_parameters_is_unchanged() {
+        let picture = RgbaImage::from_fn(96, 64, |x, y| image::Rgba([(x * 2) as u8, (y * 4) as u8, ((x + y) * 3 % 256) as u8, 255]));
+        let pose = Pose { zoom: 1.5, quarters: 1, fine: 12., flip: true, center: [0.5, 0.5] };
+        let look = Look { filter: Filter::Sepia, brightness: 0.2, contrast: -0.1, saturation: 0.3 };
+        let out = render(&picture, &pose, &look, 32);
+        let golden = [[118, 107, 85], [199, 176, 135], [185, 164, 126], [135, 120, 95], [206, 182, 139], [160, 142, 111]];
+        for ((x, y), want) in [(0, 0), (31, 0), (16, 16), (0, 31), (31, 31), (8, 24)].into_iter().zip(golden) {
+            let got = out.get_pixel(x, y).0;
+            // ±1: float rounding may differ between CPUs, a real change moves a pixel by far more.
+            assert!(got[3] == 255 && got[..3].iter().zip(want).all(|(g, w)| g.abs_diff(w) <= 1), "({x},{y}): {got:?} instead of {want:?}");
+        }
     }
 }
