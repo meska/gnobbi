@@ -1,4 +1,5 @@
 //! Left side of the shell: the room list, drawn from the toolkit-free `Sidebar`.
+use crate::icons::Icon;
 use eframe::egui::{self, Align2, Color32, FontId, Sense, Vec2, text::LayoutJob};
 use matrix_desktop::{DesignTokens, Sidebar, i18n};
 
@@ -40,6 +41,19 @@ mod mark_tests {
         assert_eq!(mark_read_entry(3, false), read);
         assert_eq!(mark_read_entry(0, true), read);
         assert_eq!(mark_read_entry(0, false), unread);
+    }
+
+    #[test]
+    fn every_menu_entry_has_its_icon_first_in_one_column() {
+        let t = matrix_desktop::DARK;
+        let glyph = |job: &LayoutJob| job.sections[0].format.font_id.clone();
+        for (icon, label) in [(read_icon(1, false), "a"), (read_icon(0, false), "b"), (Icon::PushPin, "c"), (Icon::PushPinSlash, "d"), (Icon::Archive, "e"), (Icon::ArrowUp, "f"), (Icon::FolderSimple, "g"), (Icon::FolderSimpleMinus, "h"), (Icon::Check, "i"), (Icon::SignOut, "j")] {
+            let job = item_job(icon, label, None, &t);
+            assert_eq!(job.text.chars().next(), Some(icon.ch()));
+            assert_eq!(glyph(&job), glyph(&item_job(Icon::Bell, "x", None, &t)), "one icon size for every entry");
+            assert_eq!(job.sections[0].format.color, rgb(t.secondary));
+        }
+        assert_eq!(item_job(Icon::SignOut, "x", Some(rgb(t.error)), &t).sections[0].format.color, rgb(t.error));
     }
 
     #[test]
@@ -101,19 +115,37 @@ fn mode_label(mode: matrix_domain::notifications::RoomNotifyMode) -> &'static st
     }
 }
 
-/// Thin line between the groups of the room menu; with a title it is the group label (bell icon, secondary colour) and the line sits above it.
-pub fn menu_divider(ui: &mut egui::Ui, title: Option<&str>, t: &DesignTokens) {
+/// Label of a room-menu entry: the icon in the secondary colour (`ink` for both when given, e.g. the error colour of «Leave»), then the text.
+/// Every Phosphor glyph is 1 em wide at one size, so the text of all entries starts in the same column.
+fn item_job(icon: crate::icons::Icon, label: &str, ink: Option<Color32>, t: &DesignTokens) -> LayoutJob {
+    let mut job = crate::icons::with_label(icon, label);
+    job.sections[0].format.color = ink.unwrap_or(rgb(t.secondary));
+    if let Some(ink) = ink { job.sections[1].format.color = ink; }
+    job
+}
+
+/// One entry of the room menu, always with its icon; `ink` recolours icon and text.
+fn menu_item(ui: &mut egui::Ui, icon: crate::icons::Icon, label: &str, ink: Option<Color32>, t: &DesignTokens) -> egui::Response {
+    ui.button(item_job(icon, label, ink, t))
+}
+
+/// Thin line between the groups of the room menu; with a title it is the group label (icon, secondary colour) and the line sits above it.
+pub fn menu_divider(ui: &mut egui::Ui, title: Option<(crate::icons::Icon, &str)>, t: &DesignTokens) {
     ui.add_space(2.);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.min_rect().width().max(1.), 1.), Sense::hover()); // the widest entry so far: the line must not stretch the menu
     ui.painter().hline(rect.x_range(), rect.center().y, egui::Stroke::new(1., rgb(t.secondary).gamma_multiply(0.4)));
-    let Some(title) = title else { return ui.add_space(2.) };
-    let mut job = crate::icons::with_label(crate::icons::Icon::Bell, title);
+    let Some((icon, title)) = title else { return ui.add_space(2.) };
+    let mut job = crate::icons::with_label(icon, title);
     for section in &mut job.sections { section.format.color = rgb(t.secondary); }
     let label = ui.add(egui::Label::new(job).selectable(false));
     label.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
 }
 
 /// The one read/unread entry: «Mark as read» while the room counts as unread (badge count or the manual flag), else «Mark as unread».
+fn read_icon(unread: u64, marked_unread: bool) -> crate::icons::Icon {
+    if unread > 0 || marked_unread { crate::icons::Icon::Checks } else { crate::icons::Icon::ChatCircle }
+}
+
 fn mark_read_entry(unread: u64, marked_unread: bool) -> &'static str {
     if unread > 0 || marked_unread { i18n::t("Mark as read") } else { i18n::t("Mark as unread") }
 }
@@ -365,29 +397,38 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                 menu.show(|ui| crate::dir::popup(ui, |ui| {
                     use crate::session::RoomAction;
                     ui.spacing_mut().item_spacing.y = 2.;
-                    for (label, choice) in [(mark_read_entry(room.unread, room.info.marked_unread), RoomAction::Mark(room.unread > 0 || room.info.marked_unread)),(if sidebar.is_favourite(&room.scope) { i18n::t("Unpin") } else { i18n::t("Pin to top") }, RoomAction::Tag("m.favourite")), (if sidebar.has_tag(&room.scope, "m.lowpriority") { i18n::t("Remove from low priority") } else { i18n::t("Mark as low priority") }, RoomAction::Tag("m.lowpriority"))] {
-                        if ui.button(label).clicked() { action = Some((room.scope.clone(), choice)); ui.close(); }
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // an entry never wraps: the menu grows (and the area shifts into the screen) instead
+                    let (pinned, low) = (sidebar.is_favourite(&room.scope), sidebar.has_tag(&room.scope, "m.lowpriority"));
+                    for (icon, label, choice) in [
+                        (read_icon(room.unread, room.info.marked_unread), mark_read_entry(room.unread, room.info.marked_unread), RoomAction::Mark(room.unread > 0 || room.info.marked_unread)),
+                        if pinned { (Icon::PushPinSlash, i18n::t("Unpin"), RoomAction::Tag("m.favourite")) } else { (Icon::PushPin, i18n::t("Pin to top"), RoomAction::Tag("m.favourite")) },
+                        if low { (Icon::ArrowUp, i18n::t("Remove from low priority"), RoomAction::Tag("m.lowpriority")) } else { (Icon::Archive, i18n::t("Mark as low priority"), RoomAction::Tag("m.lowpriority")) },
+                    ] {
+                        if menu_item(ui, icon, label, None, t).clicked() { action = Some((room.scope.clone(), choice)); ui.close(); }
                     }
                     if let Some((asked, Some(choices))) = &session.space_choices && asked == &room.scope {
                         let (add, remove) = space_entries(choices);
-                        if add && ui.button(i18n::t("Add to a space…")).clicked() { session.space_pick = Some((room.scope.clone(), None)); ui.close(); }
+                        if add && menu_item(ui, Icon::FolderSimple, i18n::t("Add to a space…"), None, t).clicked() { session.space_pick = Some((room.scope.clone(), None)); ui.close(); }
                         for space in remove {
-                            if ui.button(i18n::t("Remove from {name}").replace("{name}", &space.name)).clicked() { action = Some((room.scope.clone(), RoomAction::RemoveFrom(space.scope.clone()))); ui.close(); }
+                            if menu_item(ui, Icon::FolderSimpleMinus, &i18n::t("Remove from {name}").replace("{name}", &space.name), None, t).clicked() { action = Some((room.scope.clone(), RoomAction::RemoveFrom(space.scope.clone()))); ui.close(); }
                         }
                     }
-                    menu_divider(ui, Some(i18n::t("Notifications")), t);
+                    let current = sidebar.notify_mode(&room.scope);
+                    menu_divider(ui, Some((if current == matrix_domain::notifications::RoomNotifyMode::Mute { Icon::BellSlash } else { Icon::Bell }, i18n::t("Notifications"))), t);
                     ui.scope(|ui| {
                         ui.style_mut().visuals.indent_has_left_vline = false;
                         ui.indent("notify-modes", |ui| {
                             for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
-                                let label = if sidebar.notify_mode(&room.scope) == mode { crate::icons::with_label(crate::icons::Icon::Check, mode_label(mode)) } else { egui::text::LayoutJob::simple_singleline(mode_label(mode).to_owned(), FontId::proportional(crate::metrics::get().body), Color32::PLACEHOLDER) };
-                                if ui.button(label).clicked() { action = Some((room.scope.clone(), RoomAction::Mode(mode))); ui.close(); }
+                                // The check slot is always there (invisible when not chosen), so the three texts line up.
+                                let mut job = item_job(Icon::Check, mode_label(mode), None, t);
+                                if current != mode { job.sections[0].format.color = Color32::TRANSPARENT; }
+                                if ui.button(job).clicked() { action = Some((room.scope.clone(), RoomAction::Mode(mode))); ui.close(); }
                             }
                         });
                     });
                     menu_divider(ui, None, t);
                     let label = if session.confirm_leave.as_ref() == Some(&room.scope) { i18n::t("Leave?") } else { i18n::t("Leave") };
-                    if ui.button(egui::RichText::new(label).color(rgb(t.error))).clicked() && confirm_leave(&mut session.confirm_leave, &room.scope) {
+                    if menu_item(ui, Icon::SignOut, label, Some(rgb(t.error)), t).clicked() && confirm_leave(&mut session.confirm_leave, &room.scope) {
                         action = Some((room.scope.clone(), RoomAction::Leave));
                         ui.close();
                     }
