@@ -2,6 +2,8 @@ name: release
 on:
   push:
     tags: ['v*.*.0']
+  schedule:
+    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       publish:
@@ -10,15 +12,57 @@ on:
         default: false
 permissions:
   contents: read
+concurrency:
+  group: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/nightly')) && 'gnobbi-nightly' || format('release-{0}', github.run_id) }}
+  cancel-in-progress: false
 env:
   CARGO_TERM_COLOR: never
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      nightly: ${{ steps.gate.outputs.nightly }}
+    steps:
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          nightly=false
+          if [[ "$EVENT" == schedule && "$REF" == refs/heads/main ]] || [[ "$EVENT" == workflow_dispatch && "$REF" == refs/heads/ci/nightly ]]; then
+            nightly=true
+          elif [[ "$EVENT" == schedule ]]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            echo 'nightly=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          run=true
+          if [[ "$nightly" == true ]]; then
+            body="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '[.[][] | select(.tag_name == "nightly") | select(([.assets[] | select(.state == "uploaded" and .size > 0) | .name] | map(select(. == "SHA256SUMS" or . == "latest.json" or endswith("-linux-x86_64.AppImage") or endswith("-linux-x86_64.tar.gz") or endswith("-windows-x64.zip") or endswith("-macos-arm64.dmg"))) | length) == 6)][0].body // ""')"
+            previous="$(printf '%s\n' "$body" | sed -n 's/^commit: \([0-9a-f]\{40\}\)\r\{0,1\}$/\1/p')"
+            if [[ "$previous" == "$GITHUB_SHA" ]]; then run=false; fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
+
   version:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      cargo_version: ${{ steps.v.outputs.cargo_version }}
+      build: ${{ steps.v.outputs.build }}
+      date: ${{ steps.v.outputs.date }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - id: v
         run: |
           ver="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml)"
@@ -26,6 +70,14 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$ver" ]; then
             echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $ver"
             exit 1
+          fi
+          echo "cargo_version=$ver" >> "$GITHUB_OUTPUT"
+          build="$(git rev-list --count HEAD)"
+          date="$(date -u +%Y-%m-%d)"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "date=$date" >> "$GITHUB_OUTPUT"
+          if [ "${{ needs.gate.outputs.nightly }}" = true ]; then
+            ver="$ver-nightly.${date//-/}.$build"
           fi
           echo "version=$ver" >> "$GITHUB_OUTPUT"
 
@@ -98,7 +150,11 @@ jobs:
       - name: App and dmg
         # Ad-hoc signed here: no Apple credentials on GitHub. Developer ID signing and notarization happen on the
         # maintainer's Mac, which then publishes the draft Release.
-        run: packaging/macos/make-dmg.sh "${{ needs.version.outputs.version }}" dist
+        run: |
+          packaging/macos/make-dmg.sh "${{ needs.version.outputs.cargo_version }}" dist
+          if [ "${{ needs.version.outputs.cargo_version }}" != "${{ needs.version.outputs.version }}" ]; then
+            mv "dist/Gnobbi-${{ needs.version.outputs.cargo_version }}-macos-arm64.dmg" "dist/Gnobbi-${{ needs.version.outputs.version }}-macos-arm64.dmg"
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: macos
@@ -108,7 +164,7 @@ jobs:
   # The download site (latest.json, AppImage, Windows zip) is LAN-only: a job on the project's own
   # runner publishes the Release assets there; nothing to do in this workflow.
   release:
-    needs: [version, linux, windows, macos]
+    needs: [gate, version, linux, windows, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -121,6 +177,7 @@ jobs:
           path: assets
           merge-multiple: true
       - name: Checksums and notes
+        if: needs.gate.outputs.nightly != 'true'
         run: |
           cd assets && sha256sum ./* > SHA256SUMS && cat SHA256SUMS && cd ..
           tag="v${{ needs.version.outputs.version }}"
@@ -137,7 +194,7 @@ jobs:
           fi
       - name: Release
         # Only a tag push or an explicit publish=true creates a Release.
-        if: github.ref_type == 'tag' || inputs.publish
+        if: needs.gate.outputs.nightly != 'true' && (github.ref_type == 'tag' || inputs.publish)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -146,7 +203,40 @@ jobs:
           # Draft on purpose: the macOS dmg is signed and notarized locally, which then publishes the Release.
           gh release create "v$v" assets/* --draft --title "Gnobbi $v" --notes-file notes.md --target "$GITHUB_SHA" $pre
       - name: Notes preview (no release)
-        if: github.ref_type != 'tag' && !inputs.publish
+        if: needs.gate.outputs.nightly != 'true' && github.ref_type != 'tag' && !inputs.publish
         run: |
           cat notes.md | head -40
           ls -l assets
+
+      - name: Nightly manifest and draft
+        if: needs.gate.outputs.nightly == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          BUILD: ${{ needs.version.outputs.build }}
+          DATE: ${{ needs.version.outputs.date }}
+        run: |
+          set -euo pipefail
+          cd assets
+          app="Gnobbi-$VERSION-linux-x86_64.AppImage"
+          tar="gnobbi-$VERSION-linux-x86_64.tar.gz"
+          win="gnobbi-$VERSION-windows-x64.zip"
+          mac="Gnobbi-$VERSION-macos-arm64.dmg"
+          sha256sum "$app" "$tar" "$win" "$mac" > SHA256SUMS
+          asset() {
+            local name="$1" hash size
+            test -s "$name"
+            hash="$(sha256sum "$name" | cut -d ' ' -f1)"
+            size="$(stat -c %s "$name")"
+            jq -n --arg name "$name" --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/nightly/$name" --arg sha "$hash" --argjson size "$size" '{name:$name,url:$url,sha256:$sha,size:$size}'
+          }
+          jq -n --arg version "$VERSION" --argjson build "$BUILD" --arg commit "$GITHUB_SHA" --arg date "$DATE" --arg released "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson run "$GITHUB_RUN_NUMBER" \
+            --argjson app "$(asset "$app")" --argjson tar "$(asset "$tar")" --argjson win "$(asset "$win")" --argjson mac "$(asset "$mac")" \
+            '{schema:1,channel:"nightly",version:$version,build:$build,commit:$commit,commit_short:$commit[0:7],date:$date,released:$released,run:$run,artifacts:{"linux-x86_64-appimage":$app,"linux-x86_64-tar":$tar,"windows-x64-zip":$win,"macos-arm64-dmg":$mac}}' > latest.json
+          printf 'commit: %s\nbuild: %s\nrun: %s\ndate: %s\ncommit_short: %s\n' "$GITHUB_SHA" "$BUILD" "$GITHUB_RUN_NUMBER" "$DATE" "${GITHUB_SHA:0:7}" > ../notes-nightly.md
+          existing="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '[.[][] | select(.tag_name == "nightly")][0].id // ""')"
+          if [ -n "$existing" ]; then gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$existing"; fi
+          tags="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/nightly" --jq '[.[][] | select(.ref == "refs/tags/nightly")] | length')"
+          if [ "$tags" -gt 0 ]; then gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly"; fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/nightly -f sha="$GITHUB_SHA" > /dev/null
+          gh release create nightly ./* --draft --prerelease --latest=false --title "Gnobbi nightly $DATE · ${GITHUB_SHA:0:7} · build $BUILD" --notes-file ../notes-nightly.md --target "$GITHUB_SHA"
