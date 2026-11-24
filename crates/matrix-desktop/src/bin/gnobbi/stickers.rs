@@ -358,6 +358,22 @@ fn error_line(ui: &mut egui::Ui, panel: &mut Panel) {
     }
 }
 
+/// The tab a panel opens on: Recent when it has something, else Favourites, else the first pack.
+fn first_section(local: &Local, packs: &[StickerPack]) -> Section {
+    if !local.recent.is_empty() {
+        Section::Recent
+    } else if !local.favourites.is_empty() {
+        Section::Favourites
+    } else {
+        packs.first().map_or(Section::Recent, |p| Section::Pack(p.id.clone()))
+    }
+}
+
+/// The tab to show once a sticker is saved: its pack; with no pack yet (new account) `None`, so the opening rule applies.
+fn section_after_save(target: Option<&str>) -> Option<Section> {
+    target.map(|id| Section::Pack(id.to_owned()))
+}
+
 /// The tab: search and the two actions on top, the grid of the chosen section, the bar of the packs fixed at the bottom.
 /// `w` is the width of the tab: `width(window)` in the popup, the whole bar in the docked drawer.
 pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &Avatars, t: &DesignTokens, w: f32, rows: f32) {
@@ -395,10 +411,7 @@ pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &Avatars, t: &Design
         Section::Pack(id) => packs.iter().any(|p| p.id == *id),
         _ => true,
     };
-    let section = panel.section.clone().filter(known).unwrap_or_else(|| match packs.first() {
-        Some(p) if panel.local.recent.is_empty() => Section::Pack(p.id.clone()),
-        _ => Section::Recent,
-    });
+    let section = panel.section.clone().filter(known).unwrap_or_else(|| first_section(&panel.local, &packs));
     let home = |s: &Sticker| packs.iter().find(|p| p.stickers.iter().any(|x| x.url == s.url));
     let entries: Vec<(&Sticker, Option<&StickerPack>)> = if !query.is_empty() {
         packs.iter().flat_map(|p| {
@@ -560,6 +573,7 @@ fn editor(ctx: &egui::Context, panel: &mut Panel, t: &DesignTokens) {
         save = primary(ui, ok, i18n::t("Save"), w, t);
     }));
     if save && let Some(Editor { ready: Some(Ok(ready)), code, .. }) = panel.editor.take() {
+        panel.section = section_after_save(target.as_deref());
         panel.edit(PackEdit::Add { pack: target, default_name: i18n::t("Stickers").to_owned(), shortcode: code, png: ready.png, side: ready.side });
     } else if close || modal.should_close() {
         panel.editor = None;
@@ -781,6 +795,24 @@ mod tests {
 
     fn pack(id: &str) -> StickerPack {
         StickerPack { id: id.into(), name: id.to_uppercase(), avatar: None, own: true, enabled: true, stickers: (0..7).map(sticker).collect() }
+    }
+
+    #[test]
+    fn the_panel_opens_on_recent_then_favourites_then_the_first_pack() {
+        let packs = [pack("a"), pack("b")];
+        let mut local = Local::default();
+        assert_eq!(first_section(&local, &packs), Section::Pack("a".into()));
+        assert_eq!(first_section(&local, &[]), Section::Recent, "nothing anywhere");
+        local.favourites.push(sticker(1));
+        assert_eq!(first_section(&local, &packs), Section::Favourites);
+        local.recent.push(sticker(2));
+        assert_eq!(first_section(&local, &packs), Section::Recent, "recent wins over favourites");
+    }
+
+    #[test]
+    fn after_saving_the_panel_shows_the_destination_pack() {
+        assert_eq!(section_after_save(Some("b")), Some(Section::Pack("b".into())));
+        assert_eq!(section_after_save(None), None, "new account: the pack does not exist yet");
     }
 
     #[test]
