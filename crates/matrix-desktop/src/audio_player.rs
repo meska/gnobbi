@@ -8,6 +8,8 @@ pub struct Player {
     rate: u32,
     position: usize,
     playing: bool,
+    /// Dragging the playhead: the audio stays muted until release.
+    scrubbing: bool,
 }
 
 impl Player {
@@ -19,6 +21,7 @@ impl Player {
             rate: rate.max(1),
             position: 0,
             playing,
+            scrubbing: false,
         }
     }
 
@@ -42,6 +45,29 @@ impl Player {
         } else {
             self.playing = !self.playing;
         }
+    }
+
+    /// Jump to `secs`, clamped to [0, duration]. Outside a drag it also starts a stopped note
+    /// from there (a seek to the very end leaves it finished).
+    pub fn seek_secs(&mut self, secs: f32) {
+        let len = self.samples.len();
+        let at = (secs.max(0.0) * self.rate as f32) as usize; // NaN -> 0
+        self.position = at.min(len);
+        if !self.scrubbing {
+            self.playing = !self.finished();
+        }
+    }
+
+    /// Start of a drag: mute (pause) so the playhead can move live without sound.
+    pub fn begin_scrub(&mut self) {
+        self.scrubbing = true;
+        self.playing = false;
+    }
+
+    /// Release: audio resumes from where the playhead was dropped.
+    pub fn end_scrub(&mut self) {
+        self.scrubbing = false;
+        self.playing = !self.finished();
     }
 
     /// Along the note, 0..=1.
@@ -74,6 +100,15 @@ impl Player {
         }
         n
     }
+}
+
+/// Pointer x (relative to the waveform's left edge) to seconds; clamped to the edges, 0 for a
+/// zero-width waveform.
+pub fn x_to_secs(x: f32, width: f32, duration_secs: f32) -> f32 {
+    if width <= 0.0 || x.is_nan() {
+        return 0.0;
+    }
+    (x / width).clamp(0.0, 1.0) * duration_secs.max(0.0)
 }
 
 /// The cpal output stream plus the shared cursor: dropping it stops the sound.
@@ -148,7 +183,7 @@ fn build<T: cpal::SizedSample + cpal::FromSample<f32>>(
 
 #[cfg(test)]
 mod tests {
-    use super::Player;
+    use super::{x_to_secs, Player};
 
     fn note(samples: usize) -> Player {
         Player::new(vec![0.5; samples], 1_000)
@@ -229,5 +264,58 @@ mod tests {
         let player = Player::new(vec![0.0; 10], 0);
         assert_eq!(player.rate(), 1);
         assert_eq!(player.duration_ms(), 10_000);
+    }
+
+    #[test]
+    fn seek_clamps_to_the_edges_and_starts_a_stopped_note() {
+        let mut player = note(10); // 1 kHz: 10 ms
+        player.toggle();
+        assert!(!player.is_playing());
+        player.seek_secs(0.004);
+        assert!(player.is_playing(), "seek on a stopped note starts it");
+        assert!((player.progress() - 0.4).abs() < f32::EPSILON);
+        player.seek_secs(-3.0);
+        assert_eq!(player.progress(), 0.0);
+        player.seek_secs(99.0);
+        assert_eq!(player.progress(), 1.0);
+        assert!(player.finished() && !player.is_playing());
+        player.seek_secs(f32::NAN);
+        assert_eq!(player.progress(), 0.0);
+        let mut empty = Player::new(Vec::new(), 1_000);
+        empty.seek_secs(1.0);
+        assert!(!empty.is_playing());
+    }
+
+    #[test]
+    fn dragging_mutes_and_moves_live_and_release_resumes() {
+        let mut player = note(100);
+        player.begin_scrub();
+        player.seek_secs(0.05);
+        assert!(!player.is_playing(), "no sound while dragging");
+        let mut out = [1.0f32; 4];
+        assert_eq!(player.pull(&mut out), 0);
+        assert_eq!(out, [0.0; 4]);
+        player.seek_secs(0.08);
+        assert!((player.progress() - 0.8).abs() < f32::EPSILON, "live playhead");
+        player.end_scrub();
+        assert!(player.is_playing());
+        assert_eq!(player.pull(&mut out), 4);
+        assert!((player.progress() - 0.84).abs() < f32::EPSILON);
+        // Released at the end: nothing left to play.
+        player.begin_scrub();
+        player.seek_secs(5.0);
+        player.end_scrub();
+        assert!(!player.is_playing());
+    }
+
+    #[test]
+    fn pointer_x_maps_to_seconds_with_edges_and_zero_width() {
+        assert_eq!(x_to_secs(50.0, 200.0, 8.0), 2.0);
+        assert_eq!(x_to_secs(0.0, 200.0, 8.0), 0.0);
+        assert_eq!(x_to_secs(200.0, 200.0, 8.0), 8.0);
+        assert_eq!(x_to_secs(-10.0, 200.0, 8.0), 0.0);
+        assert_eq!(x_to_secs(500.0, 200.0, 8.0), 8.0);
+        assert_eq!(x_to_secs(10.0, 0.0, 8.0), 0.0);
+        assert_eq!(x_to_secs(f32::NAN, 200.0, 8.0), 0.0);
     }
 }
