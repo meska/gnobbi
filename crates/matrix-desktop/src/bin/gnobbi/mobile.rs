@@ -221,8 +221,13 @@ pub fn observe_lifecycle(ctx: &egui::Context) {
     }
 }
 
+#[cfg(test)]
+thread_local! { pub static FORCE_TOUCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
 /// iOS and Android, or the test hook GNOBBI_EGUI_TOUCH on desktop.
 pub fn touch() -> bool {
+    #[cfg(test)]
+    if FORCE_TOUCH.get() { return true; }
     static TOUCH_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *TOUCH_ON.get_or_init(|| cfg!(any(target_os = "ios", target_os = "android")) || matrix_desktop::hooks::var_os("GNOBBI_EGUI_TOUCH").is_some())
 }

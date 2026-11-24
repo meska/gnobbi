@@ -40,7 +40,8 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
     // Two composers on screen: Enter belongs to the focused one; the room one also keeps it when nothing is focused.
     let focus = ui.memory(|m| m.focused());
     let mine = focus == Some(nid("composer-text")) || (!thread && focus != Some(egui::Id::new(format!("composer-text{THREAD}"))));
-    let enter = mine && !shift_enter && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+    // On touch there is no Shift: Enter stays with the TextEdit (newline) and only the Send button sends.
+    let enter = mine && !shift_enter && !crate::mobile::touch() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
     // The Enter that confirms an IME / dead-key composition must not send: ignore it while composing and in the frame of the IME event.
     let ime_id = nid("composer-ime");
     let ime_event = ui.input(|i| i.events.iter().find_map(|e| match e {
@@ -849,6 +850,14 @@ mod tests {
         assert_eq!((sent, draft.as_str()), (None, "ab\n"));
         let (sent, ..) = run("ab", enter(false));
         assert_eq!(sent.as_deref(), Some("ab"));
+    }
+
+    #[test]
+    fn on_touch_enter_adds_a_line_and_never_sends() {
+        crate::mobile::FORCE_TOUCH.set(true);
+        let (sent, draft, ..) = run("ab", enter(false));
+        crate::mobile::FORCE_TOUCH.set(false);
+        assert_eq!((sent, draft.as_str()), (None, "ab\n"));
     }
 
     #[test]
