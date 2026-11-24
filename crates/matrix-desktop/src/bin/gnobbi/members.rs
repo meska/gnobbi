@@ -551,4 +551,152 @@ mod tests {
         assert!(!visible.is_empty() && visible.len() <= (800. / row_h()).ceil() as usize + 1, "{}", visible.len());
         assert!(visible.contains(list.rows()[0].avatar.as_ref().unwrap()) && !visible.contains(list.rows()[7999].avatar.as_ref().unwrap()));
     }
+
+    fn visible_avatars(ctx: &egui::Context) -> Vec<String> {
+        ctx.data(|d| d.get_temp::<Vec<String>>(egui::Id::new(crate::avatar::MEMBER_AVATARS))).unwrap()
+    }
+
+    /// One frame of the page in a 300x`h` window with `events` (wheel, pointer) and the given avatar map.
+    fn frame_with(ctx: &egui::Context, list: &mut MemberList, query: &mut String, h: f32, events: Vec<egui::Event>, avatars: &crate::avatar::Avatars) {
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., h))), events, ..Default::default() };
+        let mut out = ctx.run_ui(input, |ui| {
+            page(ui, list, query, None, None, "@me:x", avatars, &matrix_desktop::LIGHT);
+        });
+        out.textures_delta.clear();
+    }
+
+    /// Scroll the list by `dy` points (positive = down) and let egui's scroll smoothing settle.
+    fn scroll(ctx: &egui::Context, list: &mut MemberList, query: &mut String, h: f32, dy: f32) {
+        let wheel = vec![egui::Event::PointerMoved(egui::pos2(150., h / 2.)), egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0., -dy), modifiers: Default::default(), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown }];
+        frame_with(ctx, list, query, h, wheel, &Default::default());
+        for _ in 0..30 {
+            frame_with(ctx, list, query, h, vec![], &Default::default());
+        }
+    }
+
+    fn median_frame(n: usize) -> std::time::Duration {
+        let mut list = list_of(n, true);
+        let (ctx, mut q) = (egui::Context::default(), String::new());
+        let mut times: Vec<_> = (0..14)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                frame(&ctx, &mut list, &mut q);
+                t.elapsed()
+            })
+            .skip(4)
+            .collect();
+        times.sort();
+        times[times.len() / 2]
+    }
+
+    /// Threshold: median of 10 warm frames (4 warm-up frames dropped; fonts and layout caches fill in the first ones).
+    /// Absolute cap 50 ms: 8000 rows drawn the old way cost 27-39 ms already in RELEASE (debug, where tests run, is slower still);
+    /// the virtualised page costs ~1.1 ms in debug on the CT (0.2 ms release), so 50 ms leaves a ~45x margin to a loaded CT yet fails on O(N) drawing.
+    /// Relative cap: 8000 members must cost less than 4x 100 members. It does not depend on the speed of the machine, only on the cost not growing with N.
+    /// The median ignores the odd frame delayed by the scheduler; no sleeps, no network.
+    #[test]
+    fn frame_with_8000_members_is_fast_and_does_not_grow_with_n() {
+        let (small, big) = (median_frame(100), median_frame(8000));
+        eprintln!("median frame: 100 members {small:?}, 8000 members {big:?}");
+        assert!(big < std::time::Duration::from_millis(50), "8000 members: {big:?}");
+        assert!(big < small * 4 + std::time::Duration::from_millis(2), "100 members {small:?}, 8000 members {big:?}");
+    }
+
+    #[test]
+    fn search_is_computed_once_per_question_not_per_frame() {
+        let mut list = list_of(8000, true);
+        let (ctx, mut q) = (egui::Context::default(), "numero 79".to_owned());
+        frame(&ctx, &mut list, &mut q);
+        let (ptr, n) = (list.hits().as_ptr(), list.hits().len());
+        assert!(n > 0 && n < 8000);
+        for _ in 0..10 {
+            frame(&ctx, &mut list, &mut q);
+        }
+        // Same buffer and same content: not even re-allocated, let alone recomputed.
+        assert_eq!((list.hits().as_ptr(), list.hits().len()), (ptr, n));
+        q.push('1');
+        frame(&ctx, &mut list, &mut q);
+        assert!(list.hits().len() < n);
+        // A change of members resets the answer to "everything"; the next frame filters again.
+        list.retain(|_| true);
+        assert_eq!(list.hits().len(), 8000);
+        frame(&ctx, &mut list, &mut q);
+        assert!(list.hits().len() < 8000);
+    }
+
+    #[test]
+    fn scrolling_asks_only_for_the_rows_on_screen() {
+        let mut list = list_of(8000, true);
+        let (ctx, mut q) = (egui::Context::default(), String::new());
+        let max = (800. / row_h()).ceil() as usize + 2;
+        frame(&ctx, &mut list, &mut q);
+        assert!(visible_avatars(&ctx).len() <= max);
+        scroll(&ctx, &mut list, &mut q, 800., 100. * row_h());
+        let v = visible_avatars(&ctx);
+        assert!(!v.is_empty() && v.len() <= max, "{}", v.len());
+        // Scrolled away from the top: the first row is no longer asked for, the first on screen is near row 100.
+        assert!(!v.contains(list.rows()[0].avatar.as_ref().unwrap()));
+        let first = list.rows().iter().position(|m| m.avatar.as_ref() == Some(&v[0])).unwrap();
+        assert!((85..=105).contains(&first), "first visible row {first}");
+    }
+
+    #[test]
+    fn no_members_one_member_and_no_results() {
+        let (ctx, mut q) = (egui::Context::default(), String::new());
+        let mut empty = list_of(0, true);
+        frame(&ctx, &mut empty, &mut q);
+        assert!(visible_avatars(&ctx).is_empty() && empty.hits().is_empty());
+        let mut one = list_of(1, true);
+        frame(&ctx, &mut one, &mut q);
+        assert_eq!(visible_avatars(&ctx), ["mxc://example.org/0"]);
+        let mut list = list_of(8000, true);
+        q.push_str("nessuno-si-chiama-cosi");
+        frame(&ctx, &mut list, &mut q);
+        assert!(list.hits().is_empty() && visible_avatars(&ctx).is_empty());
+        // Back from zero results: the list is whole again.
+        q.clear();
+        frame(&ctx, &mut list, &mut q);
+        assert_eq!(list.hits().len(), 8000);
+        assert!(!visible_avatars(&ctx).is_empty());
+    }
+
+    #[test]
+    fn members_without_avatar_request_nothing() {
+        let mut list = list_of(8000, false);
+        let (ctx, mut q) = (egui::Context::default(), String::new());
+        frame(&ctx, &mut list, &mut q);
+        assert!(visible_avatars(&ctx).is_empty());
+    }
+
+    #[test]
+    fn avatars_still_loading_are_requested_again_only_by_the_driver_and_do_not_break_the_frame() {
+        let mut list = list_of(8000, true);
+        let (ctx, mut q) = (egui::Context::default(), String::new());
+        let loading: crate::avatar::Avatars = list.rows().iter().take(50).filter_map(|m| m.avatar.clone()).map(|a| (a, crate::avatar::Avatar::Loading)).collect();
+        frame_with(&ctx, &mut list, &mut q, 800., vec![], &loading);
+        // Loading rows stay in the wanted list (the driver skips what is already in the map); rows not on screen never enter it.
+        let v = visible_avatars(&ctx);
+        assert!(v.contains(list.rows()[0].avatar.as_ref().unwrap()) && v.len() < 50);
+        assert!(matches!(crate::avatar::lookup(&loading, list.rows()[0].avatar.as_deref()), crate::avatar::Avatar::Loading));
+        assert!(matches!(crate::avatar::lookup(&loading, list.rows()[7999].avatar.as_deref()), crate::avatar::Avatar::Loading));
+    }
+
+    #[test]
+    fn members_change_while_scrolled_down() {
+        let mut list = list_of(8000, true);
+        let (ctx, mut q) = (egui::Context::default(), String::new());
+        scroll(&ctx, &mut list, &mut q, 800., 5000. * row_h());
+        assert!(!visible_avatars(&ctx).contains(list.rows()[0].avatar.as_ref().unwrap()));
+        // The room shrinks to 5 members under the scroll offset: the frame must not panic and must show what exists.
+        list.retain(|m| m.user_id.trim_start_matches("@user").split(':').next().unwrap().parse::<usize>().unwrap() < 5);
+        for _ in 0..3 {
+            frame(&ctx, &mut list, &mut q);
+        }
+        let v = visible_avatars(&ctx);
+        assert_eq!(v.len(), 5, "{v:?}");
+        // And it grows again with a new sort.
+        list.resort((9, 9), &Activity::new());
+        frame(&ctx, &mut list, &mut q);
+        assert_eq!(visible_avatars(&ctx).len(), 5);
+    }
 }
