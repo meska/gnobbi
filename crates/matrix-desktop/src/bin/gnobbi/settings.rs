@@ -73,7 +73,7 @@ pub fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&
 }
 
 /// Draws the drawer beside the rail; returns the new preferences when something was changed (already saved).
-pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferences, dirs: Option<&AppDirs>, t: &DesignTokens) -> Option<Preferences> {
+pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferences, several_accounts: bool, dirs: Option<&AppDirs>, t: &DesignTokens) -> Option<Preferences> {
     let mut p = prefs.clone();
     let mut changed = false;
     let (mut devices, mut accounts, mut customize, mut feedback) = (false, false, false, false);
@@ -93,6 +93,9 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                     changed |= switch(ui, tr("Hide deleted messages"), &mut p.hide_redacted, t);
                     changed |= switch(ui, tr("Show status messages"), &mut p.show_status, t);
                     changed |= switch(ui, tr("Message preview"), &mut p.message_preview, t);
+                    if several_accounts {
+                        changed |= switch(ui, tr("One list for all accounts"), &mut p.unified_list, t);
+                    }
                     section(ui, tr("Notifications"), t);
                     changed |= switch(ui, tr("Notifications"), &mut p.notifications, t);
                     // iOS has no tray (nor other desktop-only system rows): no System section.
@@ -156,6 +159,7 @@ pub fn persist(dirs: Option<&AppDirs>, p: &Preferences) {
             saved.hide_redacted = new.hide_redacted;
             saved.show_status = new.show_status;
             saved.message_preview = new.message_preview;
+            saved.unified_list = new.unified_list;
             saved.notifications = new.notifications;
             saved.close_to_tray = new.close_to_tray;
             saved.language = new.language;

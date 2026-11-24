@@ -84,6 +84,7 @@ fn roundtrip_keeps_values() {
         notifications: true,
         desktop_entry_dont_ask: true,
         message_preview: false,
+        unified_list: false,
         update_check_enabled: false,
         last_check: Some(1_700_000_000),
         max_build_seen: 812,
@@ -92,6 +93,7 @@ fn roundtrip_keeps_values() {
         update_base: Some("http://lan/dl/".into()),
         list_width: Some(412),
         thread_width: Some(500),
+        emoji_dock: true,
         count_preview_accounts: Default::default(),
         language: matrix_desktop::i18n::Preference::Fixed("it"),
         text_size: matrix_desktop::TextSize::Large,
@@ -626,4 +628,17 @@ fn show_status_is_on_by_default_also_for_files_saved_before_it_existed() {
     }
     let saved = Preferences::update(&d, |p| p.show_status = false).unwrap();
     assert!(!saved.show_status && !Preferences::load(&d).show_status, "off survives a reload");
+}
+
+#[test]
+fn unified_list_is_on_by_default_also_for_files_saved_before_it_existed() {
+    let _gate = no_spawn();
+    assert!(Preferences::default().unified_list);
+    let d = dirs(&tmp("unified-list-legacy"));
+    assert!(Preferences::load(&d).unified_list, "no file");
+    std::fs::create_dir_all(&d.config).unwrap();
+    std::fs::write(d.config.join("settings.json"), r#"{"read_receipts": false, "message_preview": false}"#).unwrap();
+    assert!(Preferences::load(&d).unified_list, "old file without the key");
+    let saved = Preferences::update(&d, |p| p.unified_list = false).unwrap();
+    assert!(!saved.unified_list && !Preferences::load(&d).unified_list, "off survives a reload");
 }

@@ -14,6 +14,12 @@ pub struct UnifiedList {
     builds: u32,
 }
 
+/// Whether the list holds the rooms of every account: the setting is on, more than one account runs, and neither an account
+/// (picked in the menu) nor a space was picked. Off or not, the single-account list is the one the shown account always had.
+pub fn unified_applies(enabled: bool, one_account: bool, other_accounts: usize, in_space: bool) -> bool {
+    enabled && !one_account && other_accounts > 0 && !in_space
+}
+
 impl UnifiedList {
     /// Invitations first, then pinned, the rest and low priority last (as in a single account); inside each, the last message
     /// (received or sent) first. The SDK order of one account cannot be compared with another's, so the stamp decides.
@@ -61,6 +67,21 @@ mod tests {
             unread,
             info: RoomInfo { last_event_ts: ts, ..Default::default() },
         })));
+    }
+
+    #[test]
+    fn setting_off_keeps_the_list_to_the_shown_account() {
+        let (mut a, mut b) = (Sidebar::connected(AccountId::new(1)), Sidebar::connected(AccountId::new(1)));
+        upsert(&mut a, "mine", 0, Some(10));
+        upsert(&mut b, "theirs", 0, Some(20));
+        let sidebars = [a, b];
+        let mut list = UnifiedList::default();
+        // On: both accounts. Off: `unified_applies` is false, the app draws the shown sidebar's own list.
+        assert_eq!(names(&mut list, &sidebars, false, "").len(), 2);
+        assert!(unified_applies(true, false, 1, false));
+        assert!(!unified_applies(false, false, 1, false));
+        assert_eq!(sidebars[0].visible_indices().len(), 1);
+        assert!(!unified_applies(true, true, 1, false) && !unified_applies(true, false, 0, false) && !unified_applies(true, false, 1, true));
     }
 
     fn names(list: &mut UnifiedList, sidebars: &[Sidebar], unread: bool, query: &str) -> Vec<(usize, String)> {

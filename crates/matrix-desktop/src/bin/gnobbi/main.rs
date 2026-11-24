@@ -1446,7 +1446,9 @@ impl App {
         let mut others = Vec::new();
         let (active_id, active_label, account) = self.account_rows(&mut others);
         // The badges of «Non lette» and «Tutte le chat» count every account, the parked ones too (cached per sidebar, no walk of the rooms).
-        let totals = self.session.iter().chain(self.parked.iter().map(|p| &p.session)).fold((0u64, 0u64), |(r, m), s| {
+        // With «Lista unica» off they count the shown account only, as the list does.
+        let parked: &[Parked] = if self.prefs.unified_list { &self.parked[..] } else { &[] };
+        let totals = self.session.iter().chain(parked.iter().map(|p| &p.session)).fold((0u64, 0u64), |(r, m), s| {
             let (rooms, messages) = s.sidebar.counts();
             (r.saturating_add(rooms), m.saturating_add(messages))
         });
@@ -1463,7 +1465,7 @@ impl App {
                 pick_account = rail_panel(ui, session, &mut self.rail, account, totals, &others, (&active_label, &active_id), t);
             }
             // More than one running account and no account or space picked in the rail: the list holds the rooms of all of them.
-            let merged = !self.rail.one_account && !self.parked.is_empty() && session.sidebar.active_space().is_none();
+            let merged = matrix_desktop::unified_applies(self.prefs.unified_list, self.rail.one_account, self.parked.len(), session.sidebar.active_space().is_some());
             let unified = merged.then(|| list::Unified { parked: &mut self.parked, cache: &mut self.merged, open: &mut self.merged_open });
             if !narrow || show_list {
                 // Narrow: the list takes the whole width left of the rail and the chat is not drawn; a tap on a row, the open one too, goes to the chat.
@@ -2022,7 +2024,7 @@ impl App {
             }
         }
         self.sign_out_step(ui.ctx());
-        let new = settings::show(ui.ctx(), &mut self.rail, &self.prefs, self.dirs.as_ref(), t)
+        let new = settings::show(ui.ctx(), &mut self.rail, &self.prefs, !self.parked.is_empty(), self.dirs.as_ref(), t)
             .or_else(|| customize::show(ui.ctx(), &mut self.rail, &self.prefs, self.system_scale, self.dirs.as_ref(), t));
         if let Some(new) = new {
             if new.icon != self.prefs.icon
