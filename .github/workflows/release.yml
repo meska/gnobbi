@@ -131,6 +131,10 @@ jobs:
             echo "## New"; grep -viE '^- fix' all.txt || true
             echo; echo "## Fixes"; grep -iE '^- fix' all.txt || true
           } > notes.md
+          # GitHub caps a release body at 125000 chars; the first tag has the whole history.
+          if [ -z "$prev" ] || [ "$(wc -c < notes.md)" -gt 120000 ]; then
+            echo "Gnobbi $tag. Full history: https://github.com/${{ github.repository }}/commits/$GITHUB_SHA" > notes.md
+          fi
       - name: Release
         # Only a tag push or an explicit publish=true creates a Release.
         if: github.ref_type == 'tag' || inputs.publish
