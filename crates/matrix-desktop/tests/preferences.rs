@@ -242,6 +242,7 @@ fn directory_servers_and_outcome_survive_preference_update() {
     let data: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(data["update_outcome"]["build"], 31);
     assert_eq!(data["future"]["x"], 1);
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     assert_eq!(matrix_desktop::update::startup::update_outcome(&d), Some(("updated".into(), 31)));
     assert_eq!(SavedServers::load(&d).for_account(1), ["matrix.example"]);
 }

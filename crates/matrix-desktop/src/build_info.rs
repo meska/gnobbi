@@ -21,6 +21,9 @@ pub const BUILD_INFO: BuildInfo = BuildInfo {
     matrix_sdk: env!("GNOBBI_MATRIX_SDK_VERSION"),
 };
 
+/// Built with an explicit `GNOBBI_BUILD` (release/nightly); local development builds are not.
+pub const DISTRIBUTED: bool = option_env!("GNOBBI_DISTRIBUTED").is_some();
+
 /// iOS has no /etc/os-release or sw_vers, and no process may be spawned there.
 #[cfg(target_os = "ios")]
 pub fn system_version() -> String {

@@ -231,16 +231,12 @@ pub fn confirm_update_for(dirs: &AppDirs, build: u64, target: &Path) {
     }
 }
 
-/// Update target: Linux `~/Applications/gnobbi.AppImage` if present, else `$APPIMAGE`; Windows the running exe.
+/// Update target: Linux the `$APPIMAGE` file; Windows the running exe.
 fn target_real(env: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     if cfg!(windows) {
         return std::env::current_exe().ok();
     }
-    if cfg!(target_os = "macos") {
-        return None;
-    }
-    let fixed = env("HOME").map(|h| Path::new(&h).join("Applications/gnobbi.AppImage")).filter(|p| p.exists());
-    fixed.or_else(|| env("APPIMAGE").filter(|a| !a.is_empty()).map(PathBuf::from))
+    env("APPIMAGE").filter(|a| !a.is_empty()).map(PathBuf::from)
 }
 
 fn dirs_real() -> Option<AppDirs> {

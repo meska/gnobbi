@@ -56,9 +56,9 @@ impl Rig {
     /// One scheduler run as the build 41 binary, inside the fixtures' validity (valid_until 2026-12-05).
     fn go(&self) {
         let keys = UpdateKeys::parse(&String::from_utf8(fx("e2e.pub")).unwrap()).unwrap();
-        let seam = Seam { keys: &keys, build: "41", host: "gnobbi.meskatech.net", now: UNIX_EPOCH + Duration::from_secs(1_796_496_000 - 10 * 86_400), before_download_gate: &|| {} };
+        let seam = Seam { keys: &keys, build: "41", host: "gnobbi.meskatech.net", now: UNIX_EPOCH + Duration::from_secs(1_796_496_000 - 10 * 86_400) };
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        check_and_stage_with(&rt, &self.dirs, &self.state, &self.channel, &mut Preferences::load(&self.dirs), &seam);
+        check_and_stage_with(&rt, &self.dirs, &self.state, &self.channel, &mut Preferences::load(&self.dirs), &seam, &|| {});
     }
     fn prefs(&self) -> Preferences { Preferences::load(&self.dirs) }
     /// Staging leftovers next to the target.

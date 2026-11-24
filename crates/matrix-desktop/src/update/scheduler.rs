@@ -1,6 +1,7 @@
-//! Background update check (AUTO_UPDATE §1.4): 30 s after start, then at most every 24 h, only on
-//! channels that update themselves and with `update_check_enabled`. Any other case opens no
-//! connection and builds no client. Errors go to stderr only; no UI here.
+//! Background update check: 30 s after start, then every 6 h, only on channels that update
+//! themselves, in distributed builds (`GNOBBI_BUILD`) and with `update_check_enabled`. Any other
+//! case opens no connection and builds no client. The check only records the offer in the shared
+//! state; the download starts when the user asks (`apply`). Errors go to stderr only.
 use super::channel::Channel;
 use super::{channel::{Env, detect_channel}, stage::UpdateState};
 use crate::{AppDirs, Preferences};
@@ -15,7 +16,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { start_delay: Duration::from_secs(30), interval: Duration::from_secs(24 * 3600) }
+        Self { start_delay: Duration::from_secs(30), interval: Duration::from_secs(6 * 3600) }
     }
 }
 
@@ -50,7 +51,8 @@ fn download_allowed(dirs: &AppDirs, channel: &Channel, initial: &Preferences) ->
 fn run_loop(dirs: &AppDirs, channel: &Channel, cfg: Config, mut work: impl FnMut(Preferences)) {
     std::thread::sleep(cfg.start_delay);
     loop {
-        tick(dirs, channel, cfg.interval, &mut work);
+        // The loop is the timer (start + every `interval`): `last_check` must not skip the check at start.
+        tick(dirs, channel, Duration::ZERO, &mut work);
         std::thread::sleep(cfg.interval);
     }
 }
@@ -58,7 +60,7 @@ fn run_loop(dirs: &AppDirs, channel: &Channel, cfg: Config, mut work: impl FnMut
 /// Starts the scheduler thread. `None` (nothing spawned) when the channel does not self-update.
 pub fn start(dirs: AppDirs, state: Arc<Mutex<UpdateState>>, cfg: Config) -> Option<std::thread::JoinHandle<()>> {
     let channel = detect_channel(&Env::from_process());
-    if !channel.self_updates() {
+    if !channel.self_updates() || !release_build(crate::build_info::DISTRIBUTED, crate::build_info::BUILD_INFO.build) {
         return None;
     }
     std::thread::Builder::new().name("update-check".into()).spawn(move || {
@@ -73,10 +75,15 @@ pub fn start(dirs: AppDirs, state: Arc<Mutex<UpdateState>>, cfg: Config) -> Opti
                 }
             }
             if let Some(rt) = &rt {
-                online::check_and_stage(rt, &dirs, &state, &channel, &mut prefs);
+                online::check(rt, &dirs, &state, &channel, &mut prefs);
             }
         });
     }).ok()
+}
+
+/// Local development builds (no `GNOBBI_BUILD`, or no numeric build) neither check nor offer anything.
+pub fn release_build(distributed: bool, build: &str) -> bool {
+    distributed && super::build_number(build).is_some()
 }
 
 fn target(channel: &Channel) -> &Path {
@@ -96,56 +103,76 @@ fn artifact_key(channel: &Channel, os: &str, arch: &str) -> Option<&'static str>
     }
 }
 
+pub use online::stage;
+
 mod online {
     use super::*;
-    use crate::update::{check::{self, Outcome}, verify::{Candidate, UpdateKeys}};
+    use crate::update::{check::{self, Offer, Outcome}, install, stage::Ready, verify::{Candidate, UpdateKeys}};
     use std::io::Read;
 
     const KEYS: &str = include_str!("../../update-keys.pub");
     const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
-    pub fn check_and_stage(rt: &tokio::runtime::Runtime, dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, prefs: &mut Preferences) {
+    /// Production check: records the offer (if any) in the shared state, downloads nothing.
+    pub fn check(rt: &tokio::runtime::Runtime, dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, prefs: &mut Preferences) {
         let Ok(keys) = UpdateKeys::parse(KEYS) else { return eprintln!("update: bad embedded keys") };
-        let seam = Seam { keys: &keys, build: crate::build_info::BUILD_INFO.build, host: check::UPDATE_HOST, now: SystemTime::now(), before_download_gate: &|| {} };
-        check_and_stage_with(rt, dirs, state, channel, prefs, &seam);
+        let seam = Seam { keys: &keys, build: crate::build_info::BUILD_INFO.build, host: check::UPDATE_HOST, now: SystemTime::now() };
+        let offer = check_offer(rt, dirs, state, channel, prefs, &seam);
+        state.lock().unwrap_or_else(|p| p.into_inner()).available = offer;
+    }
+
+    /// «Aggiorna»: download, verify, stage; the caller installs. `Err` is one line for the UI.
+    pub fn stage(dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, o: &Offer) -> Result<Ready, String> {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_time().enable_all().build().map_err(|_| install::failed(""))?;
+        // shortcut: prefs read now, not at check time; a changed `update_base` in between is not noticed, the offer URL stays that of its source.
+        let prefs = Preferences::load_checked(dirs).map_err(|_| install::failed(""))?;
+        stage_offer(&rt, dirs, state, channel, o, &prefs, &|| {}).ok_or_else(|| install::failed(""))
     }
 
     /// Internal injection point (production fills it with embedded keys, real build, host and
-    /// clock; never read from env/config). `before_download_gate` runs after a Candidate and
-    /// before the download authorization, so a test can commit a settings change there
-    /// deterministically. No lock is held across it or the network.
+    /// clock; never read from env/config).
     pub(super) struct Seam<'a> {
         pub keys: &'a UpdateKeys,
         pub build: &'a str,
         pub host: &'a str,
         pub now: SystemTime,
-        pub before_download_gate: &'a dyn Fn(),
     }
 
-    pub(super) fn check_and_stage_with(rt: &tokio::runtime::Runtime, dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, prefs: &mut Preferences, seam: &Seam) {
-        let Some(platform) = artifact_key(channel, std::env::consts::OS, std::env::consts::ARCH) else { return };
+    pub(super) fn check_offer(rt: &tokio::runtime::Runtime, dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, prefs: &mut Preferences, seam: &Seam) -> Option<Offer> {
+        let platform = artifact_key(channel, std::env::consts::OS, std::env::consts::ARCH)?;
         // check() logs its own errors and stamps last_check as an attempt before any connection.
-        let Ok(Outcome::Candidate(o)) = rt.block_on(check::check_with(dirs, prefs, seam.keys, platform, seam.build, seam.host, seam.now)) else { return };
-        if state.lock().unwrap_or_else(|p| p.into_inner()).bad_session.contains(&o.build) {
-            return;
-        }
-        let c = Candidate { version: o.version, build: o.build, file_name: o.url.rsplit('/').next().unwrap_or_default().into(), sha256: o.sha256, size: o.size };
+        let Ok(Outcome::Candidate(o)) = rt.block_on(check::check_with(dirs, prefs, seam.keys, platform, seam.build, seam.host, seam.now)) else { return None };
+        (!state.lock().unwrap_or_else(|p| p.into_inner()).bad_session.contains(&o.build)).then_some(o)
+    }
+
+    pub(super) fn stage_offer(rt: &tokio::runtime::Runtime, dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, o: &Offer, prefs: &Preferences, gate: &dyn Fn()) -> Option<Ready> {
+        let c = Candidate { version: o.version.clone(), build: o.build, file_name: o.url.rsplit('/').next().unwrap_or_default().into(), sha256: o.sha256.clone(), size: o.size };
         static ATTEMPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let id = ATTEMPT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let staging = target(channel).with_file_name(format!(".gnobbi.{}.{}.{}.new", c.build, std::process::id(), id));
         let client = match reqwest::Client::builder().user_agent("Gnobbi").connect_timeout(READ_TIMEOUT).read_timeout(READ_TIMEOUT).redirect(crate::update::github::redirect_policy()).build() {
             Ok(c) => c,
-            Err(e) => return eprintln!("update: client: {e}"),
+            Err(e) => { eprintln!("update: client: {e}"); return None; }
         };
-        (seam.before_download_gate)();
-        if !download_allowed(dirs, channel, prefs) { return; }
+        gate();
+        if !download_allowed(dirs, channel, prefs) { return None; }
         // send() arms its timers eagerly: it needs the runtime context, hence the async block.
         match rt.block_on(async { client.get(&o.url).send().await }) {
             Ok(resp) if resp.status() == reqwest::StatusCode::OK => {
-                let _ = super::super::stage::stage_candidate(dirs, state, &c, Body { rt, resp, buf: Vec::new(), pos: 0 }, &staging);
+                super::super::stage::stage_candidate(dirs, state, &c, Body { rt, resp, buf: Vec::new(), pos: 0 }, &staging).ok()
             }
-            Ok(resp) => eprintln!("update: download status {}", resp.status()),
-            Err(e) => eprintln!("update: download: {e}"),
+            Ok(resp) => { eprintln!("update: download status {}", resp.status()); None }
+            Err(e) => { eprintln!("update: download: {e}"); None }
+        }
+    }
+
+    /// Test seam of the whole old flow: check, then download as soon as there is an offer.
+    /// `before_download_gate` runs after the offer and before the download authorization, so a
+    /// test can commit a settings change there deterministically. No lock is held across it.
+    #[cfg(test)]
+    pub(super) fn check_and_stage_with(rt: &tokio::runtime::Runtime, dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, prefs: &mut Preferences, seam: &Seam, before_download_gate: &dyn Fn()) {
+        if let Some(o) = check_offer(rt, dirs, state, channel, prefs, seam) {
+            let _ = stage_offer(rt, dirs, state, channel, &o, prefs, before_download_gate);
         }
     }
 
@@ -198,8 +225,8 @@ mod tests {
         let win = Channel::WindowsPortable { exe: PathBuf::from("g.exe") };
         for ch in [appimage(), win] {
             assert!(should_check(&ch, &prefs(true, None), now));
-            assert!(should_check(&ch, &prefs(true, Some(now - 24 * H)), now));
-            assert!(!should_check(&ch, &prefs(true, Some(now - 24 * H + 1)), now));
+            assert!(should_check(&ch, &prefs(true, Some(now - 6 * H)), now));
+            assert!(!should_check(&ch, &prefs(true, Some(now - 6 * H + 1)), now));
             assert!(!should_check(&ch, &prefs(false, None), now));
             assert!(should_check(&ch, &prefs(true, Some(now + 5)), now), "clock moved back");
         }
@@ -209,9 +236,9 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_30s_and_24h() {
+    fn defaults_are_30s_and_6h() {
         let c = Config::default();
-        assert_eq!((c.start_delay.as_secs(), c.interval.as_secs()), (30, 86_400));
+        assert_eq!((c.start_delay.as_secs(), c.interval.as_secs()), (30, 6 * 3600));
     }
 
     #[test]
@@ -289,9 +316,9 @@ mod tests {
         let keys = crate::update::verify::UpdateKeys::parse(&String::from_utf8(fx("keys.pub")).unwrap()).unwrap();
         let channel = Channel::AppImage { target: root.join("g.AppImage") };
         let mut prefs = Preferences::load(&dirs);
-        let seam = online::Seam { keys: &keys, build: "41", host: "gnobbi.meskatech.net", now: UNIX_EPOCH + Duration::from_secs(1_796_496_000 - 10 * 86_400), before_download_gate: &|| hook(&dirs) };
+        let seam = online::Seam { keys: &keys, build: "41", host: "gnobbi.meskatech.net", now: UNIX_EPOCH + Duration::from_secs(1_796_496_000 - 10 * 86_400) };
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        online::check_and_stage_with(&rt, &dirs, &Default::default(), &channel, &mut prefs, &seam);
+        online::check_and_stage_with(&rt, &dirs, &Default::default(), &channel, &mut prefs, &seam, &|| hook(&dirs));
         let got = seen.lock().unwrap().clone();
         (got, root)
     }
@@ -309,6 +336,14 @@ mod tests {
         let (seen, root) = drive("badsig", "valid.other.minisig", &|_| {});
         assert!(!seen.iter().any(|p| p == ART), "{seen:?}");
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn local_builds_never_check() {
+        assert!(release_build(true, "812"));
+        assert!(!release_build(false, "812"), "commit count without GNOBBI_BUILD");
+        assert!(!release_build(true, "sconosciuto"));
+        assert!(!release_build(true, ""));
     }
 
     #[test]

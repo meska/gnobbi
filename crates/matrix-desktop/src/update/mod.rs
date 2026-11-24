@@ -19,7 +19,7 @@ mod install_tests;
 mod helper_tests;
 
 
-use crate::Preferences;
+use crate::{AppDirs, Preferences};
 use std::sync::{Arc, Mutex, OnceLock, atomic::{AtomicBool, Ordering}};
 
 pub const DEFAULT_UPDATE_BASE: &str = "https://gnobbi.meskatech.net/download/";
@@ -46,7 +46,61 @@ pub fn dismiss_indicator() {
 /// Version to announce: only a staged build, and not after «Più tardi».
 pub fn indicator(state: &Mutex<stage::UpdateState>) -> Option<String> {
     let s = state.lock().unwrap_or_else(|e| e.into_inner());
-    s.ready.as_ref().filter(|_| !LATER.load(Ordering::Relaxed)).map(|r| r.version.clone())
+    let version = s.ready.as_ref().map(|r| &r.version).or(s.available.as_ref().map(|o| &o.version));
+    version.filter(|_| !LATER.load(Ordering::Relaxed)).cloned()
+}
+
+/// What the UI shows: one of four simple states.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Status {
+    Idle,
+    Available { version: String },
+    Working,
+    /// One line, already localized.
+    Error(String),
+}
+
+pub fn status() -> Status {
+    status_of(&shared_state())
+}
+
+fn status_of(state: &Mutex<stage::UpdateState>) -> Status {
+    let s = state.lock().unwrap_or_else(|e| e.into_inner());
+    match (&s.error, s.working, &s.available) {
+        (_, true, _) => Status::Working,
+        (Some(line), _, _) => Status::Error(line.clone()),
+        (_, _, Some(o)) => Status::Available { version: o.version.clone() },
+        _ => Status::Idle,
+    }
+}
+
+/// «Aggiorna»: downloads, verifies and installs in a background thread (the UI never blocks), then
+/// restarts the app. Any failure leaves the running build untouched and becomes `Status::Error`.
+/// `unsent` = a message is still being sent: nothing starts (the row says so).
+pub fn start_update(dirs: AppDirs, unsent: bool) {
+    let state = shared_state();
+    let Some(offer) = ({
+        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
+        let offer = s.available.clone().filter(|_| !s.working);
+        if offer.is_some() {
+            (s.working, s.error) = (true, None);
+        }
+        offer
+    }) else { return };
+    let channel = channel::detect_channel(&channel::Env::from_process());
+    let finish = state.clone();
+    let spawned = std::thread::Builder::new().name("update-apply".into()).spawn(move || {
+        let line = install_unless_unsent(unsent, || {
+            let ready = scheduler::stage(&dirs, &state, &channel, &offer)?;
+            install::install_and_restart(&dirs, &channel, &ready)
+        });
+        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
+        (s.working, s.error) = (false, Some(line));
+    });
+    if spawned.is_err() {
+        let mut s = finish.lock().unwrap_or_else(|e| e.into_inner());
+        (s.working, s.error) = (false, Some(install::failed("")));
+    }
 }
 
 /// The announced version of the shared state, for the UI.
@@ -125,5 +179,26 @@ mod prefs_tests {
         assert_eq!(build_number("sconosciuto"), None);
         assert_eq!(build_number(""), None);
         assert!(build_number(crate::build_info::BUILD_INFO.build).is_some() || crate::build_info::BUILD_INFO.build == "sconosciuto");
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+
+    fn offer() -> check::Offer {
+        check::Offer { version: "0.1.0-nightly.1.9".into(), build: 9, url: "u".into(), sha256: String::new(), size: 1 }
+    }
+
+    #[test]
+    fn four_simple_states() {
+        let st = Mutex::new(stage::UpdateState::default());
+        assert_eq!(status_of(&st), Status::Idle);
+        st.lock().unwrap().available = Some(offer());
+        assert_eq!(status_of(&st), Status::Available { version: "0.1.0-nightly.1.9".into() });
+        st.lock().unwrap().error = Some("Update failed: error".into());
+        assert_eq!(status_of(&st), Status::Error("Update failed: error".into()));
+        st.lock().unwrap().working = true;
+        assert_eq!(status_of(&st), Status::Working);
     }
 }

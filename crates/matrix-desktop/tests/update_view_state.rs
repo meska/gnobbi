@@ -1,3 +1,4 @@
+#![cfg(any(target_os = "linux", target_os = "windows"))]
 //! View/state of the update offer (AUTO_UPDATE.md §3): dot + row from one state, «Più tardi», guard, channels.
 //! One process-global state (`shared_state`, `dismiss_indicator`): the order lives in a single test.
 use matrix_desktop::update::{self, channel::Channel, stage::Ready};

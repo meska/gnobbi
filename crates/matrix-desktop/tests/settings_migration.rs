@@ -1,3 +1,4 @@
+#![cfg(any(target_os = "linux", target_os = "windows"))]
 use matrix_desktop::{AppDirs, Preferences, Theme, app_dirs, Platform};
 use matrix_desktop::directory_servers::SavedServers;
 use matrix_desktop::update::startup;

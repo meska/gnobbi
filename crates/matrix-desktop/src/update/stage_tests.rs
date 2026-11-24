@@ -155,3 +155,74 @@ fn collision_with_ready_preserves_first_attempt() {
     assert_eq!(t.state.lock().unwrap().ready.as_ref(), Some(&ready));
     assert_eq!((ready.size, &ready.sha256), (c.size, &c.sha256));
 }
+
+fn zip_of(files: &[(&str, &[u8])]) -> Vec<u8> {
+    use std::io::Write;
+    let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, data) in files {
+        w.start_file(*name, zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)).unwrap();
+        w.write_all(data).unwrap();
+    }
+    w.finish().unwrap().into_inner()
+}
+
+fn zip_cand(zip: &[u8], build: u64) -> Candidate {
+    Candidate { file_name: "gnobbi-1-windows-x64.zip".into(), ..cand(zip, build) }
+}
+
+fn leftovers(t: &T) -> Vec<String> {
+    std::fs::read_dir(t.staging.parent().unwrap()).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with(".gnobbi")).collect()
+}
+
+#[test]
+fn windows_zip_is_verified_then_only_the_exe_is_staged() {
+    let t = t("zip-ok");
+    let exe = script("echo gnobbi build=7");
+    let z = zip_of(&[("readme.txt", b"hi"), ("gnobbi.exe", &exe)]);
+    let ready = stage(&t, &z, &zip_cand(&z, 7), T10).unwrap();
+    assert_eq!(std::fs::read(&ready.path).unwrap(), exe);
+    assert_eq!((ready.size, ready.sha256), (exe.len() as u64, cand(&exe, 7).sha256), "Ready describes the exe, not the zip");
+    assert_eq!(leftovers(&t), [t.staging.file_name().unwrap().to_string_lossy()], "the zip is gone");
+}
+
+#[test]
+fn windows_zip_failures_leave_nothing_and_never_run_it() {
+    let t = t("zip-bad");
+    let exe = script("echo gnobbi build=7");
+    let z = zip_of(&[("gnobbi.exe", &exe)]);
+    let mut wrong_hash = zip_cand(&z, 7);
+    wrong_hash.sha256 = cand(b"other", 7).sha256;
+    assert!(matches!(stage(&t, &z, &wrong_hash, T10), Err(StageError::Verify(_))));
+    let no_exe = zip_of(&[("nested/gnobbi.exe", &exe), ("other.exe", &exe)]);
+    assert!(matches!(stage(&t, &no_exe, &zip_cand(&no_exe, 7), T10), Err(StageError::BadZip)));
+    assert!(matches!(stage(&t, b"not a zip", &zip_cand(b"not a zip", 7), T10), Err(StageError::BadZip)));
+    assert_eq!(leftovers(&t), Vec::<String>::new());
+    assert!(t.state.lock().unwrap().ready.is_none());
+}
+
+#[test]
+fn declared_size_above_the_absolute_cap_is_refused_before_any_read() {
+    // 512 MiB is too big to feed in a test: the refusal happens on the declared size, before the file is created.
+    let t = t("too-large");
+    let b = script("echo gnobbi build=7");
+    let c = Candidate { size: MAX_ARTIFACT_BYTES + 1, ..cand(&b, 7) };
+    assert!(matches!(stage(&t, &b, &c, T10), Err(StageError::TooLarge)));
+    assert_eq!(leftovers(&t), Vec::<String>::new());
+}
+
+#[test]
+fn body_longer_than_declared_is_stopped_while_receiving() {
+    struct Endless(u64);
+    impl std::io::Read for Endless {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            self.0 += out.len() as u64;
+            assert!(self.0 < 1 << 20, "read far past the declared size");
+            out.fill(b'x');
+            Ok(out.len())
+        }
+    }
+    let t = t("endless");
+    let b = script("echo gnobbi build=7");
+    assert!(matches!(stage_with_timeout(&t.dirs, &t.state, &cand(&b, 7), Endless(0), &t.staging, T10), Err(StageError::Verify(_))));
+    assert_eq!(leftovers(&t), Vec::<String>::new());
+}

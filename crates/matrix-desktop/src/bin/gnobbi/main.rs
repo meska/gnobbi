@@ -629,6 +629,12 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // First frame drawn: a freshly installed build is confirmed (else the next starts would roll it back).
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        {
+            static CONFIRM: std::sync::Once = std::sync::Once::new();
+            CONFIRM.call_once(|| { std::thread::spawn(matrix_desktop::update::startup::confirm_update); });
+        }
         let ctx = ui.ctx().clone();
         self.refresh(&ctx);
         ctx.request_repaint_after(Duration::from_secs(60));
@@ -2769,6 +2775,15 @@ fn main() -> eframe::Result {
             let _ = tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive(NO_INDEX_LOG.parse().unwrap())).with_writer(std::io::stderr).try_init();
         }
     }
+    // Updater (Windows/Linux): the Windows helper mode and `--self-test` must run before anything else.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if let Some(code) = matrix_desktop::update::helper::dispatch(&args) {
+            std::process::exit(code);
+        }
+        matrix_desktop::update::startup::run_at_start();
+    }
     // `gnobbi account …` is a console command: no window, no notifications, no single-instance gate.
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
@@ -2805,6 +2820,10 @@ fn main() -> eframe::Result {
                 d.data = d.config.clone();
             }
         }
+    }
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    if let Some(d) = &dirs {
+        matrix_desktop::update::scheduler::start(d.clone(), matrix_desktop::update::shared_state(), Default::default());
     }
     let default_root = dirs.as_ref().map(|d| d.data.join("profile"));
     // `--signin <folder>` runs another account's profile; the default profile is the first install's.

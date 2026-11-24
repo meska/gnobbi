@@ -39,8 +39,6 @@ pub struct Env {
     pub flatpak_info: bool,
     pub snap: bool,
     pub current_exe: Option<PathBuf>,
-    /// `~/Applications/gnobbi.AppImage` exists.
-    pub stable_copy_exists: bool,
     /// macOS: `<bundle>/Contents/_MASReceipt/receipt` exists.
     pub mas_receipt: bool,
     /// Windows: the folder of `gnobbi.exe` is writable.
@@ -56,9 +54,6 @@ impl Env {
         let dir = current_exe.as_deref().and_then(Path::parent);
         Env {
             os: std::env::consts::OS.into(),
-            stable_copy_exists: home
-                .as_ref()
-                .is_some_and(|h| h.join("Applications/gnobbi.AppImage").is_file()),
             appimage: var("APPIMAGE").map(PathBuf::from),
             flatpak_id: var("FLATPAK_ID").is_some(),
             flatpak_info: Path::new("/.flatpak-info").exists(),
@@ -99,12 +94,7 @@ fn detect_linux(env: &Env) -> Channel {
         return Channel::Flatpak;
     }
     if let Some(image) = &env.appimage {
-        let stable = env.home.as_ref().map(|h| h.join("Applications/gnobbi.AppImage"));
-        let target = match stable {
-            Some(s) if env.stable_copy_exists => s,
-            _ => image.clone(),
-        };
-        return Channel::AppImage { target };
+        return Channel::AppImage { target: image.clone() };
     }
     if env.snap {
         return Channel::SystemPackage;
@@ -140,19 +130,6 @@ mod tests {
         assert_eq!(
             detect_channel(&env),
             Channel::AppImage { target: "/home/u/Downloads/g.AppImage".into() }
-        );
-    }
-
-    #[test]
-    fn appimage_from_downloads_updates_applications_copy() {
-        let env = Env {
-            appimage: Some("/home/u/Downloads/g.AppImage".into()),
-            stable_copy_exists: true,
-            ..linux()
-        };
-        assert_eq!(
-            detect_channel(&env),
-            Channel::AppImage { target: "/home/u/Applications/gnobbi.AppImage".into() }
         );
     }
 

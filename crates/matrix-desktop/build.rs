@@ -49,6 +49,10 @@ fn main() {
         .map(|v| v.trim_end_matches('"').to_string())
         .unwrap_or_else(|| "sconosciuto".into());
 
+    // Only a build made with an explicit GNOBBI_BUILD is a distributed one (updater on); a git commit count alone proves nothing.
+    if std::env::var("GNOBBI_BUILD").is_ok_and(|b| !b.is_empty()) {
+        println!("cargo:rustc-env=GNOBBI_DISTRIBUTED=1");
+    }
     println!("cargo:rustc-env=GNOBBI_BUILD_NUMBER={build}");
     println!("cargo:rustc-env=GNOBBI_GIT_SHA={sha}");
     println!("cargo:rustc-env=GNOBBI_BUILD_DATE={}", ymd(secs));

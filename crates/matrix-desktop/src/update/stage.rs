@@ -7,6 +7,9 @@ use super::{startup, verify::{self, Candidate, UpdateError}};
 use crate::AppDirs;
 use std::{collections::BTreeSet, io::{Read, Write}, path::{Path, PathBuf}, sync::Mutex, time::{Duration, Instant}};
 
+pub use super::github::MAX_ARTIFACT_BYTES;
+/// The one file taken from the Windows zip.
+const ZIP_EXE: &str = "gnobbi.exe";
 pub const SELF_TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Downloaded, verified and self-tested: what the app may offer with «Aggiorna ora».
@@ -24,6 +27,12 @@ pub struct Ready {
 #[derive(Debug, Default)]
 pub struct UpdateState {
     pub ready: Option<Ready>,
+    /// Found by the background check; nothing downloaded yet.
+    pub available: Option<super::check::Offer>,
+    /// «Aggiorna» is running.
+    pub working: bool,
+    /// One line of the last failed «Aggiorna».
+    pub error: Option<String>,
     /// Transient failures: skipped for this session only.
     pub bad_session: BTreeSet<u64>,
 }
@@ -35,6 +44,10 @@ pub enum StageError {
     Verify(UpdateError),
     SelfTestSpawn(std::io::Error),
     SelfTestTimeout,
+    /// Declared size above [`MAX_ARTIFACT_BYTES`]: refused before any byte is read.
+    TooLarge,
+    /// The Windows zip has no usable `gnobbi.exe`.
+    BadZip,
     /// Exit != 0 or a line other than `gnobbi build=<N>`.
     SelfTestFailed,
 }
@@ -70,27 +83,78 @@ pub(super) fn stage_with_timeout(dirs: &AppDirs, state: &Mutex<UpdateState>, c: 
 }
 
 fn run(c: &Candidate, body: impl Read, staging: &Path, timeout: Duration) -> Result<Ready, StageError> {
-    // Step 7: hard cap. One byte past `size` is enough for verify_file to reject it.
-    let mut out = std::fs::OpenOptions::new();
-    out.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut out, 0o600);
-    let out = out.open(staging).map_err(StageError::Io)?;
+    if c.size > MAX_ARTIFACT_BYTES {
+        return Err(StageError::TooLarge);
+    }
+    // The Windows asset is a zip: the zip is verified as declared, then only `gnobbi.exe` is taken from it.
+    let zip = c.file_name.ends_with(".zip");
+    let dl = if zip { with_suffix(staging, ".zip") } else { staging.to_owned() };
+    download(&dl, c, body)?;
+    let (size, sha256) = if zip {
+        let r = extract_exe(&dl, staging);
+        let _ = std::fs::remove_file(&dl);
+        r?
+    } else {
+        (c.size, c.sha256.clone())
+    };
     let mut guard = Guard(staging, false);
-    {
-        let mut out = out;
-        std::io::copy(&mut body.take(c.size.saturating_add(1)), &mut out).map_err(StageError::Io)?;
-        out.flush().map_err(StageError::Io)?;
-    } // close before guard cleanup on errors, including Windows
-    // Step 8: length then hash, before any chmod or exec.
-    verify::verify_file(staging, c).map_err(StageError::Verify)?;
     // Step 9.
     #[cfg(unix)]
     std::fs::set_permissions(staging, std::os::unix::fs::PermissionsExt::from_mode(0o755)).map_err(StageError::Io)?;
     // Step 10.
     self_test(staging, c.build, timeout)?;
     guard.1 = true;
-    Ok(Ready { version: c.version.clone(), build: c.build, path: staging.to_owned(), size: c.size, sha256: c.sha256.clone() })
+    Ok(Ready { version: c.version.clone(), build: c.build, path: staging.to_owned(), size, sha256 })
+}
+
+fn with_suffix(p: &Path, suffix: &str) -> PathBuf {
+    let mut s = p.as_os_str().to_owned();
+    s.push(suffix);
+    PathBuf::from(s)
+}
+
+/// Steps 7-8: receive at most `size + 1` bytes (the cap applies while receiving), then length and hash,
+/// before any chmod or exec. A failure leaves nothing behind; an existing `path` is never touched.
+fn download(path: &Path, c: &Candidate, body: impl Read) -> Result<(), StageError> {
+    let mut out = std::fs::OpenOptions::new();
+    out.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut out, 0o600);
+    let out = out.open(path).map_err(StageError::Io)?;
+    let mut guard = Guard(path, false);
+    {
+        let mut out = out;
+        std::io::copy(&mut body.take(c.size.saturating_add(1)), &mut out).map_err(StageError::Io)?;
+        out.flush().map_err(StageError::Io)?;
+    } // close before guard cleanup on errors, including Windows
+    verify::verify_file(path, c).map_err(StageError::Verify)?;
+    guard.1 = true;
+    Ok(())
+}
+
+/// `gnobbi.exe` of the (already verified) zip into `dest`, never more than [`MAX_ARTIFACT_BYTES`]
+/// whatever the zip header claims. Returns size and SHA-256 of the extracted file.
+fn extract_exe(zip: &Path, dest: &Path) -> Result<(u64, String), StageError> {
+    let mut ar = zip::ZipArchive::new(std::fs::File::open(zip).map_err(StageError::Io)?).map_err(|_| StageError::BadZip)?;
+    let entry = ar.by_name(ZIP_EXE).map_err(|_| StageError::BadZip)?;
+    if !entry.is_file() || entry.size() > MAX_ARTIFACT_BYTES {
+        return Err(StageError::BadZip);
+    }
+    let mut out = std::fs::OpenOptions::new();
+    out.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut out, 0o600);
+    let mut out = out.open(dest).map_err(StageError::Io)?;
+    let mut guard = Guard(dest, false);
+    let n = std::io::copy(&mut entry.take(MAX_ARTIFACT_BYTES + 1), &mut out).map_err(StageError::Io)?;
+    out.flush().map_err(StageError::Io)?;
+    drop(out);
+    if n > MAX_ARTIFACT_BYTES {
+        return Err(StageError::TooLarge);
+    }
+    let sha256 = verify::sha256_file(dest).map_err(StageError::Io)?;
+    guard.1 = true; // kept: the caller's guard takes over
+    Ok((n, sha256))
 }
 
 fn self_test(path: &Path, build: u64, timeout: Duration) -> Result<(), StageError> {

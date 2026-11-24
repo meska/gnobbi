@@ -36,6 +36,8 @@ eframe = { version = "0.37", default-features = false, features = ["accesskit"] 
 
 # Desktop only: file dialogs and Wayland/X11. iOS and Android have none of them.
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+# Windows update zip: reads only gnobbi.exe from it (flate2 is already in the tree).
+zip = { version = "=9.8.2", default-features = false, features = ["deflate-flate2"] }
 # Password prompt without echo for `gnobbi account` (MIT/Apache-2.0).
 rpassword = "=7.5.5"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
