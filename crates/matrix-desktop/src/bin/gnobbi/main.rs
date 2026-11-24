@@ -1792,6 +1792,7 @@ impl App {
             if std::mem::take(&mut acts.cancel_transfer) { s.cancel_transfer(); }
             if let Some(user) = acts.profile.take() { s.open_profile_from_chat(user); }
             if let Some(id) = acts.play.take() { s.play_audio(id); }
+            if let Some((id, frac, phase)) = acts.scrub.take() { s.scrub_audio(&id, frac, phase); }
             s.reaction_acts(std::mem::take(&mut acts.react), ui.ctx(), t);
             if acts.open_link.is_some() { self.pending_web = acts.open_link; }
         }
@@ -1931,7 +1932,7 @@ impl App {
                     Some(lift) => {
                         lift.rect = acts.lift_rect.unwrap_or(lift.rect);
                         lift.view = acts.view.unwrap_or(lift.view);
-                        (acts.reply_jump, acts.picture, acts.play, acts.vote, acts.open_link, acts.profile) = (None, None, None, None, None, None);
+                        (acts.reply_jump, acts.picture, acts.play, acts.vote, acts.open_link, acts.profile, acts.scrub) = (None, None, None, None, None, None, None);
                         acts.react = Default::default();
                         (None, None, None)
                     }
@@ -1964,6 +1965,7 @@ impl App {
                 if let Some(id) = acts.play.take() {
                     s.play_audio(id);
                 }
+                if let Some((id, frac, phase)) = acts.scrub.take() { s.scrub_audio(&id, frac, phase); }
                 if let Some((id, ix)) = acts.vote {
                     s.vote(id, ix);
                 }

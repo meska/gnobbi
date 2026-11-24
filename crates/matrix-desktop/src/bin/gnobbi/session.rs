@@ -2534,6 +2534,21 @@ impl Session {
         }
     }
 
+    /// Click or drag on a loaded note's waveform; `frac` is 0..=1 along it. A note not loaded yet is ignored.
+    pub fn scrub_audio(&mut self, id: &EventId, frac: f32, phase: crate::timeline::Scrub) {
+        use crate::timeline::Scrub::*;
+        let Some((current, out)) = &self.audio else { return };
+        if current != id { return; }
+        let player = out.player();
+        let mut p = player.lock().unwrap_or_else(|e| e.into_inner());
+        let secs = matrix_desktop::audio_player::x_to_secs(frac, 1., p.duration_ms() as f32 / 1000.);
+        match phase {
+            Start => { p.begin_scrub(); p.seek_secs(secs); }
+            Move | Click => p.seek_secs(secs),
+            End => { if !frac.is_nan() { p.seek_secs(secs); } p.end_scrub(); }
+        }
+    }
+
     /// (note, playing, progress, waveform) of the loaded note.
     pub fn audio_now(&self) -> Option<(EventId, bool, f32, Vec<f32>)> {
         let (id, out) = self.audio.as_ref()?;

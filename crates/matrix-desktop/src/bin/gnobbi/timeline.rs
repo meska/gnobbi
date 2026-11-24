@@ -5,12 +5,17 @@ use eframe::egui::{self, Align, Color32, CornerRadius, RichText, Vec2};
 use crate::media_cards::Role;
 use matrix_desktop::{DemoEvent, DesignTokens, i18n};
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Scrub { Start, Move, End, Click }
+
 /// Poll clicks of this frame: (poll start, option index).
 #[derive(Default)]
 pub struct Acts {
     pub vote: Option<(matrix_domain::EventId, usize)>,
     /// The play/pause button of a voice note was pressed.
     pub play: Option<matrix_domain::EventId>,
+    /// The waveform of a voice note was clicked or dragged: (note, 0..=1 along the bars, phase).
+    pub scrub: Option<(matrix_domain::EventId, f32, Scrub)>,
     /// Set by the app before drawing: the note being played (or loaded) and how far it is.
     pub now_playing: Option<(matrix_domain::EventId, bool, f32, Vec<f32>)>,
     pub open_link: Option<matrix_desktop::SafeWebUrl>,
@@ -553,7 +558,14 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                             acts.play = Some(id.clone());
                         }
                         let width = (inner.min(240.) - 2. * crate::metrics::button() - 2. * ui.spacing().item_spacing.x).max(60.);
-                        let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 24.), egui::Sense::hover());
+                        // Drag sense on the bars: the gesture is theirs, the timeline's ScrollArea does not scroll.
+                        let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 24.), egui::Sense::click_and_drag());
+                        let phase = if resp.drag_started() { Some(Scrub::Start) } else if resp.drag_stopped() { Some(Scrub::End) } else if resp.dragged() { Some(Scrub::Move) } else if resp.clicked() { Some(Scrub::Click) } else { None };
+                        if let Some(phase) = phase {
+                            // A release without a pointer position (left the window) keeps the playhead where it was: NaN.
+                            let frac = resp.interact_pointer_pos().or_else(|| resp.hover_pos()).map_or(f32::NAN, |pos| ((pos.x - rect.left()) / rect.width()).clamp(0., 1.));
+                            acts.scrub = Some((id.clone(), if crate::dir::rtl() { 1. - frac } else { frac }, phase));
+                        }
                         let bars = matrix_engine::audio_file::bars(if wave.is_empty() { &[0.] } else { wave }, ((width / 4.) as usize).clamp(20, 60));
                         let step = rect.width() / bars.len() as f32;
                         let (on, off) = (rgb(t.text), rgb(t.text).gamma_multiply(0.35));
