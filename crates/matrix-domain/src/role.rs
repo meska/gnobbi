@@ -36,6 +36,11 @@ pub fn cmp_by_role_then_name(a: (MemberRole, &str), b: (MemberRole, &str)) -> Or
         .then_with(|| a.1.cmp(b.1))
 }
 
+/// Groups by role; inside a group the most recent activity first, members without activity last by name.
+pub fn member_sort_key(role: MemberRole, activity_ms: Option<u64>, name: &str) -> (MemberRole, std::cmp::Reverse<Option<u64>>, String, String) {
+    (role, std::cmp::Reverse(activity_ms), name.to_lowercase(), name.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +72,12 @@ mod tests {
             v,
             vec![(Admin, "alice"), (Admin, "bob"), (Moderator, "carl"), (Member, "Anna"), (Member, "zoe")]
         );
+    }
+
+    #[test]
+    fn activity_orders_inside_the_role_group() {
+        let mut v = vec![(Member, None, "zoe"), (Member, Some(5), "bob"), (Admin, None, "al"), (Member, Some(9), "carl"), (Member, None, "Anna"), (Moderator, Some(1), "mo")];
+        v.sort_by_cached_key(|(r, a, n)| member_sort_key(*r, *a, n));
+        assert_eq!(v.iter().map(|x| x.2).collect::<Vec<_>>(), ["al", "mo", "carl", "bob", "Anna", "zoe"]);
     }
 }

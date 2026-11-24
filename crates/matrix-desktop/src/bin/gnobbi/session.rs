@@ -155,7 +155,12 @@ pub struct Session {
     pub draft: String,
     pub ops: LiveOperations,
     /// Joined members of the open room and the server's upload limit.
-    pub members: Option<(matrix_domain::RoomScope, Vec<matrix_engine::operations::Member>)>,
+    pub members: Option<crate::members::MemberList>,
+    /// The info panel shows the full member list (with search) instead of the room facts.
+    pub members_page: bool,
+    pub member_query: String,
+    /// The member order was refreshed since the info panel opened: rows do not move while it is open.
+    pub member_order_fresh: bool,
     members_requested: Option<matrix_domain::RoomScope>,
     /// A role was changed here: members and rights are read again when the room's next event arrives.
     roles_stale: Option<matrix_domain::RoomScope>,
@@ -368,6 +373,9 @@ impl Session {
             draft: String::new(),
             ops: LiveOperations::default(),
             members: None,
+            members_page: false,
+            member_query: String::new(),
+            member_order_fresh: false,
             members_requested: None,
             roles_stale: None,
             upload_limit: None,
@@ -714,6 +722,7 @@ impl Session {
         // Room, DM and space pictures of the list and the rail: a few per tick, so a long list does not burst the media worker.
         let mut budget = 6;
         let mut wanted: Vec<String> = ctx.data_mut(|d| d.remove_temp::<Vec<String>>(egui::Id::new(crate::avatar::MENTION_AVATARS))).unwrap_or_default();
+        wanted.extend(ctx.data_mut(|d| d.remove_temp::<Vec<String>>(egui::Id::new(crate::avatar::MEMBER_AVATARS))).unwrap_or_default());
         wanted.extend(self.sidebar.rooms().iter().filter_map(|r| r.info.avatar.clone()));
         wanted.extend(self.sidebar.navigation_entries().into_iter().filter_map(|e| e.avatar));
         if let Some(crate::space::SpaceView { children: Some(Ok(c)), .. }) = &self.space_view { wanted.extend(c.children.iter().filter_map(|c| c.avatar_url.clone())); }
@@ -870,6 +879,8 @@ impl Session {
             self.pictures.clear();
             crate::animation::clear();
             self.members = None;
+            (self.members_page, self.member_order_fresh) = (false, false);
+            self.member_query.clear();
             self.thread = None;
             self.upload_limit = None;
             self.search_sent.clear();
@@ -1280,7 +1291,7 @@ impl Session {
             }
             OperationResult::Moderated { scope, user_id, action, result } => {
                 if let Some(a) = &mut self.admin && &a.scope == scope && a.done(user_id, action, result.is_ok()) {
-                    if let Some((_, list)) = self.members.as_mut().filter(|(s, _)| s == scope) { list.retain(|m| &m.user_id != user_id); }
+                    if let Some(list) = self.members.as_mut().filter(|l| &l.scope == scope) { list.retain(|m| &m.user_id != user_id); }
                     if let Some(list) = self.space_view.as_mut().filter(|v| &v.scope == scope).and_then(|v| v.members.as_mut()) { list.retain(|m| &m.user_id != user_id); }
                 }
                 self.moderation_failed = result.is_err();
@@ -1297,9 +1308,9 @@ impl Session {
                         if let Some(r) = &mut self.rights {
                             r.role = role;
                         }
-                        if let Some((_, list)) = self.members.as_mut().filter(|(s, _)| s == scope) {
-                            list.iter_mut().filter(|m| &m.user_id == user_id).for_each(|m| m.role = role);
-                            list.sort_by(|a, b| matrix_domain::role::cmp_by_role_then_name((a.role, &a.name), (b.role, &b.name)));
+                        if self.members.as_ref().is_some_and(|l| &l.scope == scope) {
+                            let activity = self.member_activity(scope);
+                            if let Some(list) = &mut self.members { list.set_role(user_id, role, &activity); }
                         }
                         self.roles_stale = Some(scope.clone());
                     } else {
@@ -1532,11 +1543,12 @@ impl Session {
             if self.draft_scope.as_ref() == Some(&scope) {
                 self.upload_limit = upload_limit;
                 if let Ok(list) = members {
-                    self.members = Some((scope, list));
+                    let activity = self.member_activity(&scope);
+                    self.members = Some(crate::members::MemberList::new(scope.clone(), list, &activity, self.timeline_mark(&scope)));
                 }
                 changed = true;
             } else if let Some(v) = &mut self.space_view && v.scope == scope {
-                v.members = Some(members.unwrap_or_default());
+                v.members = Some(crate::members::MemberList::new(scope, members.unwrap_or_default(), &Default::default(), (0, 0)));
                 changed = true;
             }
             return changed;
@@ -1665,6 +1677,28 @@ impl Session {
         }
     }
 
+    /// (events, last timestamp) of the open room's timeline when it is `scope`'s: tells whether the member order is out of date.
+    fn timeline_mark(&self, scope: &matrix_domain::RoomScope) -> (usize, u64) {
+        self.messages.as_ref().filter(|m| m.scope() == scope).map_or((0, 0), |m| (m.events().len(), m.events().last().map_or(0, |e| e.timestamp_ms)))
+    }
+
+    fn member_activity(&self, scope: &matrix_domain::RoomScope) -> crate::members::Activity {
+        self.messages.as_ref().filter(|m| m.scope() == scope).map_or_else(Default::default, |m| crate::members::activity(m.events(), &self.user))
+    }
+
+    /// Called while the info panel is open: sorts again once per opening, and only if messages arrived since the last sort.
+    pub fn refresh_member_order(&mut self) {
+        if std::mem::replace(&mut self.member_order_fresh, true) {
+            return;
+        }
+        let Some(scope) = self.members.as_ref().map(|l| l.scope.clone()) else { return };
+        let mark = self.timeline_mark(&scope);
+        if self.members.as_ref().is_some_and(|l| l.mark() != mark) {
+            let activity = self.member_activity(&scope);
+            if let Some(l) = &mut self.members { l.resort(mark, &activity); }
+        }
+    }
+
     pub fn open_thread(&mut self, root: EventId) {
         self.thread = Some(ThreadState { root, views: Default::default(), history: None, at_start: false, heights: Default::default(), failed: false, draft: String::new(), attachment: None, attachment_revision: 0, voice: None, reply_to: None, menu: None, want: 50, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
         self.info_open = false;
@@ -1725,7 +1759,7 @@ impl Session {
     pub fn open_space(&mut self, scope: matrix_domain::RoomScope, members_page: bool) {
         self.room_error = None;
         self.op_queue.push(if members_page { OperationCommand::Members { scope: scope.clone() } } else { OperationCommand::SpaceChildren { scope: scope.clone() } });
-        self.space_view = Some(crate::space::SpaceView { scope, members_page, children: None, members: None, adding: None, promote: false });
+        self.space_view = Some(crate::space::SpaceView { scope, members_page, children: None, members: None, query: String::new(), adding: None, promote: false });
     }
 
     /// «Passa il ruolo di amministratore…»: the members page with a «Rendi amministratore» button per candidate.

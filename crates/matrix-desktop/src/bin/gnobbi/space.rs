@@ -4,14 +4,16 @@ use crate::list::rgb;
 use eframe::egui::{self, Align2, RichText, Sense, Vec2};
 use matrix_desktop::{DesignTokens, SidebarRoom};
 use matrix_domain::RoomScope;
-use matrix_engine::operations::{Member, SpaceChildren};
+use matrix_engine::operations::SpaceChildren;
 
 pub struct SpaceView {
     pub scope: RoomScope,
     pub members_page: bool,
     /// `None` until the engine answers; an error shows one line.
     pub children: Option<Result<SpaceChildren, ()>>,
-    pub members: Option<Vec<Member>>,
+    pub members: Option<crate::members::MemberList>,
+    /// What is typed in the members page search.
+    pub query: String,
     /// «Aggiungi stanza esistente» is open, with the room picked so far.
     pub adding: Option<Option<RoomScope>>,
     /// The members page offers «Rendi amministratore» (opened by «Passa il ruolo di amministratore…»).
@@ -116,12 +118,6 @@ pub fn can_promote(c: &SpaceChildren) -> bool {
 /// The typed name has to be the space's own (surrounding blanks ignored, case kept).
 pub fn name_confirmed(typed: &str, name: &str) -> bool {
     !name.trim().is_empty() && typed.trim() == name.trim()
-}
-
-/// Who may be made admin: joined members except the user. Invited members are not in the engine's list;
-/// Matrix has no standard bot flag, so bots cannot be told apart. shortcut: bots listed like people, upgrade if a flag appears.
-pub fn admin_candidates<'a>(members: &'a [Member], me: &str) -> Vec<&'a Member> {
-    members.iter().filter(|m| m.user_id != me).collect()
 }
 
 /// Window of «Elimina spazio»: consequences, the name to type, the red button. Then the report of what was done.
@@ -251,30 +247,20 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
         return;
     };
     let secondary = rgb(t.secondary);
-    let (mut open, mut add, mut remove, mut member, mut promote) = (true, None, None, None, None);
+    let (mut open, mut add, mut remove, mut member, mut promote, mut back) = (true, None, None, None, None, false);
     egui::Window::new(&space.name).id(egui::Id::new("space-view")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_width(crate::dir::fit(ui, 340.));
         if view.members_page {
-            ui.label(RichText::new(i18n::t("Members")).strong());
-            match &view.members {
+            match &mut view.members {
                 None => drop(ui.vertical_centered(|ui| ui.spinner())),
-                Some(members) => drop(egui::ScrollArea::vertical().max_height(360.).show(ui, |ui| {
-                    if view.promote {
-                        for m in admin_candidates(members, &session.user) {
-                            ui.horizontal(|ui| {
-                                ui.add(egui::Label::new(crate::list::clean_single_line(&m.name)).truncate());
-                                if ui.button(i18n::t("Make admin")).clicked() {
-                                    promote = Some(m.user_id.clone());
-                                }
-                            });
-                        }
-                        if session.moderation_failed {
-                            ui.colored_label(rgb(t.error), i18n::t("Failed"));
-                        }
-                    } else {
-                        member = crate::members::list(ui, members, session.admin.as_ref().filter(|a| a.scope == view.scope), &session.user, &session.avatars, t);
+                Some(members) => {
+                    ui.set_height(360.);
+                    let out = crate::members::page(ui, members, &mut view.query, view.promote.then_some(&mut promote), session.admin.as_ref().filter(|a| a.scope == view.scope), &session.user, &session.avatars, t);
+                    (member, back) = (out.act, out.back);
+                    if view.promote && session.moderation_failed {
+                        ui.colored_label(rgb(t.error), i18n::t("Failed"));
                     }
-                })),
+                }
             }
             return;
         }
@@ -351,7 +337,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
         session.moderation_failed = false;
         session.moderate_in(space.clone(), user, matrix_engine::operations::Moderation::SetPower(100));
     }
-    if !open {
+    if !open || back {
         session.space_view = None;
     }
     // A row click opens nothing here: the profile card belongs to the room panel.
@@ -369,15 +355,11 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
 mod tests {
     #[test]
     fn delete_and_promote_follow_the_last_admin_and_the_other_members() {
-        use matrix_engine::operations::{Member, SpaceChildren};
+        use matrix_engine::operations::SpaceChildren;
         let c = |last_owner, editable, other_members| SpaceChildren { last_owner, editable, other_members, ..Default::default() };
         assert!(super::can_delete(&c(true, true, 0)) && !super::can_delete(&c(true, false, 3)) && !super::can_delete(&c(false, true, 3)));
         assert!(super::can_promote(&c(true, true, 1)) && !super::can_promote(&c(true, true, 0)) && !super::can_promote(&c(false, true, 5)));
         assert!(super::name_confirmed("  Casa ", "Casa") && !super::name_confirmed("casa", "Casa") && !super::name_confirmed("", "") && !super::name_confirmed("Cas", "Casa"));
-        let m = |id: &str| Member { user_id: id.into(), name: id.into(), avatar: None, role: matrix_domain::role::MemberRole::Member };
-        let list = [m("@me:x"), m("@ada:x"), m("@bob:x")];
-        let ids: Vec<_> = super::admin_candidates(&list, "@me:x").iter().map(|m| m.user_id.as_str()).collect();
-        assert_eq!(ids, ["@ada:x", "@bob:x"]);
     }
 
     #[test]

@@ -15,6 +15,10 @@ pub enum Avatar {
 /// Context-data key under which the composer lists the mention suggestions on screen; `drive_avatars` asks only for those.
 pub const MENTION_AVATARS: &str = "mention-avatars";
 
+/// Same for the member rows on screen (preview and members page).
+// shortcut: the avatar map has no eviction; scrolling through 8000 members loads up to 8000 small thumbnails. Make it an LRU if memory shows it matters.
+pub const MEMBER_AVATARS: &str = "member-avatars";
+
 pub type Avatars = std::collections::HashMap<String, Avatar>;
 
 impl Avatar {
