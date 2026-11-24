@@ -22,6 +22,9 @@ pub struct Acts {
     pub flash: Option<matrix_domain::EventId>,
     /// Set by `show`: the lit message was drawn this frame (starts its clock).
     pub flash_drawn: bool,
+    /// Veil strength of the lit message (0..1) and the searched word to mark in it.
+    pub flash_alpha: f32,
+    pub flash_term: Option<String>,
     /// The long press of this frame, if it landed on this list (set by `show`).
     pub press: Option<egui::Pos2>,
     /// Set by the app before drawing: the message the touch menu lifts over the dimmed chat, and how far (0..1).
@@ -413,7 +416,11 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         // A sticker alone is drawn like on Telegram: no bubble, smaller than a photo. "Sticker" is the engine's label of `m.sticker`.
         let sticker = e.text.is_empty() && e.media.as_ref().is_some_and(|m| m.label == "Sticker");
         let bare = (big.is_some() || sticker) && e.reply_to.is_none() && !e.highlighted && !flashed;
-        let fill = if bare { Color32::TRANSPARENT } else if e.highlighted || flashed { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
+        let fill = if bare { Color32::TRANSPARENT } else if e.highlighted { rgb(t.mention_row) } else {
+            let base = if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
+            // The accent veil: its alpha is the highlight's opacity (capped, or the text would drown).
+            if flashed { base.lerp_to_gamma(rgb(t.accent), 0.35 * acts.flash_alpha) } else { base }
+        };
         let margin = if bare { egui::Margin::symmetric(0, 2) } else { egui::Margin::symmetric(PAD_X as i8, PAD_Y as i8) };
         // The copy the touch menu lifts over the dimmed chat (see `show`) casts a soft shadow.
         let lifted = acts.lift.as_ref().filter(|(id, _)| !bare && *id == e.id && ui.layer_id() == crate::touch_menu::lift_layer()).map_or(0., |(_, by)| *by);
@@ -429,6 +436,19 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 let size = BODY * big.unwrap_or(1.);
                 let mut job = egui::text::LayoutJob::simple(if big.is_some() { e.text.trim().to_owned() } else { e.text.clone() }, egui::FontId::proportional(size), ui.visuals().text_color(), inner);
                 job.sections[0].format.line_height = Some(if big.is_some() { size * 1.25 } else { 20. });
+                let marks = acts.flash_term.as_deref().filter(|_| flashed && big.is_none()).map(|w| crate::highlight::term_ranges(&e.text, w)).unwrap_or_default();
+                if !marks.is_empty() {
+                    let mark = { let a = rgb(t.accent); Color32::from_rgba_unmultiplied(a.r(), a.g(), a.b(), (110. * acts.flash_alpha) as u8) };
+                    let mut job2 = egui::text::LayoutJob { wrap: egui::text::TextWrapping::wrap_at_width(inner), ..Default::default() };
+                    let mut at = 0;
+                    for r in &marks {
+                        job2.append(&e.text[at..r.start], 0., job.sections[0].format.clone());
+                        job2.append(&e.text[r.clone()], 0., egui::TextFormat { background: mark, ..job.sections[0].format.clone() });
+                        at = r.end;
+                    }
+                    job2.append(&e.text[at..], 0., job.sections[0].format.clone());
+                    job = job2;
+                }
                 ui.painter().layout_job(job)
             });
             let (text_w, tail_w) = body.as_ref().map_or((0., 0.), |g| (g.size().x, g.rows.last().map_or(0., |r| r.rect().width())));

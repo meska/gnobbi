@@ -259,6 +259,8 @@ pub struct Session {
     jump_after_open: Option<(matrix_domain::RoomScope, (EventId, bool))>,
     /// The message a jump landed on and when: drawn lit for a moment.
     pub flash: crate::highlight::Highlight,
+    /// The searched word of the jump in flight (search hit), for `flash` to mark in the bubble.
+    pub jump_term: Option<String>,
     /// The «who reacted» popup: the pill it hangs from and the reaction it lists (a snapshot).
     pub who: Option<(eframe::egui::Rect, matrix_engine::history::Reaction)>,
     media: LiveMedia,
@@ -439,6 +441,7 @@ impl Session {
             all_sent: String::new(),
             jump_after_open: None,
             flash: Default::default(),
+            jump_term: None,
             who: None,
             media: LiveMedia::default(),
             viewer: None,
@@ -929,6 +932,7 @@ impl Session {
             let found = self.search_jump.as_ref().is_some_and(|(id, _)| self.messages.as_ref().is_some_and(|m| m.events().iter().any(|e| e.id.id == TimelineId::Server(id.clone()))));
             if !found {
                 self.search_jump = None;
+                self.jump_term = None;
                 self.notice = Some(i18n::t("Message not available").to_owned());
             }
         }
@@ -1645,6 +1649,7 @@ impl Session {
         let Some(scope) = self.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == hit.room_id && !r.info.invited).map(|r| r.scope.clone()) else {
             return false;
         };
+        self.jump_term = hit.matches.first().and_then(|r| hit.excerpt.get(r.clone())).map(str::to_owned);
         let jump = (EventId::new(hit.thread_root.as_deref().unwrap_or(&hit.event_id)), hit.thread_root.is_some());
         if self.sidebar.selected().is_some_and(|r| r.scope == scope) {
             self.search_jump = Some(jump);

@@ -19,11 +19,19 @@ pub fn opacity(elapsed: Duration, reduce_motion: bool) -> f32 {
     (1. - (t - HOLD) / FADE).clamp(0., 1.)
 }
 
+/// Byte ranges of `term` in `text`, ignoring case. Empty when lowercasing changes the byte length (ranges would not map back).
+pub fn term_ranges(text: &str, term: &str) -> Vec<std::ops::Range<usize>> {
+    let (low, t) = (text.to_lowercase(), term.to_lowercase());
+    if t.is_empty() || low.len() != text.len() {
+        return Vec::new();
+    }
+    low.match_indices(&t).map(|(i, m)| i..i + m.len()).collect()
+}
+
 #[derive(Default)]
 pub struct Highlight {
     target: Option<EventId>,
     /// The searched word, for the bubble to mark inside its text.
-    #[allow(dead_code)] // shortcut: kept for the draw task that marks the word; nothing reads it yet
     term: Option<String>,
     drawn_at: Option<Instant>,
 }
@@ -47,6 +55,18 @@ impl Highlight {
             return 0.;
         }
         self.drawn_at.map_or(1., |at| opacity(now.saturating_duration_since(at), reduce_motion))
+    }
+
+    /// The searched word while the effect lasts.
+    pub fn term(&self) -> Option<&str> {
+        self.term.as_deref().filter(|t| !t.is_empty())
+    }
+
+    /// Effect over (drawn and faded out): forget the target, so nothing is lit or repainted again.
+    pub fn clear_if_over(&mut self, now: Instant, reduce_motion: bool) {
+        if self.drawn_at.is_some() && self.repaint_in(now, reduce_motion).is_none() {
+            *self = Self::default();
+        }
     }
 
     /// The event to draw lit now, if any.
@@ -85,6 +105,25 @@ mod tests {
         assert_eq!(opacity(ms(2000), true), 1.);
         assert_eq!(opacity(ms(2400), true), 1.);
         assert_eq!(opacity(ms(2600), true), 0.);
+    }
+
+    #[test]
+    fn term_ranges_ignore_case() {
+        assert_eq!(term_ranges("Ciao ciao CIAO", "ciao"), vec![0..4, 5..9, 10..14]);
+        assert!(term_ranges("abc", "").is_empty());
+    }
+
+    #[test]
+    fn target_is_forgotten_when_over() {
+        let (mut h, t0) = (Highlight::default(), Instant::now());
+        h.set_target(id("$a"), Some("x".into()));
+        h.clear_if_over(t0 + Duration::from_secs(60), false); // never drawn: stays
+        assert!(h.term().is_some());
+        h.mark_drawn(&id("$a"), t0);
+        h.clear_if_over(t0 + ms(1000), false);
+        assert!(h.term().is_some());
+        h.clear_if_over(t0 + ms(2600), false);
+        assert!(h.term().is_none() && h.lit(t0, false).is_none());
     }
 
     #[test]
