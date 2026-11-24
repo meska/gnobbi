@@ -258,7 +258,7 @@ pub struct Session {
     /// A message chosen in `all_search` of a room that is not open yet: the jump waits for the room.
     jump_after_open: Option<(matrix_domain::RoomScope, (EventId, bool))>,
     /// The message a jump landed on and when: drawn lit for a moment.
-    pub flash: Option<(EventId, std::time::Instant)>,
+    pub flash: crate::highlight::Highlight,
     /// The «who reacted» popup: the pill it hangs from and the reaction it lists (a snapshot).
     pub who: Option<(eframe::egui::Rect, matrix_engine::history::Reaction)>,
     media: LiveMedia,
@@ -438,7 +438,7 @@ impl Session {
             all_search: matrix_engine::operations::MessageSearchState::Idle,
             all_sent: String::new(),
             jump_after_open: None,
-            flash: None,
+            flash: Default::default(),
             who: None,
             media: LiveMedia::default(),
             viewer: None,

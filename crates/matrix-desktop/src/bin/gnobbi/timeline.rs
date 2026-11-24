@@ -20,6 +20,8 @@ pub struct Acts {
     pub reply_jump: Option<matrix_domain::EventId>,
     /// The message just jumped to, lit for a moment.
     pub flash: Option<matrix_domain::EventId>,
+    /// Set by `show`: the lit message was drawn this frame (starts its clock).
+    pub flash_drawn: bool,
     /// The long press of this frame, if it landed on this list (set by `show`).
     pub press: Option<egui::Pos2>,
     /// Set by the app before drawing: the message the touch menu lifts over the dimmed chat, and how far (0..1).
@@ -404,6 +406,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         // Only the corners on the sender's side shrink where the bubbles touch.
         let radius = if e.outgoing != crate::dir::rtl() { CornerRadius { nw: ROUND, ne: r(above), sw: ROUND, se: r(below) } } else { CornerRadius { nw: r(above), ne: ROUND, sw: r(below), se: ROUND } };
         let flashed = matches!((&e.id.id, &acts.flash), (matrix_domain::TimelineId::Server(a), Some(b)) if a == b);
+        acts.flash_drawn |= flashed;
         // 1-3 emoji alone: Telegram-style big glyph with no bubble (a reply quote keeps the bubble around it).
         let big = (e.media.is_none() && e.poll.is_none() && e.thread.is_none() && e.attachment_name.is_none() && !e.utd && e.styles.is_empty() && e.mentions.is_empty())
             .then(|| matrix_desktop::big_emoji::scale(&e.text)).flatten();

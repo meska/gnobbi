@@ -24,6 +24,7 @@ mod dir;
 mod explore;
 #[cfg(target_os = "linux")]
 mod desktop_entry;
+mod highlight;
 mod icons;
 mod info;
 mod join;
@@ -1827,9 +1828,9 @@ impl App {
                 && let Some(messages) = &s.messages
                 && !stale
             {
-                s.flash = s.flash.take().filter(|(_, at)| at.elapsed() < std::time::Duration::from_millis(1500));
-                if s.flash.is_some() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(100)); }
-                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.as_ref().map(|(id, _)| id.clone()), lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), wishes: s.ops.wishes().to_vec(), ..Default::default() };
+                let (now, still) = (std::time::Instant::now(), mobile::reduce_motion());
+                if let Some(after) = s.flash.repaint_in(now, still) { ui.ctx().request_repaint_after(after); }
+                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.lit(now, still).cloned(), lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), wishes: s.ops.wishes().to_vec(), ..Default::default() };
                 let jump = s.search_jump.as_ref().and_then(|(id, _)| messages.events().iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())));
                 let room = s.sidebar.selected();
                 let members = room.map_or(3, |r| r.info.joined_members);
@@ -1837,8 +1838,9 @@ impl App {
                 s.heights.fetch = s.fetch();
                 // Scroll state per room: one shared id carried the old room's offset into the new one (jump on switch).
                 let (first, menu, save, thread) = ui.push_id(room.map(|r| r.scope.room_id.as_str()), |ui| timeline::show(ui, room.map_or(0, |r| r.unread), messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, members, &readers, t, jump, None)).inner;
+                if acts.flash_drawn && let Some(id) = &acts.flash { s.flash.mark_drawn(id, now); }
                 if jump.is_some() && let Some((root, open_thread)) = s.search_jump.take() {
-                    if open_thread { s.open_thread(root); } else { s.flash = Some((root, std::time::Instant::now())); }
+                    if open_thread { s.open_thread(root); } else { s.flash.set_target(root, None); }
                 }
                 // The touch menu is open: it follows its bubble, and the chat under it takes nothing (the finger that opened it is still down).
                 let (menu, save, thread) = match &mut s.lift {
