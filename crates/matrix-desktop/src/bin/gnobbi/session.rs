@@ -1164,7 +1164,9 @@ impl Session {
         if self.op_pending.is_none() && !self.op_queue.is_empty() {
             self.op_pending = Some(self.op_queue.remove(0));
         }
-        self.ops.tick(std::time::Instant::now());
+        for scope in self.ops.tick(std::time::Instant::now()) {
+            self.history.activity(&scope);
+        }
         if self.op_pending.is_none() {
             self.op_pending = self.ops.take_command();
         }

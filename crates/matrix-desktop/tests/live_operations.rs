@@ -153,16 +153,35 @@ fn failed_write_remains_retryable_after_inspecting_another_room() {
 }
 
 #[test]
-fn the_menu_toggle_reacts_or_takes_back_by_what_the_row_shows() {
+fn the_menu_toggle_shows_at_once_reacts_or_takes_back_by_what_the_row_shows() {
+    use matrix_desktop::overlay_reactions as overlay;
     let mut actions = inspected(MessagePermissions { react: true, ..Default::default() });
+    let target = EventId::new("$first");
     assert!(actions.toggle_reaction("+1", false, TransactionId::new("react")));
+    // Shown before the server answers: the row alone (no re-read of the room) must carry our pill.
+    let shown = overlay(actions.wishes(), &target, &[]);
+    assert_eq!((shown[0].key.as_str(), shown[0].mine, shown[0].pending), ("+1", true, true));
     let Some(OperationCommand::Apply(request)) = actions.take_command() else { panic!("react") };
     assert!(request.operation == Operation::React { key: "+1".into() });
     actions.apply(OperationResult::Applied { request, result: Ok(EventId::new("$reaction")) });
     // The row now says the reaction is ours (even one made in an earlier session): the same emoji takes it back.
+    actions.tick(std::time::Instant::now() + std::time::Duration::from_secs(9));
     assert!(actions.toggle_reaction("+1", true, TransactionId::new("remove")));
     let Some(OperationCommand::Apply(request)) = actions.take_command() else { panic!("remove") };
     assert!(request.operation == Operation::Unreact { key: "+1".into() });
+}
+
+#[test]
+fn the_menu_toggle_needs_the_react_right_and_rolls_back_when_the_send_fails() {
+    use matrix_desktop::overlay_reactions as overlay;
+    let mut denied = inspected(MessagePermissions::default());
+    assert!(!denied.toggle_reaction("+1", false, TransactionId::new("no")));
+    let mut actions = inspected(MessagePermissions { react: true, ..Default::default() });
+    assert!(actions.toggle_reaction("+1", false, TransactionId::new("react")));
+    assert_eq!(overlay(actions.wishes(), &EventId::new("$first"), &[]).len(), 1);
+    let Some(OperationCommand::Apply(request)) = actions.take_command() else { panic!("react") };
+    actions.apply(OperationResult::Applied { request, result: Err(OperationError::Transport) });
+    assert!(overlay(actions.wishes(), &EventId::new("$first"), &[]).is_empty(), "rolled back");
 }
 
 fn reaction(key: &str, count: usize, mine: bool) -> matrix_engine::history::Reaction {
@@ -210,8 +229,10 @@ fn taking_a_pill_back_drops_it_at_zero_and_a_wish_the_server_met_changes_nothing
     actions.apply(OperationResult::Applied { request, result: Ok(EventId::new("$removed")) });
     actions.tick(std::time::Instant::now());
     assert_eq!(actions.wishes().len(), 1, "kept a few seconds for the timeline to catch up");
-    actions.tick(std::time::Instant::now() + std::time::Duration::from_secs(9));
+    // The room is to be read again when the overlay ends.
+    let ended = actions.tick(std::time::Instant::now() + std::time::Duration::from_secs(9));
     assert!(actions.wishes().is_empty());
+    assert_eq!(ended, [RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:test") }]);
 }
 
 #[test]

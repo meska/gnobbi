@@ -111,9 +111,18 @@ impl LiveOperations {
     pub fn wishes(&self) -> &[Wish] {
         &self.wishes
     }
-    /// Forgets the wishes that settled or went stale.
-    pub fn tick(&mut self, now: Instant) {
-        self.wishes.retain(|w| w.done.map_or(now.saturating_duration_since(w.since) < WISH_MAX, |d| now.saturating_duration_since(d) < WISH_AFTER_DONE));
+    /// Forgets the wishes that settled or went stale; the rooms they leave are to be read again, because from now on the row
+    /// shows what the timeline had at the last read (a read made before the timeline caught up would otherwise stay).
+    pub fn tick(&mut self, now: Instant) -> Vec<RoomScope> {
+        let mut ended = Vec::new();
+        self.wishes.retain(|w| {
+            let live = w.done.map_or(now.saturating_duration_since(w.since) < WISH_MAX, |d| now.saturating_duration_since(d) < WISH_AFTER_DONE);
+            if !live && !ended.contains(&w.request.scope) {
+                ended.push(w.request.scope.clone());
+            }
+            live
+        });
+        ended
     }
 
     /// Shared visible/semantic status; accepted writes outlive selection dismissal.
@@ -226,10 +235,13 @@ impl LiveOperations {
     pub fn vote_failed(&self, target: &EventId) -> bool {
         self.vote_failed.as_ref() == Some(target)
     }
-    /// Menu: choosing an emoji again removes it (`mine`: the row already carries ours).
+    /// Menu: choosing an emoji again removes it (`mine`: the row already carries ours). Like a pill tap it shows at once as a wish:
+    /// the pill used to wait for a re-read of the room, which could come before the Timeline had the reaction and then never again.
     pub fn toggle_reaction(&mut self, key: &str, mine: bool, transaction_id: TransactionId) -> bool {
-        let key = key.to_owned();
-        self.submit(if mine { Operation::Unreact { key } } else { Operation::React { key } }, transaction_id)
+        let (Some(ScopedTimelineId { scope, id: TimelineId::Server(target) }), Some(details)) = (self.selection.clone(), &self.details) else {
+            return false;
+        };
+        details.permissions.react && self.react_direct(scope, target, key, mine, transaction_id)
     }
     pub fn submit_draft(
         &mut self,

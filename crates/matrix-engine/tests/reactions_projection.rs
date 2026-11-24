@@ -180,3 +180,70 @@ fn reactions_are_projected_and_taken_back() {
         let _ = b.matrix_auth().logout().await;
     });
 }
+
+/// Alice reacts to her own text, her own sticker and Bob's sticker: the `m.reaction` is sent each time and her projection shows it.
+#[test]
+#[ignore = "requires the timeline_probe script"]
+fn reactions_work_on_own_messages_and_stickers() {
+    use matrix_engine::sdk::ruma::{events::{room::ImageInfo, sticker::StickerEventContent}, mxc_uri};
+    let config: serde_json::Value = serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
+    let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let url = config["url"].as_str().unwrap().to_owned();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let build = || {
+            let (url, ca) = (url.clone(), ca.clone());
+            async move {
+                Client::builder().homeserver_url(url).add_root_certificates(vec![Certificate::from_pem(&ca).unwrap()]).sliding_sync_version_builder(VersionBuilder::DiscoverNative).build().await.unwrap()
+            }
+        };
+        let (a, b) = (build().await, build().await);
+        for (c, who) in [(&a, "alice"), (&b, "bob")] {
+            c.matrix_auth().login_username(config[format!("{who}_mxid")].as_str().unwrap(), config[format!("{who}_password")].as_str().unwrap()).send().await.unwrap();
+        }
+        let mut creation = CreationContent::new();
+        creation.federate = false;
+        let room_id = a.create_room(assign!(CreateRoomRequest::new(), {
+            preset: Some(RoomPreset::PrivateChat), invite: vec![b.user_id().unwrap().to_owned()], creation_content: Some(Raw::new(&creation).unwrap()),
+        })).await.unwrap().room_id().to_owned();
+        let rb = b.join_room_by_id(&room_id).await.unwrap();
+        let sa = SyncService::builder(a.clone()).build().await.unwrap();
+        sa.start().await;
+        let started = Instant::now();
+        let ra = loop {
+            if let Some(r) = a.get_room(&room_id) { break r; }
+            assert!(started.elapsed() < Duration::from_secs(40), "alice room");
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        };
+        let sticker = |name: &str| StickerEventContent::new(name.into(), ImageInfo::new(), mxc_uri!("mxc://matrix-desktop.test/stickerone").to_owned());
+        let own_text = ra.send(RoomMessageEventContent::text_plain("mio testo")).await.unwrap().response.event_id;
+        let own_sticker = ra.send(sticker("mio sticker")).await.unwrap().response.event_id;
+        let their_sticker = rb.send(sticker("suo sticker")).await.unwrap().response.event_id;
+
+        let sync = RoomSync::from_client(AccountId::new(1), a.clone());
+        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new(room_id.as_str()) };
+        let mut views = ViewRequests::default();
+        let hidden = ReadVisibility { window_focused: false, room_foreground: false, bottom_gap_px: 0.0, public_receipts: true };
+        for (case, target) in [("own text", &own_text), ("own sticker", &own_sticker), ("their sticker", &their_sticker)] {
+            let op = OperationRequest { scope: scope.clone(), transaction_id: TransactionId::new(format!("rx-{}", target.as_str())), target: EventId::new(target.as_str()), operation: Operation::React { key: "\u{1f44d}".into() } };
+            let sent = sync.operate(&op).await.unwrap_or_else(|e| panic!("{case}: reaction refused: {e:?}"));
+            // Bob reads the m.reaction from the server: sent by Alice on this target.
+            let page = rb.relations(target.clone(), matrix_engine::sdk::room::RelationsOptions {
+                include_relations: matrix_engine::sdk::room::IncludeRelations::RelationsOfType(matrix_engine::sdk::ruma::events::relation::RelationType::Annotation),
+                ..Default::default()
+            }).await.unwrap();
+            assert!(page.chunk.iter().any(|e| e.event_id().is_some_and(|i| i.as_str() == sent.as_str())), "{case}: the m.reaction is not on the server");
+            let started = Instant::now();
+            loop {
+                let (page, _) = sync.open_history(views.start(scope.clone()).unwrap(), hidden).await.unwrap();
+                let row = page.events.iter().find(|e| e.event_id.as_str() == target.as_str());
+                if row.is_some_and(|r| r.reactions.iter().any(|r| r.key == "\u{1f44d}" && r.mine && !r.pending)) { break; }
+                assert!(started.elapsed() < Duration::from_secs(40), "{case}: projection shows {:?}", row.map(|r| summary(&r.reactions)));
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+        }
+        let _ = sa.stop().await;
+        let _ = a.matrix_auth().logout().await;
+        let _ = b.matrix_auth().logout().await;
+    });
+}
