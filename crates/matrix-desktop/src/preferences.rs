@@ -387,6 +387,8 @@ pub struct Preferences {
     pub message_preview: bool,
     /// Width of the thread drawer as dragged by the user; `None` = the default. Per installation.
     pub thread_width: Option<u32>,
+    /// The Emoji | Sticker drawer above the composer on wide desktop: open or closed, remembered.
+    pub emoji_dock: bool,
     /// «Conteggio» per account: catalog IDs with it on. Stored as `notification_accounts`, which
     /// `encode` never writes, so only `set_count_preview` touches it.
     pub count_preview_accounts: BTreeSet<u64>,
@@ -423,6 +425,7 @@ impl Default for Preferences {
             list_width: None,
             message_preview: true,
             thread_width: None,
+            emoji_dock: false,
             count_preview_accounts: BTreeSet::new(),
             no_recovery_offer_accounts: BTreeSet::new(),
             language: Default::default(),
@@ -578,6 +581,7 @@ impl Preferences {
                 .map(str::to_owned),
             list_width: map.get("list_width").and_then(Value::as_u64).and_then(|w| u32::try_from(w).ok()),
             message_preview: map.get("message_preview").and_then(Value::as_bool).unwrap_or(true),
+            emoji_dock: map.get("emoji_dock").and_then(Value::as_bool).unwrap_or(false),
             thread_width: map.get("thread_width").and_then(Value::as_u64).and_then(|w| u32::try_from(w).ok()),
             text_size: map.get("text_size").and_then(Value::as_str).and_then(TextSize::parse).unwrap_or_default(),
             density: map.get("density").and_then(Value::as_str).and_then(Density::parse).unwrap_or_default(),
@@ -647,7 +651,7 @@ impl Preferences {
     }
 
     fn encode(&self, map: &mut serde_json::Map<String, Value>) {
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "show_status": self.show_status, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "thread_width": self.thread_width, "language": self.language.code(), "text_size": self.text_size.name(), "density": self.density.name() });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "show_status": self.show_status, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "thread_width": self.thread_width, "emoji_dock": self.emoji_dock, "language": self.language.code(), "text_size": self.text_size.name(), "density": self.density.name() });
         if let Value::Object(own) = body {
             map.extend(own);
         }

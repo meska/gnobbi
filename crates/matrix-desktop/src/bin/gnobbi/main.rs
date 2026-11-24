@@ -976,15 +976,17 @@ impl App {
                 ctx.memory_mut(|m| m.request_focus(egui::Id::new("composer-text")));
                 self.hook_type = true;
             }
-            // GNOBBI_EGUI_EMOJI=hover|click|sticker: keeps the small popup shown (hover) or opens the drawer once on the Emoji (click) or Sticker tab; for screenshots on a seat without a pointer.
+            // GNOBBI_EGUI_EMOJI=hover|click|sticker: keeps the small popup shown (hover) or opens the docked drawer on the Emoji (click) or Sticker tab; for screenshots on a seat without a pointer.
             if s.messages.is_some() && let Ok(mode) = matrix_desktop::hooks::var("GNOBBI_EGUI_EMOJI") {
                 static OPENED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
                 if mode == "hover" {
                     let now = ctx.input(|i| i.time);
                     ctx.data_mut(|d| d.insert_temp(egui::Id::new("emoji-hover"), (true, now)));
                 } else if !OPENED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    ctx.data_mut(|d| d.insert_temp(egui::Id::new(stickers::TAB_ID), mode == "sticker"));
-                    egui::Popup::open_id(ctx, egui::Id::new("composer-emoji").with("popup"));
+                    ctx.data_mut(|d| {
+                        d.insert_temp(egui::Id::new(stickers::TAB_ID), mode == "sticker");
+                        d.insert_temp(egui::Id::new(composer::DOCK_ID), true);
+                    });
                 }
             }
             // GNOBBI_EGUI_ATTACH=<path>: attaches that file to the open room's composer once.
@@ -1687,6 +1689,10 @@ impl App {
     /// The composer at the bottom of the chat.
     fn composer_bar(&mut self, ui: &mut egui::Ui, t: &DesignTokens, covered: bool) {
         let mut to_send = None;
+        // The drawer's open flag lives in the context while drawing and is saved to the preferences when it changes.
+        let dock_id = egui::Id::new(composer::DOCK_ID);
+        let dock = ui.data(|d| d.get_temp::<bool>(dock_id)).unwrap_or(self.prefs.emoji_dock);
+        ui.data_mut(|d| d.insert_temp(dock_id, dock));
         composer::panel(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
             if let Some(s) = &mut self.session
                 && s.messages.is_some()
@@ -1743,6 +1749,12 @@ impl App {
                 }
             }
         }));
+        let now = ui.data(|d| d.get_temp::<bool>(dock_id)).unwrap_or(dock);
+        if now != self.prefs.emoji_dock && let Some(dirs) = &self.dirs {
+            self.prefs.emoji_dock = now;
+            if let Err(e) = Preferences::update(dirs, |p| p.emoji_dock = now) { eprintln!("emoji drawer state not saved: {e}"); }
+            ui.ctx().request_repaint();
+        }
         if let (Some(body), Some(s)) = (to_send, &mut self.session) {
             s.submit_draft(body);
         }

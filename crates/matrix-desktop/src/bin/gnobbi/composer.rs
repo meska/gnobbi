@@ -124,12 +124,17 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
     }
     let mut send_click = false;
     let slot = crate::metrics::button(); // side of an icon button: the scale's button height, 44 on touch
+    let gap = ui.spacing().item_spacing.x;
+    // Wide desktop (room composer only): one Emoji button; hover shows a small popup, click toggles the drawer above the bar.
+    let extra = if thread { 0 } else { wide_extra_slots(crate::mobile::touch(), ui.available_width() - 12. - gap, slot, gap) };
+    let dock_id = egui::Id::new(DOCK_ID);
+    if extra == 1 && ui.data(|d| d.get_temp::<bool>(dock_id)).unwrap_or(false) {
+        dock(ui, dock_id, nid("emoji-dock-scroll"), nid("emoji-dock-grid"), nid("composer-text"), draft, &mut stickers, t);
+    }
     // Not horizontal_centered: it fills the panel's height from the previous frame, so the bar never shrank after a narrow-window wrap.
     ui.horizontal_top(|ui| {
         ui.add_space(12.);
         // All on the right: text, attach (menu), then the mic/send slot.
-        let gap = ui.spacing().item_spacing.x;
-        let extra = wide_extra_slots(crate::mobile::touch(), ui.available_width(), slot, gap, stickers.is_some());
         let slots = 2. + extra as f32;
         let w = (ui.available_width() - slots * slot - (slots + 1.) * gap - 12.).max(80.); // Keep the right gap close to the 12 px left pad.
         let id = nid("composer-text");
@@ -159,8 +164,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         ui.add_space((text_h - slot).max(0.));
         ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        // Wide desktop: emoji and sticker buttons before the attach one; the popup hangs from the emoji one.
-        let sticker_rect = (extra == 2).then(|| ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover()).0);
+        // Wide desktop: the emoji button sits before the attach one.
         let (rect, wide_emoji) = if extra > 0 { (ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover()).0, Some(rect)) } else { (rect, None) };
         // One button opens a menu with the rest: emoji, poll, attach. Keeps the field wide at any text scale (Telegram keeps attach and send/mic only).
         let attach = icon_at(ui, rect, &format!("composer-attach{salt}"), Icon::Paperclip, 1., true, i18n::t("Attach a file"));
@@ -170,14 +174,12 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let asker = egui::Id::new("composer-attach-asker");
         let tab_id = egui::Id::new(crate::stickers::TAB_ID);
         let mut emoji_hover = None;
-        for (r, icon, label, sticker_tab) in [(wide_emoji, Icon::Smiley, "Emoji", false), (sticker_rect, Icon::Sticker, "Sticker", true)] {
-            let Some(r) = r else { continue };
-            let button = icon_at(ui, r, &format!("composer-{}{salt}", label.to_lowercase() + "-button"), icon, 1., true, i18n::t(label));
+        if let Some(r) = wide_emoji {
+            let button = icon_at(ui, r, &format!("composer-emoji-button{salt}"), Icon::Smiley, 1., true, i18n::t("Emoji"));
             if button.clicked() {
-                ui.data_mut(|d| d.insert_temp(tab_id, sticker_tab));
-                egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&emoji));
+                ui.data_mut(|d| d.insert_temp(dock_id, !d.get_temp::<bool>(dock_id).unwrap_or(false)));
             }
-            if !sticker_tab { emoji_hover = Some(button); }
+            emoji_hover = Some(button);
         }
         egui::Popup::menu(&attach).show(|ui| {
             if extra == 0 && ui.button(i18n::t("Emoji")).clicked() {
@@ -211,27 +213,37 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
                 ui.data_mut(|d| d.insert_temp(tab, sticker_tab));
             }
             if let (true, Some((panel, textures))) = (sticker_tab, stickers.as_mut()) {
-                crate::stickers::show(ui, panel, textures, t);
+                crate::stickers::show(ui, panel, textures, t, crate::stickers::width(ui.ctx().content_rect().width()), crate::stickers::ROWS);
                 return;
             }
-            if emoji_grid(ui, nid("emoji-scroll"), nid("emoji-grid"), id, draft, None) {
+            let width = crate::stickers::width(ui.ctx().content_rect().width());
+            if emoji_grid(ui, nid("emoji-scroll"), nid("emoji-grid"), id, draft, width, crate::stickers::body_height(width, crate::stickers::ROWS, ui.spacing().item_spacing.y)) {
                 ui.close();
             }
         }));
-        // Wide desktop only (the button does not exist on touch): hovering the Emoji button shows the grid alone; clicking it opened the drawer above.
+        // Wide desktop only (the button does not exist on touch): hovering the Emoji button shows the grid alone; clicking it toggles the drawer.
         if let Some(button) = emoji_hover {
             let hid = nid("emoji-hover");
             let now = ui.input(|i| i.time);
-            let drawer = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&emoji));
+            let drawer = ui.data(|d| d.get_temp::<bool>(dock_id)).unwrap_or(false);
             let (open, last) = ui.data(|d| d.get_temp::<(bool, f64)>(hid)).unwrap_or((false, 0.));
             let (mut open, last) = hover_step((open, last), button.hovered(), drawer, now);
             if open {
                 let safe = ui.ctx().content_rect();
-                let width = crate::stickers::width(safe.width());
-                let x = (button.rect.center().x - width / 2.).clamp(safe.left() + 4., (safe.right() - width - 16.).max(safe.left() + 4.));
-                let height = (safe.height() * 0.5).min(400. / ui.ctx().zoom_factor());
-                let area = egui::Area::new(hid).order(egui::Order::Foreground).pivot(egui::Align2::LEFT_BOTTOM).fixed_pos(egui::pos2(x, button.rect.top() - 4.)).show(ui.ctx(), |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| crate::dir::popup(ui, |ui| emoji_grid(ui, nid("emoji-hover-scroll"), nid("emoji-hover-grid"), id, draft, Some(height)))).inner
+                let (cols, cell) = (POPUP_COLUMNS, POPUP_CELL);
+                let (_, height) = popup_rows(matrix_desktop::EMOJI_SET.len(), cols, cell);
+                // Same frame as the context menus; its 8 px margin is the same on all four sides.
+                let frame = egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(crate::list::rgb(t.surface));
+                let area = egui::Area::new(hid).order(egui::Order::Foreground).pivot(egui::Align2::RIGHT_BOTTOM).fixed_pos(egui::pos2(button.rect.right().min(safe.right() - 4.), button.rect.top() - 2.)).show(ui.ctx(), |ui| {
+                    frame.show(ui, |ui| crate::dir::popup(ui, |ui| {
+                        ui.spacing_mut().scroll.floating = true;
+                        ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+                        ui.set_width(cols as f32 * cell);
+                        ui.set_min_height(height); // whole rows: the area must not shrink them
+                        egui::ScrollArea::vertical().id_salt(nid("emoji-hover-scroll")).max_height(height).auto_shrink([false, false]).show(ui, |ui| {
+                            emoji_cells(ui, nid("emoji-hover-grid"), cols, egui::Vec2::splat(cell), id, draft)
+                        }).inner
+                    })).inner
                 });
                 let on_popup = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| area.response.rect.union(button.rect).contains(p));
                 let (still, last) = hover_step((true, last), on_popup, false, now);
@@ -266,40 +278,100 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
     None
 }
 
-/// Emoji and sticker buttons shown beside the attach one: 0 on touch or when the field would fall under `MIN_WIDE_FIELD` with them.
-fn wide_extra_slots(touch: bool, available: f32, slot: f32, gap: f32, stickers: bool) -> usize {
+/// Ctx flag: the Emoji | Sticker drawer above the bar is open (mirrored to the preferences by the caller).
+pub const DOCK_ID: &str = "emoji-dock-open";
+const POPUP_COLUMNS: usize = 8;
+const POPUP_CELL: f32 = 40.;
+const POPUP_MAX_ROWS: usize = 4;
+/// Sticker rows the docked drawer shows (half a row hints at the scroll); the popup shows `stickers::ROWS`.
+const DOCK_ROWS: f32 = 2.5;
+
+/// Emoji button shown beside the attach one: 0 on touch or when the field would fall under `MIN_WIDE_FIELD` with it, else 1.
+fn wide_extra_slots(touch: bool, available: f32, slot: f32, gap: f32) -> usize {
     const MIN_WIDE_FIELD: f32 = 240.;
-    let extra = 1 + stickers as usize;
-    let field = available - (2 + extra) as f32 * slot - (3 + extra) as f32 * gap - 12.;
-    if touch || field < MIN_WIDE_FIELD { 0 } else { extra }
+    let field = available - 3. * slot - 4. * gap - 12.;
+    if touch || field < MIN_WIDE_FIELD { 0 } else { 1 }
 }
 
-/// The emoji grid at the width of the Sticker tab; `height` None = the height of that tab too. True when an emoji was inserted.
-fn emoji_grid(ui: &mut egui::Ui, scroll_id: egui::Id, grid_id: egui::Id, id: egui::Id, draft: &mut String, height: Option<f32>) -> bool {
-    let zoom = ui.ctx().zoom_factor();
-    let width = crate::stickers::width(ui.ctx().content_rect().width());
-    let (columns, cell, margin) = emoji_grid_geometry(width * zoom, zoom);
-    let (cell, margin) = (cell / zoom, margin / zoom);
-    ui.set_width(width);
+/// Rows the hover popup shows (whole rows only, at most `POPUP_MAX_ROWS`, scroll beyond) and the height they take.
+fn popup_rows(count: usize, columns: usize, cell: f32) -> (usize, f32) {
+    let rows = count.div_ceil(columns).clamp(1, POPUP_MAX_ROWS);
+    (rows, rows as f32 * cell)
+}
+
+/// `columns` x `cell` grid of the emoji set, no margins. True when an emoji was inserted.
+fn emoji_cells(ui: &mut egui::Ui, grid_id: egui::Id, columns: usize, cell: egui::Vec2, id: egui::Id, draft: &mut String) -> bool {
     let glyph = egui::TextStyle::Body.resolve(ui.style()).size * 1.4;
-    // The hover popup (explicit height) only needs the room its grid takes; the drawer tab keeps the Sticker tab's full box.
-    let small = height.is_some();
-    let height = height.unwrap_or_else(|| crate::stickers::body_height(width, ui.spacing().item_spacing.y));
     let mut inserted = false;
+    ui.spacing_mut().button_padding = egui::Vec2::ZERO; // the cell is the button: padding would widen it past `cell`
+    egui::Grid::new(grid_id).spacing(egui::Vec2::ZERO).min_col_width(cell.x).min_row_height(cell.y).show(ui, |ui| { // else a column is the 48 px button size
+        for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
+            if ui.add_sized(cell, egui::Button::new(RichText::new(*emoji).size(glyph)).min_size(egui::Vec2::ZERO)).on_hover_text(i18n::t(name)).clicked() {
+                insert_emoji(ui.ctx(), id, draft, emoji);
+                inserted = true;
+            }
+            if i % columns == columns - 1 { ui.end_row(); }
+        }
+    });
+    inserted
+}
+
+/// The drawer docked above the bar: as wide as the bar, Emoji | Sticker tabs, one fixed height for both; X or Esc closes it.
+#[allow(clippy::too_many_arguments)]
+fn dock(ui: &mut egui::Ui, dock_id: egui::Id, scroll_id: egui::Id, grid_id: egui::Id, id: egui::Id, draft: &mut String, stickers: &mut Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>, t: &matrix_desktop::DesignTokens) {
+    let tab = egui::Id::new(crate::stickers::TAB_ID);
+    let mut close = ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
+    ui.separator();
+    egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 4)).show(ui, |ui| {
+        let w = ui.available_width();
+        let mut sticker_tab = stickers.is_some() && ui.data(|d| d.get_temp::<bool>(tab)).unwrap_or(false);
+        ui.horizontal(|ui| {
+            if stickers.is_some() {
+                ui.selectable_value(&mut sticker_tab, false, i18n::t("Emoji"));
+                ui.selectable_value(&mut sticker_tab, true, i18n::t("Sticker"));
+            }
+            ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| close |= crate::info::close_icon(ui, i18n::t("Close")).clicked());
+        });
+        ui.data_mut(|d| d.insert_temp(tab, sticker_tab));
+        if let (true, Some((panel, textures))) = (sticker_tab, stickers.as_mut()) {
+            crate::stickers::show(ui, panel, textures, t, w, DOCK_ROWS);
+        } else {
+            dock_grid(ui, scroll_id, grid_id, id, draft, crate::stickers::body_height(w, DOCK_ROWS, ui.spacing().item_spacing.y));
+        }
+    });
+    if close {
+        ui.data_mut(|d| d.insert_temp(dock_id, false));
+    }
+}
+
+/// The emoji set centred in the drawer's width (what is left of the row), in a box `height` tall.
+fn dock_grid(ui: &mut egui::Ui, scroll_id: egui::Id, grid_id: egui::Id, id: egui::Id, draft: &mut String, height: f32) {
+    let cell = POPUP_CELL;
+    let columns = ((ui.available_width() / cell).floor() as usize).max(1);
+    let margin = ((ui.available_width() - columns as f32 * cell) / 2.).max(0.);
     ui.spacing_mut().scroll.floating = true;
-    egui::ScrollArea::vertical().id_salt(scroll_id).min_scrolled_height(if small { 0. } else { height }).max_height(height).auto_shrink([false, small]).show(ui, |ui| {
+    egui::ScrollArea::vertical().id_salt(scroll_id).min_scrolled_height(height).max_height(height).auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
         ui.horizontal(|ui| {
             ui.add_space(margin);
-            egui::Grid::new(grid_id).spacing(egui::Vec2::ZERO).show(ui, |ui| {
-                for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
-                    if ui.add_sized([cell, cell.max(44. / zoom)], egui::Button::new(RichText::new(*emoji).size(glyph)).min_size(egui::Vec2::ZERO)).on_hover_text(i18n::t(name)).clicked() {
-                        insert_emoji(ui.ctx(), id, draft, emoji);
-                        inserted = true;
-                    }
-                    if i % columns == columns - 1 { ui.end_row(); }
-                }
-            });
+            emoji_cells(ui, grid_id, columns, egui::Vec2::splat(cell), id, draft);
+        });
+    });
+}
+
+/// The emoji grid centred in `width`, in a box `height` tall. True when an emoji was inserted.
+fn emoji_grid(ui: &mut egui::Ui, scroll_id: egui::Id, grid_id: egui::Id, id: egui::Id, draft: &mut String, width: f32, height: f32) -> bool {
+    let zoom = ui.ctx().zoom_factor();
+    let (columns, cell, margin) = emoji_grid_geometry(width * zoom, zoom);
+    let (cell, margin) = (cell / zoom, margin / zoom);
+    ui.set_width(width);
+    let mut inserted = false;
+    ui.spacing_mut().scroll.floating = true;
+    egui::ScrollArea::vertical().id_salt(scroll_id).min_scrolled_height(height).max_height(height).auto_shrink([false, false]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+        ui.horizontal(|ui| {
+            ui.add_space(margin);
+            inserted = emoji_cells(ui, grid_id, columns, egui::vec2(cell, cell.max(44. / zoom)), id, draft);
         });
     });
     inserted
@@ -607,7 +679,7 @@ mod tests {
         assert_eq!(super::hover_step(s, false, false, 1.5).0, false);
         assert!(!super::hover_step((false, 0.), true, true, 1.).0, "the clicked drawer replaces the small popup");
         // Touch has no Emoji button, so nothing can hover.
-        assert_eq!(super::wide_extra_slots(true, 900., 44., 8., true), 0);
+        assert_eq!(super::wide_extra_slots(true, 900., 44., 8.), 0);
     }
 
     #[test]
@@ -622,13 +694,20 @@ mod tests {
     }
 
     #[test]
-    fn wide_buttons_only_on_wide_desktop() {
-        assert_eq!(super::wide_extra_slots(false, 900., 36., 8., true), 2);
-        assert_eq!(super::wide_extra_slots(false, 900., 36., 8., false), 1);
-        assert_eq!(super::wide_extra_slots(false, 400., 36., 8., true), 0);
-        assert_eq!(super::wide_extra_slots(true, 900., 44., 8., true), 0);
-        // The field keeps at least the threshold width with the extra buttons.
-        assert!((240..900).all(|a| { let e = super::wide_extra_slots(false, a as f32, 36., 8., true); e == 0 || a as f32 - (2 + e) as f32 * 36. - (3 + e) as f32 * 8. - 12. >= 240. }));
+    fn one_emoji_button_only_on_wide_desktop() {
+        assert_eq!(super::wide_extra_slots(false, 900., 36., 8.), 1);
+        assert_eq!(super::wide_extra_slots(false, 340., 36., 8.), 0, "narrow window keeps the menu");
+        assert_eq!(super::wide_extra_slots(true, 900., 44., 8.), 0, "phone keeps the menu");
+        // The field keeps at least the threshold width with the button.
+        assert!((240..900).all(|a| { let e = super::wide_extra_slots(false, a as f32, 36., 8.); e == 0 || a as f32 - 3. * 36. - 4. * 8. - 12. >= 240. }));
+    }
+
+    #[test]
+    fn hover_popup_shows_whole_rows_and_scrolls_only_beyond_four() {
+        assert_eq!(super::popup_rows(32, 8, 40.), (4, 160.), "the 32 emoji are exactly four rows: no cut, no scroll");
+        assert_eq!(super::popup_rows(3, 8, 40.), (1, 40.));
+        assert_eq!(super::popup_rows(0, 8, 40.), (1, 40.));
+        assert_eq!(super::popup_rows(100, 8, 40.), (4, 160.), "more rows scroll inside four whole ones");
     }
 
     #[test]

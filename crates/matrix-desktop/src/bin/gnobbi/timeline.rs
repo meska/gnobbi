@@ -42,13 +42,18 @@ fn menu_at(ui: &egui::Ui, rect: egui::Rect, e: &DemoEvent, acts: &mut Acts) -> O
     if acts.lift.as_ref().is_some_and(|(id, _)| *id == e.id) {
         acts.lift_rect = Some(rect);
     }
-    let inside = |p: &egui::Pos2| rect.contains(*p) && ui.is_rect_visible(rect);
-    let click = ui.input(|i| if i.pointer.button_clicked(egui::PointerButton::Secondary) { i.pointer.interact_pos() } else { None }).filter(inside);
-    let press = acts.press.filter(inside);
+    let click = right_click_on(ui, rect);
+    let press = acts.press.filter(|p| rect.contains(*p) && ui.is_rect_visible(rect));
     if press.is_some() {
         acts.held = Some(rect);
     }
     click.or(press)
+}
+
+/// A right click on `rect` that lands on this list: not through a popup, a drawer or a panel drawn above it (their rect is another layer).
+fn right_click_on(ui: &egui::Ui, rect: egui::Rect) -> Option<egui::Pos2> {
+    let p = ui.input(|i| if i.pointer.button_clicked(egui::PointerButton::Secondary) { i.pointer.interact_pos() } else { None })?;
+    (rect.contains(p) && ui.is_rect_visible(rect) && ui.clip_rect().contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id())).then_some(p)
 }
 
 /// Test hook (debug builds): GNOBBI_DEBUG_LONGPRESS_MSG=<index> long-presses that row once, a few seconds after the room is laid out;
@@ -82,6 +87,30 @@ pub(crate) fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWe
 #[cfg(test)]
 mod tests {
     use eframe::egui;
+
+    #[test]
+    fn a_right_click_through_a_popup_does_not_open_the_message_menu() {
+        let at = egui::pos2(60., 60.);
+        let bubble = egui::Rect::from_min_size(egui::pos2(10., 10.), egui::vec2(150., 100.));
+        for (popup, expected) in [(false, true), (true, false)] {
+            let ctx = egui::Context::default();
+            let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() };
+            let mut opened = false;
+            for events in [vec![], vec![egui::Event::PointerMoved(at)], vec![button(true)], vec![button(false)]] {
+                let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 200.))), events, ..Default::default() };
+                let mut out = ctx.run_ui(input, |ui| {
+                    if popup {
+                        egui::Area::new(egui::Id::new("popup")).order(egui::Order::Foreground).fixed_pos(egui::pos2(30., 30.)).show(ui.ctx(), |ui| {
+                            egui::Frame::popup(ui.style()).show(ui, |ui| ui.allocate_space(egui::vec2(100., 60.)));
+                        });
+                    }
+                    opened |= super::right_click_on(ui, bubble).is_some();
+                });
+                out.textures_delta.clear();
+            }
+            assert_eq!(opened, expected, "popup over the bubble: {popup}");
+        }
+    }
 
     #[test]
     fn a_click_on_a_sender_opens_that_member_with_the_hand() {

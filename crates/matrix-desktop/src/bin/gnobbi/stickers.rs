@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 pub const TAB_ID: &str = "emoji-tab-sticker";
 pub const MIN_CELL: f32 = 64.;
 pub const GAP: f32 = 4.;
+pub const ROWS: f32 = 3.5;
 const RECENT: usize = 30;
 
 /// Columns and cell side that fill `width` exactly with cells of at least `MIN_CELL` (one column when narrower).
@@ -25,9 +26,9 @@ pub fn width(window: f32) -> f32 {
 }
 
 /// Height of the tab under its tab row: search row, grid, pack bar; the emoji tab uses it too so the popup keeps one size.
-pub fn body_height(w: f32, spacing: f32) -> f32 {
+pub fn body_height(w: f32, rows: f32, spacing: f32) -> f32 {
     let (_, side) = grid(w);
-    crate::metrics::button() + 3.5 * side + 3. * GAP + GAP + bar_slot() + 2. * spacing
+    crate::metrics::button() + rows * side + 3. * GAP + GAP + bar_slot() + 2. * spacing
 }
 
 /// Side of a pack-bar slot: the scale's button, never under the 44 pt touch target.
@@ -358,10 +359,10 @@ fn error_line(ui: &mut egui::Ui, panel: &mut Panel) {
 }
 
 /// The tab: search and the two actions on top, the grid of the chosen section, the bar of the packs fixed at the bottom.
-pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &Avatars, t: &DesignTokens) {
+/// `w` is the width of the tab: `width(window)` in the popup, the whole bar in the docked drawer.
+pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &Avatars, t: &DesignTokens, w: f32, rows: f32) {
     panel.open = true;
     take_paste(ui, panel);
-    let w = width(ui.ctx().content_rect().width());
     ui.set_width(w);
     let slot = crate::metrics::button();
     ui.horizontal(|ui| {
@@ -377,7 +378,7 @@ pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &Avatars, t: &Design
     });
     error_line(ui, panel);
     let (cols, side) = grid(w);
-    let height = 3.5 * side + 3. * GAP; // half a row shows there is more to scroll
+    let height = rows * side + 3. * GAP; // half a row shows there is more to scroll
     let packs = match &panel.packs {
         Some(Ok(p)) => panel.local.sorted(p),
         other => {
@@ -763,7 +764,7 @@ pub fn demo(ctx: &egui::Context, t: &DesignTokens) {
         }
         if view == "stickers" {
             egui::Area::new(egui::Id::new("sticker-demo")).order(egui::Order::Foreground).anchor(egui::Align2::LEFT_BOTTOM, [8., -8.]).show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).fill(rgb(t.surface)).show(ui, |ui| crate::dir::scope(ui, |ui| show(ui, panel, textures, t)));
+                egui::Frame::popup(ui.style()).fill(rgb(t.surface)).show(ui, |ui| crate::dir::scope(ui, |ui| show(ui, panel, textures, t, width(ctx.content_rect().width()), ROWS)));
             });
         }
         windows(ctx, panel, textures, t);
@@ -803,7 +804,7 @@ mod tests {
         let mut area = egui::Rect::NOTHING;
         RECTS.take();
         let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(window, 700.))), events, ..Default::default() }, |ui| {
-            area = ui.scope(|ui| show(ui, panel, &Avatars::new(), &t)).response.rect;
+            area = ui.scope(|ui| show(ui, panel, &Avatars::new(), &t, width(window), ROWS)).response.rect;
         });
         out.textures_delta.clear();
         let (cells, slots) = RECTS.take();
