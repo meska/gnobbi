@@ -72,6 +72,36 @@ pub fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&
     });
 }
 
+/// One line: «Update available · v» with «Update», or «Updating…», or the error line. Nothing when idle.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn update_row(ui: &mut egui::Ui, dirs: Option<&AppDirs>) {
+    use matrix_desktop::update::{self, Status};
+    let status = update::status();
+    match status {
+        Status::Idle => {}
+        Status::Available { version } => {
+            ui.horizontal(|ui| {
+                ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
+                    if ui.button(tr("Update")).clicked()
+                        && let Some(d) = dirs
+                    {
+                        update::start_update(d.clone(), false);
+                    }
+                    ui.add(egui::Label::new(update::indicator_row(&version)).wrap());
+                });
+            });
+        }
+        Status::Working => {
+            ui.label(tr("Updating…"));
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500)); // the worker thread cannot wake the UI
+        }
+        Status::Error(line) => {
+            ui.label(line);
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs(2));
+        }
+    }
+}
+
 /// Draws the drawer beside the rail; returns the new preferences when something was changed (already saved).
 pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferences, several_accounts: bool, dirs: Option<&AppDirs>, t: &DesignTokens) -> Option<Preferences> {
     let mut p = prefs.clone();
@@ -103,6 +133,12 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                     {
                         section(ui, tr("System"), t);
                         changed |= switch(ui, tr("Close to tray"), &mut p.close_to_tray, t);
+                    }
+                    // The updater engine exists on Linux and Windows only.
+                    #[cfg(any(target_os = "linux", target_os = "windows"))]
+                    {
+                        changed |= switch(ui, tr("Automatic updates"), &mut p.update_check_enabled, t);
+                        update_row(ui, dirs);
                     }
                     #[cfg(target_os = "linux")]
                     {
@@ -162,6 +198,7 @@ pub fn persist(dirs: Option<&AppDirs>, p: &Preferences) {
             saved.unified_list = new.unified_list;
             saved.notifications = new.notifications;
             saved.close_to_tray = new.close_to_tray;
+            saved.update_check_enabled = new.update_check_enabled;
             saved.language = new.language;
             saved.text_size = new.text_size;
             saved.density = new.density;
