@@ -30,6 +30,8 @@ mod join;
 mod list;
 mod loading;
 mod members;
+#[cfg(test)]
+mod members_bench;
 mod message_hits;
 mod metrics;
 mod mobile;
