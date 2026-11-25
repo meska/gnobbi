@@ -97,7 +97,7 @@ fn label(chat: &str, hit: &MessageHit, date: Option<&str>) -> String {
 fn row(ui: &mut egui::Ui, hit: &MessageHit, room: Option<&SidebarRoom>, avatars: &crate::avatar::Avatars, t: &DesignTokens) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
     let resp = crate::metrics::clickable(resp);
-    if resp.hovered() {
+    if crate::touch_list::pressed(ui, &resp) {
         ui.painter().rect_filled(rect, 0., rgb(t.input));
     }
     let (flip, place) = (|p: egui::Pos2| crate::dir::flip_pos(rect, p), |p: egui::Pos2, g: &egui::Galley| crate::dir::place(rect, p, g.size().x));
@@ -139,7 +139,7 @@ pub(crate) fn show<'a>(ui: &mut egui::Ui, section: &Section<'_>, room: impl Fn(&
         }
         Section::Hits(hits, more) => {
             for hit in *hits {
-                if row(ui, hit, room(&hit.room_id), avatars, t).clicked() {
+                if crate::touch_list::tapped(&row(ui, hit, room(&hit.room_id), avatars, t)) {
                     out = Some(Out::Open(Box::new(hit.clone())));
                 }
             }

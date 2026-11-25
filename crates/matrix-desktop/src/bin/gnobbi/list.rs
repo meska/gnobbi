@@ -173,8 +173,8 @@ pub fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) -> egu
 /// The look of one room row (avatar, name, stamp, preview, badge, mark), the same in a single account's list and in the merged one;
 /// `account` adds the small picture of the account over the room avatar (merged list with more than one account).
 fn paint_row(ui: &mut egui::Ui, rect: egui::Rect, resp: &egui::Response, room: &matrix_desktop::SidebarRoom, mark_id: egui::Id, avatars: &crate::avatar::Avatars, selected: bool, account: Option<&AccountMark>, t: &DesignTokens) {
-    let row_color = if selected { rgb(t.selected) } else if resp.hovered() { rgb(t.input) } else { crate::list_fill(t) };
-    if selected || resp.hovered() {
+    let row_color = if selected { rgb(t.selected) } else if crate::touch_list::pressed(ui, resp) { rgb(t.input) } else { crate::list_fill(t) };
+    if selected || crate::touch_list::pressed(ui, resp) {
         ui.painter().rect_filled(rect, 0., row_color);
     }
     // Worked out for LTR; `flip`/`place` put each piece on its side.
@@ -343,7 +343,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &spoken));
             paint_row(ui, rect, &resp, room, egui::Id::new(("row-mark", slot, i)), &owner.avatars, slot == 0 && shown.as_ref() == Some(&room.scope), Some(&mark), t);
             let long = pressed_here(ui, rect, press);
-            if resp.clicked() && !swallow {
+            if crate::touch_list::tapped(&resp) && !swallow {
                 *pick = Some((slot, room.scope.clone()));
             }
             // Another account's room: no space entries (the space window belongs to the shown account), the rest works on its own session.
@@ -352,18 +352,20 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             }
         };
         if matches!(found, crate::message_hits::Section::Hidden) {
-            egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show_rows(&mut scroll_ui, ROW, rows.len(), |ui, range| {
+            let area = egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show_rows(&mut scroll_ui, ROW, rows.len(), |ui, range| {
                 for &row in &rows[range] {
                     draw(ui, row, &mut pick, &mut menu_pick, &mut *session, &mut *parked);
                 }
             });
+            crate::touch_list::after(scroll_ui.ctx(), &area);
         } else {
-            egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show(&mut scroll_ui, |ui| {
+            let area = egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show(&mut scroll_ui, |ui| {
                 for &row in rows {
                     draw(ui, row, &mut pick, &mut menu_pick, &mut *session, &mut *parked);
                 }
                 opened = crate::message_hits::show(ui, &found, |id| session.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == id), &session.avatars, t);
             });
+            crate::touch_list::after(scroll_ui.ctx(), &area);
         }
         session.all_search = search;
         match menu_pick {
@@ -391,10 +393,10 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             let resp = crate::metrics::clickable(resp);
             paint_row(ui, rect, &resp, room, egui::Id::new(("row-mark", index)), &session.avatars, selected.as_ref() == Some(&room.scope), None, t);
             let long = pressed_here(ui, rect, press);
-            if resp.clicked() && !swallow {
+            if crate::touch_list::tapped(&resp) && !swallow {
                 pick = Some(room.scope.clone());
             }
-            if resp.secondary_clicked() || long {
+            if (resp.secondary_clicked() && !crate::touch_list::stopped(ui.ctx())) || long {
                 session.confirm_leave = None;
                 action = Some((room.scope.clone(), crate::session::RoomAction::Spaces));
             }
@@ -417,18 +419,20 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     let found = crate::message_hits::section(&session.all_search, session.query.trim());
     let mut opened = None;
     if matches!(found, crate::message_hits::Section::Hidden) {
-        egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show_rows(&mut scroll_ui, ROW, visible.len(), |ui, range| {
+        let area = egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show_rows(&mut scroll_ui, ROW, visible.len(), |ui, range| {
             for &index in &visible[range] {
                 draw(ui, index);
             }
         });
+        crate::touch_list::after(scroll_ui.ctx(), &area);
     } else {
-        egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show(&mut scroll_ui, |ui| {
+        let area = egui::ScrollArea::vertical().content_margin(margin).auto_shrink(false).show(&mut scroll_ui, |ui| {
             for &index in &visible {
                 draw(ui, index);
             }
             opened = crate::message_hits::show(ui, &found, |id| sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == id), &session.avatars, t);
         });
+        crate::touch_list::after(scroll_ui.ctx(), &area);
     }
     if let Some(scope) = pick {
         sidebar.select(&scope);
@@ -449,7 +453,7 @@ const SWALLOW: &str = "room-long-press";
 
 /// A long press (touch) that landed on this row: the menu opens like a right click. The finger's release must not open the room (see `released_after_press`).
 fn pressed_here(ui: &egui::Ui, rect: egui::Rect, press: Option<egui::Pos2>) -> bool {
-    let hit = press.is_some_and(|p| rect.contains(p) && ui.is_rect_visible(rect) && ui.clip_rect().contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id()));
+    let hit = press.is_some_and(|p| !crate::touch_list::stopped(ui.ctx()) && rect.contains(p) && ui.is_rect_visible(rect) && ui.clip_rect().contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id()));
     if hit {
         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(SWALLOW), true));
         ui.ctx().stop_dragging(); // the list must not start scrolling under the held finger
@@ -547,11 +551,12 @@ pub fn space_picker(ctx: &egui::Context, session: &mut crate::session::Session) 
     let (mut open, mut add, mut cancel) = (true, false, false);
     egui::Window::new(i18n::t("Add to a space")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
         ui.set_min_width(crate::dir::fit(ui, 300.));
-        egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
+        let area = egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
             for space in spaces {
-                ui.radio_value(chosen, Some(space.scope.clone()), &space.name);
+                crate::touch_list::radio(ui, chosen, Some(space.scope.clone()), &space.name);
             }
         });
+        crate::touch_list::after(ui.ctx(), &area);
         ui.add_space(8.);
         ui.horizontal(|ui| {
             add = ui.add_enabled(chosen.is_some(), egui::Button::new(i18n::t("Add"))).clicked();

@@ -47,6 +47,7 @@ mod suspend;
 mod settings;
 mod status_pill;
 mod timeline;
+mod touch_list;
 mod touch_menu;
 mod viewer;
 use session::Session;
@@ -495,6 +496,7 @@ impl App {
             #[cfg(target_os = "android")]
             mobile::set_bar_icons(!self.theme.is_dark());
             metrics::apply(ctx, &self.prefs, self.system_scale);
+            if mobile::touch() { touch_list::apply_touch(ctx); }
             self.applied = Some(key);
         }
     }

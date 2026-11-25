@@ -123,7 +123,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                         // The own row has no «⋮»: its place stays empty so the badges line up.
                         ui.add_space(40.);
                     }
-                    if crate::info::member_row(ui, avatars, m, duplicate, t).clicked() {
+                    if crate::touch_list::tapped(&crate::info::member_row(ui, avatars, m, duplicate, t)) {
                         act = Some(Act::Profile(m.user_id.clone()));
                     }
                 });

@@ -14,7 +14,7 @@ pub struct Out {
 
 pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, (status, hidden_status): (&mut matrix_desktop::StatusChoice, usize), avatars: &crate::avatar::Avatars, t: &DesignTokens) -> Out {
     let mut out = Out::default();
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+    let area = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.add_space(16.);
         ui.horizontal(|ui| {
             ui.add_space(16.);
@@ -64,6 +64,7 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
         };
         out.member = crate::members::list(ui, members, admin, me, avatars, t);
     });
+    crate::touch_list::after(ui.ctx(), &area);
     out
 }
 
@@ -273,7 +274,7 @@ pub fn member_row(ui: &mut egui::Ui, avatars: &crate::avatar::Avatars, m: &Membe
     }
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), egui::Sense::click());
     let resp = crate::metrics::clickable(resp);
-    if resp.hovered() {
+    if crate::touch_list::pressed(ui, &resp) {
         ui.painter().rect_filled(rect, 0., rgb(t.input));
     }
     let c = crate::dir::flip_pos(rect, egui::pos2(rect.left() + 28., rect.center().y));
@@ -324,7 +325,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
             ui.colored_label(rgb(t.error), i18n::t("Search failed"));
         }
         S::Results { hits, more, .. } => {
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            let area = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 for h in hits {
                     ui.add_space(6.);
                     let response = ui.horizontal(|ui| {
@@ -336,7 +337,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
                         });
                     }).response.interact(egui::Sense::click());
                     let response = crate::metrics::clickable(response);
-                    if response.clicked() {
+                    if crate::touch_list::tapped(&response) {
                         selected = Some((matrix_domain::EventId::new(h.thread_root.as_deref().unwrap_or(&h.event_id)), h.thread_root.is_some()));
                     }
                     ui.separator();
@@ -350,6 +351,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
                     _ => {}
                 }
             });
+            crate::touch_list::after(ui.ctx(), &area);
         }
     }
     selected

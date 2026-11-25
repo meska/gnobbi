@@ -258,7 +258,8 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
             ui.label(RichText::new(i18n::t("Members")).strong());
             match &view.members {
                 None => drop(ui.vertical_centered(|ui| ui.spinner())),
-                Some(members) => drop(egui::ScrollArea::vertical().max_height(360.).show(ui, |ui| {
+                Some(members) => {
+                    let area = egui::ScrollArea::vertical().max_height(360.).show(ui, |ui| {
                     if view.promote {
                         for m in admin_candidates(members, &session.user) {
                             ui.horizontal(|ui| {
@@ -274,7 +275,9 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
                     } else {
                         member = crate::members::list(ui, members, session.admin.as_ref().filter(|a| a.scope == view.scope), &session.user, &session.avatars, t);
                     }
-                })),
+                    });
+                    crate::touch_list::after(ui.ctx(), &area);
+                }
             }
             return;
         }
@@ -295,11 +298,12 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
             if rooms.is_empty() {
                 ui.label(RichText::new(i18n::t("No rooms")).color(secondary));
             }
-            egui::ScrollArea::vertical().max_height(300.).show(ui, |ui| {
+            let area = egui::ScrollArea::vertical().max_height(300.).show(ui, |ui| {
                 for room in rooms {
-                    ui.radio_value(chosen, Some(room.scope.clone()), &room.name);
+                    crate::touch_list::radio(ui, chosen, Some(room.scope.clone()), &room.name);
                 }
             });
+            crate::touch_list::after(ui.ctx(), &area);
             ui.add_space(8.);
             let mut cancel = false;
             ui.horizontal(|ui| {
