@@ -4,6 +4,7 @@ include!("old_room_order_tests.rs");
 include!("live_activity_tests.rs");
 include!("thread_tests.rs");
 include!("thread_load_tests.rs");
+include!("thread_panel_tests.rs");
 include!("room_switch_tests.rs");
 
 use crate::auth::{AccountSession, AuthError};

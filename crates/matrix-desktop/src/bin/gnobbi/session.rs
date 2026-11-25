@@ -2790,6 +2790,8 @@ fn accept_user_answer(gate: &mut bool, state: &matrix_engine::operations::Search
 }
 
 mod unread;
+#[cfg(test)]
+mod thread_tests;
 
 /// A saved position whose row is not loaded: wait for the saved page and the full one (both can come after the first), page back up to a cap, give up when history ends or fails.
 fn restore_gave_up(status: matrix_desktop::HistoryStatus, pages: u8, waited: std::time::Duration) -> bool {
