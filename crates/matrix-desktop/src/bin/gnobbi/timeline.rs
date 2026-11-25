@@ -146,6 +146,15 @@ mod tests {
     }
 
     #[test]
+    fn follows_only_new_rows_at_the_bottom() {
+        assert!(super::follows_bottom(true, true, 0, false));
+        assert!(!super::follows_bottom(false, true, 0, false));
+        assert!(!super::follows_bottom(true, true, 5, false));
+        assert!(!super::follows_bottom(true, true, 0, true));
+        assert!(!super::follows_bottom(true, false, 0, false));
+    }
+
+    #[test]
     fn prepended_page_shifts_measured_heights() {
         let (mut rows, mut first) = (vec![10., 20.], None);
         assert_eq!(super::shift_for_prepend(&mut rows, &mut first, &[&3, &4], 0), 0);
@@ -249,6 +258,8 @@ pub struct Heights {
     pub restore_wait: (u8, Option<std::time::Instant>),
     /// The round button was pressed: scroll (smoothly) until the bottom is reached.
     go_bottom: bool,
+    /// Rows at the last frame: more rows at the bottom means a new message.
+    len: usize,
     /// `restore` is the first unread row: it opens a quarter of the viewport below the top, with some context above.
     pub restore_unread: bool,
     /// The row the «new messages» line stands above (kept until the room is left).
@@ -307,6 +318,11 @@ impl ScrollMemory {
         if changed { self.0.insert(room.to_owned(), new); }
         changed
     }
+}
+
+/// New rows at the bottom while the reader is at the bottom (not an older page, not opening): keep the end in view.
+fn follows_bottom(at_bottom: bool, grew: bool, prepended: usize, opening: bool) -> bool {
+    at_bottom && grew && prepended == 0 && !opening
 }
 
 /// Opening pass is over: nothing moved and we sit at the bottom, or too many passes (a long room never reaches bottom within tolerance).
@@ -763,6 +779,9 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
             }
         }
     }
+    // `at_bottom` has 200 px of slack but egui only follows the end from the exact end: re-glue by hand when new rows arrive.
+    let follow = follows_bottom(heights.at_bottom, events.len() > heights.len, prepended, hide || restoring);
+    heights.len = events.len();
     let go_bottom = heights.go_bottom;
     let now = std::time::Instant::now();
     let motion = crate::loading::motion(ui);
@@ -863,7 +882,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
             y += heights.rows[i] + gap;
         }
         ui.add_space(GAP);
-        if go_bottom {
+        if go_bottom || follow || (changed && heights.at_bottom && !hide && !restoring) {
             ui.scroll_to_cursor(Some(Align::BOTTOM));
         }
     });
