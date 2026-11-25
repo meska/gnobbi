@@ -37,7 +37,7 @@ banner	Reply	Odpowiedz
 	Sticker	Naklejka
 	Poll	Ankieta
 	Attach a file	Dołącz plik
-	Voice note	Wiadomość głosowa
+	Voice message	Wiadomość głosowa
 	Send	Wyślij
 	Grinning face	Uśmiechnięta buzia
 	Beaming face	Promiennie uśmiechnięta buzia
@@ -219,7 +219,7 @@ banner	Reply	Odpowiedz
 	Sticker not sent	Naklejka niewysłana
 	Still joining…	Wciąż dołączanie…
 	Sync interrupted	Synchronizacja przerwana
-	Voice note cannot be played	Nie można odtworzyć wiadomości głosowej
+	Voice message cannot be played	Nie można odtworzyć wiadomości głosowej
 	You are offline	Jesteś offline
 	The name cannot be empty.	Nazwa nie może być pusta.
 	The name is too long (256 characters at most).	Nazwa jest za długa (maksymalnie 256 znaków).

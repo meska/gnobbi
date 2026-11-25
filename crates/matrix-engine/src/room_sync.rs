@@ -2784,7 +2784,7 @@ fn message_label(msgtype: &MessageType) -> String {
                 .map(|d| crate::history::duration_label(d.as_millis() as u64));
             join(
                 if a.voice.is_some() {
-                    "Voice note"
+                    "Voice message"
                 } else {
                     "Audio"
                 },

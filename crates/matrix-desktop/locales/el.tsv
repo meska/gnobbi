@@ -41,7 +41,7 @@ banner	Reply	Απάντηση
 	Sticker	Αυτοκόλλητο
 	Poll	Δημοσκόπηση
 	Attach a file	Επισύναψη αρχείου
-	Voice note	Φωνητικό μήνυμα
+	Voice message	Φωνητικό μήνυμα
 	Send	Αποστολή
 
 # composer (emoji names)
@@ -243,7 +243,7 @@ banner	Reply	Απάντηση
 	Sticker not sent	Το αυτοκόλλητο δεν στάλθηκε
 	Still joining…	Συμμετοχή ακόμη σε εξέλιξη…
 	Sync interrupted	Ο συγχρονισμός διακόπηκε
-	Voice note cannot be played	Το φωνητικό μήνυμα δεν μπορεί να αναπαραχθεί
+	Voice message cannot be played	Το φωνητικό μήνυμα δεν μπορεί να αναπαραχθεί
 	You are offline	Είστε εκτός σύνδεσης
 	The name cannot be empty.	Το όνομα δεν μπορεί να είναι κενό.
 	The name is too long (256 characters at most).	Το όνομα είναι πολύ μεγάλο (το πολύ 256 χαρακτήρες).

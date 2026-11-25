@@ -240,7 +240,7 @@ fn non_text_message_types_get_real_labels() {
         ),
         (
             serde_json::json!({"msgtype":"m.audio","body":"a.ogg","url":"mxc://t/a","org.matrix.msc3245.voice":{}}),
-            "Voice note",
+            "Voice message",
         ),
         (
             serde_json::json!({"msgtype":"m.audio","body":"a.mp3","url":"mxc://t/a"}),
@@ -248,7 +248,7 @@ fn non_text_message_types_get_real_labels() {
         ),
         (
             serde_json::json!({"msgtype":"m.audio","body":"a.ogg","url":"mxc://t/a","info":{"duration":75000},"org.matrix.msc3245.voice":{}}),
-            "Voice note · 1:15",
+            "Voice message · 1:15",
         ),
         (
             serde_json::json!({"msgtype":"m.audio","body":"a.mp3","url":"mxc://t/a","info":{"duration":12000}}),

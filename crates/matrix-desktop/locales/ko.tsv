@@ -38,7 +38,7 @@ banner	Reply	답장
 	Sticker	스티커
 	Poll	투표
 	Attach a file	파일 첨부
-	Voice note	음성 메모
+	Voice message	음성 메모
 	Send	보내기
 	Grinning face	활짝 웃는 얼굴
 	Beaming face	빛나는 눈으로 웃는 얼굴
@@ -220,7 +220,7 @@ banner	Reply	답장
 	Sticker not sent	스티커를 보내지 못했습니다
 	Still joining…	아직 참여 중…
 	Sync interrupted	동기화가 중단되었습니다
-	Voice note cannot be played	음성 메모를 재생할 수 없습니다
+	Voice message cannot be played	음성 메모를 재생할 수 없습니다
 	You are offline	오프라인입니다
 	The name cannot be empty.	이름은 비워 둘 수 없습니다.
 	The name is too long (256 characters at most).	이름이 너무 깁니다(최대 256자).

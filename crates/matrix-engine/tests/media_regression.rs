@@ -169,10 +169,10 @@ fn broken_and_valid_media_on_a_real_homeserver() {
             assert_eq!(audio.waveform.len(), 100);
             let bad = audio_event(ogg[..100].to_vec()).await.unwrap();
             let result = download_audio(&client, account, &tag, &bad, CAP).await;
-            assert!(result.is_err(), "truncated voice note must fail: {result:?}");
+            assert!(result.is_err(), "truncated voice message must fail: {result:?}");
             if let Ok(none) = audio_event(Vec::new()).await {
                 let result = download_audio(&client, account, &tag, &none, CAP).await;
-                assert!(result.is_err(), "empty voice note must fail: {result:?}");
+                assert!(result.is_err(), "empty voice message must fail: {result:?}");
             }
             // AUDIO-DECODE-END
             assert_eq!(

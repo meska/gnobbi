@@ -41,7 +41,7 @@ banner	Reply	Trả lời
 	Sticker	Nhãn dán
 	Poll	Bình chọn
 	Attach a file	Đính kèm tệp
-	Voice note	Tin nhắn thoại
+	Voice message	Tin nhắn thoại
 	Send	Gửi
 
 # composer (emoji names)
@@ -243,7 +243,7 @@ banner	Reply	Trả lời
 	Sticker not sent	Chưa gửi được nhãn dán
 	Still joining…	Vẫn đang tham gia…
 	Sync interrupted	Đồng bộ bị gián đoạn
-	Voice note cannot be played	Không thể phát tin nhắn thoại
+	Voice message cannot be played	Không thể phát tin nhắn thoại
 	You are offline	Bạn đang ngoại tuyến
 	The name cannot be empty.	Tên không được để trống.
 	The name is too long (256 characters at most).	Tên quá dài (tối đa 256 ký tự).

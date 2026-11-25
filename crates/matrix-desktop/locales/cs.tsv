@@ -37,7 +37,7 @@ banner	Reply	Odpovědět
 	Sticker	Nálepka
 	Poll	Anketa
 	Attach a file	Přiložit soubor
-	Voice note	Hlasová zpráva
+	Voice message	Hlasová zpráva
 	Send	Odeslat
 	Grinning face	Usmívající se obličej
 	Beaming face	Zářivě se usmívající obličej
@@ -219,7 +219,7 @@ banner	Reply	Odpovědět
 	Sticker not sent	Nálepka nebyla odeslána
 	Still joining…	Stále se připojuje…
 	Sync interrupted	Synchronizace přerušena
-	Voice note cannot be played	Hlasovou zprávu nelze přehrát
+	Voice message cannot be played	Hlasovou zprávu nelze přehrát
 	You are offline	Jste offline
 	The name cannot be empty.	Název nesmí být prázdný.
 	The name is too long (256 characters at most).	Název je příliš dlouhý (nejvýše 256 znaků).

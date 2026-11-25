@@ -38,7 +38,7 @@ banner	Reply	Odgovor
 	Sticker	Stiker
 	Poll	Anketa
 	Attach a file	Priloži datoteku
-	Voice note	Glasovna poruka
+	Voice message	Glasovna poruka
 	Send	Pošalji
 	Grinning face	Nasmijano lice
 	Beaming face	Zračeće lice
@@ -220,7 +220,7 @@ banner	Reply	Odgovor
 	Sticker not sent	Stiker nije poslan
 	Still joining…	Još se pridružuje…
 	Sync interrupted	Sinhronizacija prekinuta
-	Voice note cannot be played	Glasovna poruka se ne može reproducirati
+	Voice message cannot be played	Glasovna poruka se ne može reproducirati
 	You are offline	Offline si
 	The name cannot be empty.	Naziv ne može biti prazan.
 	The name is too long (256 characters at most).	Naziv je predug (najviše 256 znakova).

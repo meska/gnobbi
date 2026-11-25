@@ -38,7 +38,7 @@ banner	Reply	Responder
 	Sticker	Figurinha
 	Poll	Enquete
 	Attach a file	Anexar um arquivo
-	Voice note	Mensagem de voz
+	Voice message	Mensagem de voz
 	Send	Enviar
 	Grinning face	Rosto sorridente
 	Beaming face	Rosto radiante
@@ -220,7 +220,7 @@ banner	Reply	Responder
 	Sticker not sent	Figurinha não enviada
 	Still joining…	Ainda entrando…
 	Sync interrupted	Sincronização interrompida
-	Voice note cannot be played	Não foi possível reproduzir a mensagem de voz
+	Voice message cannot be played	Não foi possível reproduzir a mensagem de voz
 	You are offline	Você está offline
 	The name cannot be empty.	O nome não pode ficar vazio.
 	The name is too long (256 characters at most).	O nome é muito longo (no máximo 256 caracteres).

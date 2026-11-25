@@ -41,7 +41,7 @@ banner	Reply	Svara
 	Sticker	Klistermärke
 	Poll	Omröstning
 	Attach a file	Bifoga en fil
-	Voice note	Röstmeddelande
+	Voice message	Röstmeddelande
 	Send	Skicka
 
 # composer (emoji names)
@@ -243,7 +243,7 @@ banner	Reply	Svara
 	Sticker not sent	Klistermärket skickades inte
 	Still joining…	Går fortfarande med …
 	Sync interrupted	Synkroniseringen avbröts
-	Voice note cannot be played	Röstmeddelandet kan inte spelas upp
+	Voice message cannot be played	Röstmeddelandet kan inte spelas upp
 	You are offline	Du är offline
 	The name cannot be empty.	Namnet får inte vara tomt.
 	The name is too long (256 characters at most).	Namnet är för långt (högst 256 tecken).

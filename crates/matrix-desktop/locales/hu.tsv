@@ -38,7 +38,7 @@ banner	Reply	Válasz
 	Sticker	Matrica
 	Poll	Szavazás
 	Attach a file	Fájl csatolása
-	Voice note	Hangüzenet
+	Voice message	Hangüzenet
 	Send	Küldés
 	Grinning face	Vigyorgó arc
 	Beaming face	Sugárzó arc
@@ -220,7 +220,7 @@ banner	Reply	Válasz
 	Sticker not sent	A matrica nem lett elküldve
 	Still joining…	Még csatlakozik…
 	Sync interrupted	A szinkronizálás megszakadt
-	Voice note cannot be played	A hangüzenet nem játszható le
+	Voice message cannot be played	A hangüzenet nem játszható le
 	You are offline	Offline vagy
 	The name cannot be empty.	A név nem lehet üres.
 	The name is too long (256 characters at most).	A név túl hosszú (legfeljebb 256 karakter).

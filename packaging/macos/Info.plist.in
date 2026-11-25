@@ -16,7 +16,7 @@
 <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
 <key>NSHighResolutionCapable</key><true/>
-<key>NSMicrophoneUsageDescription</key><string>Gnobbi usa il microfono per registrare le note vocali.</string>
+<key>NSMicrophoneUsageDescription</key><string>Gnobbi usa il microfono per registrare le messaggi vocali.</string>
 <key>CFBundleURLTypes</key><array><dict>
 <key>CFBundleURLName</key><string>Matrix</string>
 <key>CFBundleURLSchemes</key><array><string>matrix</string></array>

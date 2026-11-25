@@ -42,7 +42,7 @@ banner	Reply	Risposta
 	Sticker	Sticker
 	Poll	Sondaggio
 	Attach a file	Allega un file
-	Voice note	Nota vocale
+	Voice message	Messaggio vocale
 	Send	Invia
 
 # composer (emoji names)
@@ -282,7 +282,7 @@ banner	Reply	Risposta
 	Sticker not sent	Sticker non inviato
 	Still joining…	Ancora in corso…
 	Sync interrupted	Sincronizzazione interrotta
-	Voice note cannot be played	Nota vocale non riproducibile
+	Voice message cannot be played	Messaggio vocale non riproducibile
 	You are offline	Sei offline
 	The name cannot be empty.	Il nome non può essere vuoto.
 	The name is too long (256 characters at most).	Il nome è troppo lungo (massimo 256 caratteri).

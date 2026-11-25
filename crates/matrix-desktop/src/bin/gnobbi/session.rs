@@ -798,7 +798,7 @@ impl Session {
                         Err(e) => self.notice = Some(e.to_owned()),
                     }
                 }
-                Err(_) => self.notice = Some(i18n::t("Voice note cannot be played").to_owned()),
+                Err(_) => self.notice = Some(i18n::t("Voice message cannot be played").to_owned()),
             }
             changed = true;
         }

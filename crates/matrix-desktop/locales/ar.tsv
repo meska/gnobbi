@@ -38,7 +38,7 @@ banner	Reply	رد
 	Sticker	ملصق
 	Poll	استطلاع
 	Attach a file	إرفاق ملف
-	Voice note	رسالة صوتية
+	Voice message	رسالة صوتية
 	Send	إرسال
 	Today	اليوم
 	Yesterday	أمس
@@ -186,7 +186,7 @@ banner	Reply	رد
 	Sticker not sent	لم يُرسل الملصق
 	Still joining…	لا يزال الانضمام جاريًا…
 	Sync interrupted	انقطعت المزامنة
-	Voice note cannot be played	تعذر تشغيل الرسالة الصوتية
+	Voice message cannot be played	تعذر تشغيل الرسالة الصوتية
 	You are offline	أنت غير متصل
 	The name cannot be empty.	لا يمكن ترك الاسم فارغًا.
 	The name is too long (256 characters at most).	الاسم طويل جدًا (الحد الأقصى 256 حرفًا).

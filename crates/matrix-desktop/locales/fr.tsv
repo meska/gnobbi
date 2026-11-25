@@ -38,7 +38,7 @@ banner	Reply	Répondre
 	Sticker	Autocollant
 	Poll	Sondage
 	Attach a file	Joindre un fichier
-	Voice note	Message vocal
+	Voice message	Message vocal
 	Send	Envoyer
 	Grinning face	Visage souriant
 	Beaming face	Visage radieux
@@ -220,7 +220,7 @@ banner	Reply	Répondre
 	Sticker not sent	Autocollant non envoyé
 	Still joining…	Adhésion toujours en cours…
 	Sync interrupted	Synchronisation interrompue
-	Voice note cannot be played	Impossible de lire le message vocal
+	Voice message cannot be played	Impossible de lire le message vocal
 	You are offline	Vous êtes hors ligne
 	The name cannot be empty.	Le nom ne peut pas être vide.
 	The name is too long (256 characters at most).	Le nom est trop long (256 caractères maximum).

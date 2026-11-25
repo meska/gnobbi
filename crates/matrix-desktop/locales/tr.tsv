@@ -38,7 +38,7 @@ banner	Reply	Yanıtla
 	Sticker	Çıkartma
 	Poll	Anket
 	Attach a file	Dosya ekle
-	Voice note	Sesli mesaj
+	Voice message	Sesli mesaj
 	Send	Gönder
 	Grinning face	Sırıtan yüz
 	Beaming face	Parlayan yüz
@@ -220,7 +220,7 @@ banner	Reply	Yanıtla
 	Sticker not sent	Çıkartma gönderilmedi
 	Still joining…	Hâlâ katılınıyor…
 	Sync interrupted	Eşitleme kesildi
-	Voice note cannot be played	Sesli mesaj oynatılamıyor
+	Voice message cannot be played	Sesli mesaj oynatılamıyor
 	You are offline	Çevrimdışısınız
 	The name cannot be empty.	Ad boş olamaz.
 	The name is too long (256 characters at most).	Ad çok uzun (en fazla 256 karakter).

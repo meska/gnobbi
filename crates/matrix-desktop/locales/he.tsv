@@ -38,7 +38,7 @@ banner	Reply	תגובה
 	Sticker	מדבקה
 	Poll	סקר
 	Attach a file	צירוף קובץ
-	Voice note	הודעה קולית
+	Voice message	הודעה קולית
 	Send	שליחה
 	Today	היום
 	Yesterday	אתמול
@@ -186,7 +186,7 @@ banner	Reply	תגובה
 	Sticker not sent	המדבקה לא נשלחה
 	Still joining…	ההצטרפות עדיין מתבצעת…
 	Sync interrupted	הסנכרון נקטע
-	Voice note cannot be played	לא ניתן לנגן את ההודעה הקולית
+	Voice message cannot be played	לא ניתן לנגן את ההודעה הקולית
 	You are offline	אין חיבור לרשת
 	The name cannot be empty.	השם לא יכול להיות ריק.
 	The name is too long (256 characters at most).	השם ארוך מדי (עד 256 תווים).

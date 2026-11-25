@@ -41,7 +41,7 @@ banner	Reply	პასუხი
 	Sticker	სტიკერი
 	Poll	გამოკითხვა
 	Attach a file	ფაილის მიმაგრება
-	Voice note	ხმოვანი შეტყობინება
+	Voice message	ხმოვანი შეტყობინება
 	Send	გაგზავნა
 
 # composer (emoji names)
@@ -243,7 +243,7 @@ banner	Reply	პასუხი
 	Sticker not sent	სტიკერი არ გაიგზავნა
 	Still joining…	ჯერ კიდევ უერთდება…
 	Sync interrupted	სინქრონიზაცია შეწყდა
-	Voice note cannot be played	ხმოვანი შეტყობინების დაკვრა შეუძლებელია
+	Voice message cannot be played	ხმოვანი შეტყობინების დაკვრა შეუძლებელია
 	You are offline	ინტერნეტი არ გაქვთ
 	The name cannot be empty.	სახელი არ შეიძლება ცარიელი იყოს.
 	The name is too long (256 characters at most).	სახელი ძალიან გრძელია (მაქსიმუმ 256 სიმბოლო).

@@ -41,7 +41,7 @@ banner	Reply	回复
 	Sticker	贴纸
 	Poll	投票
 	Attach a file	附加文件
-	Voice note	语音消息
+	Voice message	语音消息
 	Send	发送
 
 # composer (emoji names)
@@ -243,7 +243,7 @@ banner	Reply	回复
 	Sticker not sent	贴纸未发送
 	Still joining…	仍在加入…
 	Sync interrupted	同步已中断
-	Voice note cannot be played	无法播放语音消息
+	Voice message cannot be played	无法播放语音消息
 	You are offline	你已离线
 	The name cannot be empty.	名称不能为空。
 	The name is too long (256 characters at most).	名称过长（最多 256 个字符）。

@@ -41,7 +41,7 @@ banner	Reply	Відповісти
 	Sticker	Стікер
 	Poll	Опитування
 	Attach a file	Прикріпити файл
-	Voice note	Голосове повідомлення
+	Voice message	Голосове повідомлення
 	Send	Надіслати
 
 # composer (emoji names)
@@ -243,7 +243,7 @@ banner	Reply	Відповісти
 	Sticker not sent	Стікер не надіслано
 	Still joining…	Ще приєднуємося…
 	Sync interrupted	Синхронізацію перервано
-	Voice note cannot be played	Голосове повідомлення не вдається відтворити
+	Voice message cannot be played	Голосове повідомлення не вдається відтворити
 	You are offline	Немає підключення до мережі
 	The name cannot be empty.	Ім'я не може бути порожнім.
 	The name is too long (256 characters at most).	Ім'я задовге (не більше 256 символів).

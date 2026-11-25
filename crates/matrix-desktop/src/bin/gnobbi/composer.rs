@@ -267,7 +267,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let has_text = !(draft.trim().is_empty() && attachment.is_none());
         let t = ui.ctx().animate_bool_with_time(nid("composer-send-fade"), has_text, 0.15);
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        if t < 1. && icon_at(ui, rect, &format!("composer-voice{salt}"), Icon::Microphone, 1. - t, !has_text, i18n::t("Voice note")).clicked() {
+        if t < 1. && icon_at(ui, rect, &format!("composer-voice{salt}"), Icon::Microphone, 1. - t, !has_text, i18n::t("Voice message")).clicked() {
             *voice = Some(VoiceAct::Start);
         }
         if t > 0. && icon_at(ui, rect, &format!("composer-send{salt}"), Icon::PaperPlaneRight, t, has_text, i18n::t("Send")).clicked() {

@@ -41,7 +41,7 @@ banner	Reply	Antworten
 	Sticker	Sticker
 	Poll	Umfrage
 	Attach a file	Datei anhängen
-	Voice note	Sprachnachricht
+	Voice message	Sprachnachricht
 	Send	Senden
 
 # composer (emoji names)
@@ -243,7 +243,7 @@ banner	Reply	Antworten
 	Sticker not sent	Sticker nicht gesendet
 	Still joining…	Beitritt läuft noch …
 	Sync interrupted	Synchronisierung unterbrochen
-	Voice note cannot be played	Sprachnachricht kann nicht abgespielt werden
+	Voice message cannot be played	Sprachnachricht kann nicht abgespielt werden
 	You are offline	Du bist offline
 	The name cannot be empty.	Der Name darf nicht leer sein.
 	The name is too long (256 characters at most).	Der Name ist zu lang (höchstens 256 Zeichen).
