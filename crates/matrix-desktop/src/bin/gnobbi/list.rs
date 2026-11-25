@@ -241,8 +241,7 @@ fn choose(open: &mut Option<(usize, matrix_domain::RoomScope)>, shown: &mut Side
 }
 
 /// Header with the search field, then the rows. Selection goes through `Sidebar::select`; true when a room was chosen, the open one too.
-/// `more` adds the caller's buttons left of «+».
-pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens, more: &mut dyn FnMut(&mut egui::Ui), mut unified: Option<Unified>) -> bool {
+pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens, mut unified: Option<Unified>) -> bool {
     let (title, _, _) = session.sidebar.list_header();
     let in_space = session.sidebar.active_space().is_some();
     ui.add_space(12.);
@@ -263,7 +262,6 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                     ui.close();
                 }
             }));
-            more(ui);
         });
     });
     let sidebar = &mut session.sidebar;

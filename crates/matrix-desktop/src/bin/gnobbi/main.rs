@@ -1467,7 +1467,7 @@ impl App {
                 // Narrow: the list takes the whole width left of the rail and the chat is not drawn; a tap on a row, the open one too, goes to the chat.
                 let list_fill = list_fill(t);
                 if narrow {
-                    narrow_list(ui, session, &mut self.list_open, &mut self.rail, single, list_fill, unified, t);
+                    narrow_list(ui, session, &mut self.list_open, list_fill, unified, t);
                 } else {
                     wide_list(ui, session, &mut self.prefs, self.dirs.as_ref(), list_fill, unified, t);
                 }
@@ -2941,26 +2941,13 @@ fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::S
 }
 
 /// Narrow window: the list takes the whole width left of the rail; a tap on a row, the open one too, goes to the chat.
-fn narrow_list(ui: &mut egui::Ui, session: &mut Session, list_open: &mut bool, rail_state: &mut rail::State, single: bool, list_fill: egui::Color32, unified: Option<list::Unified>, t: &DesignTokens) {
+fn narrow_list(ui: &mut egui::Ui, session: &mut Session, list_open: &mut bool, list_fill: egui::Color32, unified: Option<list::Unified>, t: &DesignTokens) {
         dir::panel_start("list-narrow").exact_size(ui.available_width()).resizable(false).show_separator_line(false).frame(bar(t).fill(list_fill)).show(ui, |ui| dir::scope(ui, |ui| {
             let mut new_chat = false;
-            // One column: the chat header has no room for the app's own windows, they sit in one menu here.
-            let (mut settings, mut accounts, mut devices) = (false, false, false);
-            if list::rooms(ui, session, &mut new_chat, t, &mut |ui| {
-                if !single { return; }
-                egui::Popup::menu(&icons::button(ui, icons::Icon::List, false, i18n::t("Menu"))).show(|ui| crate::dir::popup(ui, |ui| {
-                    settings = ui.button(i18n::t("Settings")).clicked();
-                    accounts = ui.button(i18n::t("Account")).clicked();
-                    devices = ui.button(i18n::t("Devices")).clicked();
-                    if settings || accounts || devices { ui.close(); }
-                }));
-            }, unified) {
+            if list::rooms(ui, session, &mut new_chat, t, unified) {
                 *list_open = false;
             }
             session.new_open |= new_chat;
-            if settings { rail_state.set_settings(true); }
-            if accounts { rail_state.set_accounts(true); }
-            if devices { rail_state.set_devices(true); }
         }));
 }
 
@@ -2980,7 +2967,7 @@ fn wide_list(ui: &mut egui::Ui, session: &mut Session, prefs: &mut Preferences, 
                 ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
                 ui.style_mut().visuals.widgets.active.fg_stroke = active;
                 let mut new_chat = false;
-                dir::scope(ui, |ui| list::rooms(ui, session, &mut new_chat, t, &mut |_| {}, unified));
+                dir::scope(ui, |ui| list::rooms(ui, session, &mut new_chat, t, unified));
                 session.new_open |= new_chat;
             });
         ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
