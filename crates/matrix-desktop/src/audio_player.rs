@@ -10,6 +10,8 @@ pub struct Player {
     playing: bool,
     /// Dragging the playhead: the audio stays muted until release.
     scrubbing: bool,
+    /// Play state applied on release; a toggle during the drag only changes this.
+    resume: bool,
 }
 
 impl Player {
@@ -22,6 +24,7 @@ impl Player {
             position: 0,
             playing,
             scrubbing: false,
+            resume: true,
         }
     }
 
@@ -39,6 +42,10 @@ impl Player {
 
     /// Play/Pause. A finished note starts again from the beginning.
     pub fn toggle(&mut self) {
+        if self.scrubbing {
+            self.resume = !self.resume;
+            return;
+        }
         if self.finished() {
             self.position = 0;
             self.playing = !self.samples.is_empty();
@@ -61,13 +68,14 @@ impl Player {
     /// Start of a drag: mute (pause) so the playhead can move live without sound.
     pub fn begin_scrub(&mut self) {
         self.scrubbing = true;
+        self.resume = true;
         self.playing = false;
     }
 
     /// Release: audio resumes from where the playhead was dropped.
     pub fn end_scrub(&mut self) {
         self.scrubbing = false;
-        self.playing = !self.finished();
+        self.playing = self.resume && !self.finished();
     }
 
     /// Along the note, 0..=1.
@@ -427,13 +435,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "bug: toggle() during a drag sets playing and unmutes it; remove when Player::toggle ignores scrubbing"]
     fn play_pause_during_a_drag_does_not_unmute_the_drag() {
         let mut p = note(100);
         p.begin_scrub();
         p.toggle(); // e.g. the Play button hit with another finger while the waveform is held
         let mut out = [1.0f32; 4];
         assert_eq!(p.pull(&mut out), 0, "still muted while the playhead is held");
+        p.end_scrub();
+        assert!(!p.is_playing(), "the toggle (pause) applies on release");
     }
 
     #[test]
