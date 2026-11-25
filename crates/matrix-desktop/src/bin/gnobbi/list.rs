@@ -320,6 +320,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
         }
         return chosen;
     }
+    let (press, swallow) = (crate::touch_menu::long_press(ui.ctx()), released_after_press(ui.ctx()));
     let (mut scroll_ui, bottom) = crate::mobile::extend_list(ui, crate::mobile::touch() && ui.ctx().content_rect().width() < crate::SINGLE_WIDTH);
     let mut margin = ui.spacing().scroll.content_margin;
     margin.bottom = margin.bottom.saturating_add(bottom.round() as i8);
@@ -341,11 +342,12 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             let spoken = format!("{}, {}", room.name, mark.name);
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &spoken));
             paint_row(ui, rect, &resp, room, egui::Id::new(("row-mark", slot, i)), &owner.avatars, slot == 0 && shown.as_ref() == Some(&room.scope), Some(&mark), t);
-            if resp.clicked() {
+            let long = pressed_here(ui, rect, press);
+            if resp.clicked() && !swallow {
                 *pick = Some((slot, room.scope.clone()));
             }
             // Another account's room: no space entries (the space window belongs to the shown account), the rest works on its own session.
-            if !room.info.invited && let Some(choice) = room_menu(egui::Popup::context_menu(&resp), room, &owner.space_choices, &mut owner.confirm_leave, &mut owner.space_pick, t) {
+            if !room.info.invited && let Some(choice) = room_menu(row_popup(&resp, long), room, &owner.space_choices, &mut owner.confirm_leave, &mut owner.space_pick, t) {
                 *menu_pick = Some((slot, room.scope.clone(), choice));
             }
         };
@@ -388,16 +390,17 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
             let resp = crate::metrics::clickable(resp);
             paint_row(ui, rect, &resp, room, egui::Id::new(("row-mark", index)), &session.avatars, selected.as_ref() == Some(&room.scope), None, t);
-            if resp.clicked() {
+            let long = pressed_here(ui, rect, press);
+            if resp.clicked() && !swallow {
                 pick = Some(room.scope.clone());
             }
-            if resp.secondary_clicked() {
+            if resp.secondary_clicked() || long {
                 session.confirm_leave = None;
                 action = Some((room.scope.clone(), crate::session::RoomAction::Spaces));
             }
             if !room.info.invited {
                 // Test hook: GNOBBI_EGUI_VIEW=room-menu shows the menu of the open room without a click, room-space-pick the window behind «Aggiungi a uno spazio…».
-                let mut menu = egui::Popup::context_menu(&resp);
+                let mut menu = row_popup(&resp, long);
                 if selected.as_ref() == Some(&room.scope) && let Ok(view) = matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW") && view.starts_with("room-") {
                     match &session.space_choices {
                         Some((asked, Some(_))) if asked == &room.scope => if view == "room-space-pick" && session.space_pick.is_none() { session.space_pick = Some((room.scope.clone(), None)); },
@@ -442,6 +445,33 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     chosen
 }
 
+const SWALLOW: &str = "room-long-press";
+
+/// A long press (touch) that landed on this row: the menu opens like a right click. The finger's release must not open the room (see `released_after_press`).
+fn pressed_here(ui: &egui::Ui, rect: egui::Rect, press: Option<egui::Pos2>) -> bool {
+    let hit = press.is_some_and(|p| rect.contains(p) && ui.is_rect_visible(rect) && ui.clip_rect().contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id()));
+    if hit {
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(SWALLOW), true));
+        ui.ctx().stop_dragging(); // the list must not start scrolling under the held finger
+        crate::mobile::haptic_tick();
+    }
+    hit
+}
+
+/// The frame in which the finger of a long press lifts: its click belongs to the menu, not to the row.
+fn released_after_press(ctx: &egui::Context) -> bool {
+    let id = egui::Id::new(SWALLOW);
+    let up = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false) && !ctx.input(|i| i.pointer.any_down());
+    if up { ctx.data_mut(|d| d.remove_temp::<bool>(id)); }
+    up
+}
+
+/// The room-menu popup of a row: opened by a right click, or by `long`.
+fn row_popup(resp: &egui::Response, long: bool) -> egui::Popup<'static> {
+    let menu = egui::Popup::context_menu(resp);
+    if long { menu.open_memory(egui::SetOpenCommand::Bool(true)) } else { menu }
+}
+
 /// The room menu on `menu` (a context menu or a pinned one); what the user picked. Shared by the single list and the multi-account list.
 fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>, confirm: &mut Option<matrix_domain::RoomScope>, pick: &mut Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>, t: &DesignTokens) -> Option<crate::session::RoomAction> {
     let mut action = None;
@@ -449,6 +479,7 @@ fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Op
         use crate::session::RoomAction;
         ui.spacing_mut().item_spacing.y = 2.;
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // an entry never wraps: the menu grows (and the area shifts into the screen) instead
+        if crate::mobile::touch() { ui.spacing_mut().interact_size.y = crate::touch_menu::ROW; } // finger-high rows, like the message menu
         let (pinned, low) = (room.pinned(), room.info.tags.iter().any(|t| t == "m.lowpriority"));
         for (icon, label, choice) in [
             (read_icon(room.unread, room.info.marked_unread), mark_read_entry(room.unread, room.info.marked_unread), RoomAction::Mark(room.unread > 0 || room.info.marked_unread)),
@@ -466,17 +497,7 @@ fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Op
         }
         let current = room.info.notification_mode;
         menu_divider(ui, Some((if current == matrix_domain::notifications::RoomNotifyMode::Mute { Icon::BellSlash } else { Icon::Bell }, i18n::t("Notifications"))), t);
-        ui.scope(|ui| {
-            ui.style_mut().visuals.indent_has_left_vline = false;
-            ui.indent("notify-modes", |ui| {
-                for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
-                    // The check slot is always there (invisible when not chosen), so the three texts line up.
-                    let mut job = item_job(Icon::Check, mode_label(mode), None, t);
-                    if current != mode { job.sections[0].format.color = Color32::TRANSPARENT; }
-                    if ui.button(job).clicked() { action = Some(RoomAction::Mode(mode)); ui.close(); }
-                }
-            });
-        });
+        if let Some(mode) = notify_modes(ui, current, t) { action = Some(RoomAction::Mode(mode)); ui.close(); }
         menu_divider(ui, None, t);
         let label = if confirm.as_ref() == Some(&room.scope) { i18n::t("Leave?") } else { i18n::t("Leave") };
         if menu_item(ui, Icon::SignOut, label, Some(rgb(t.error)), t).clicked() && confirm_leave(confirm, &room.scope) {
@@ -485,6 +506,23 @@ fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Op
         }
     }));
     action
+}
+
+/// The three notification modes as indented entries, the `current` one checked; the mode tapped. Shared by the room menu and the bell.
+pub fn notify_modes(ui: &mut egui::Ui, current: matrix_domain::notifications::RoomNotifyMode, t: &DesignTokens) -> Option<matrix_domain::notifications::RoomNotifyMode> {
+    let mut picked = None;
+    ui.scope(|ui| {
+        ui.style_mut().visuals.indent_has_left_vline = false;
+        ui.indent("notify-modes", |ui| {
+            for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
+                // The check slot is always there (invisible when not chosen), so the three texts line up.
+                let mut job = item_job(Icon::Check, mode_label(mode), None, t);
+                if current != mode { job.sections[0].format.color = Color32::TRANSPARENT; }
+                if ui.button(job).clicked() { picked = Some(mode); }
+            }
+        });
+    });
+    picked
 }
 
 /// Space entries of the room menu: whether «Aggiungi a uno spazio…» shows, and the spaces behind «Togli da <spazio>».
@@ -523,7 +561,7 @@ pub fn space_picker(ctx: &egui::Context, session: &mut crate::session::Session) 
 
 #[cfg(test)]
 mod tests {
-    use super::room_menu;
+    use super::{pressed_here, released_after_press, room_menu, row_popup};
     use eframe::egui;
 
     /// A right click on a room row opens the room menu: the one body behind the single list and every row of the multi-account list.
@@ -544,6 +582,34 @@ mod tests {
             out.textures_delta.clear();
         }
         assert!(egui::Popup::is_any_open(&ctx));
+    }
+
+    /// On touch a long press on a row opens the same room menu as the right click, in tall rows; its release does not open the room.
+    #[test]
+    fn long_press_on_a_row_opens_the_menu_and_not_the_room() {
+        use matrix_domain::{AccountId, RoomId, RoomScope};
+        crate::mobile::FORCE_TOUCH.set(true);
+        let room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
+        let ctx = crate::icons::test_context();
+        let (mut confirm, mut pick, mut opened, mut swallowed) = (None, None, false, false);
+        let at = egui::pos2(50., 30.);
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        // (time, events): down, still, held past the threshold, lifted.
+        for (time, events) in [(0., vec![egui::Event::PointerMoved(at), button(true)]), (0.1, vec![]), (0.5, vec![]), (0.6, vec![button(false)]), (0.7, vec![])] {
+            let input = egui::RawInput { time: Some(time), screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 400.))), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(300., 52.), egui::Sense::click());
+                let (press, swallow) = (crate::touch_menu::long_press(ui.ctx()), released_after_press(ui.ctx()));
+                swallowed |= swallow;
+                let long = pressed_here(ui, rect, press);
+                opened |= resp.clicked() && !swallow;
+                room_menu(row_popup(&resp, long), &room, &None, &mut confirm, &mut pick, &matrix_desktop::DARK);
+            });
+            out.textures_delta.clear();
+        }
+        crate::mobile::FORCE_TOUCH.set(false);
+        assert!(egui::Popup::is_any_open(&ctx), "the long press opens the room menu");
+        assert!(!opened && swallowed, "and the release of the finger is kept from opening the room");
     }
 
     #[test]
