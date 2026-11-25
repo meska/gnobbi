@@ -508,6 +508,12 @@ fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Op
     action
 }
 
+/// The bell of the room header for `mode`: the glyph and whether it is filled (filled bell = mentions only; Phosphor has no «mentions» bell and the font subset is not rebuilt for one).
+pub fn bell_icon(mode: matrix_domain::notifications::RoomNotifyMode) -> (Icon, bool) {
+    use matrix_domain::notifications::RoomNotifyMode::*;
+    match mode { AllMessages => (Icon::Bell, false), MentionsAndKeywordsOnly => (Icon::Bell, true), Mute => (Icon::BellSlash, false) }
+}
+
 /// The three notification modes as indented entries, the `current` one checked; the mode tapped. Shared by the room menu and the bell.
 pub fn notify_modes(ui: &mut egui::Ui, current: matrix_domain::notifications::RoomNotifyMode, t: &DesignTokens) -> Option<matrix_domain::notifications::RoomNotifyMode> {
     let mut picked = None;
@@ -561,8 +567,16 @@ pub fn space_picker(ctx: &egui::Context, session: &mut crate::session::Session) 
 
 #[cfg(test)]
 mod tests {
-    use super::{pressed_here, released_after_press, room_menu, row_popup};
+    use super::{bell_icon, pressed_here, released_after_press, room_menu, row_popup};
     use eframe::egui;
+
+    /// The header bell shows the mode: plain bell, filled bell for mentions only, slashed bell for mute.
+    #[test]
+    fn bell_icon_follows_the_notification_mode() {
+        use crate::icons::Icon::{Bell, BellSlash};
+        use matrix_domain::notifications::RoomNotifyMode::*;
+        assert_eq!([AllMessages, MentionsAndKeywordsOnly, Mute].map(bell_icon), [(Bell, false), (Bell, true), (BellSlash, false)]);
+    }
 
     /// A right click on a room row opens the room menu: the one body behind the single list and every row of the multi-account list.
     #[test]

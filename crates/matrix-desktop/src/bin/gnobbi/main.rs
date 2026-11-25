@@ -1544,6 +1544,19 @@ impl App {
                         s.info_open = !s.info_open;
                         s.search_open = false;
                     }
+                    // Same state as the list (`sidebar` row), same entries (`list::notify_modes`): a change shows in both at once.
+                    let bell = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| (r.scope.clone(), r.info.notification_mode)));
+                    if has_room && let Some((scope, mode)) = bell {
+                        let (icon, filled) = list::bell_icon(mode);
+                        let resp = icons::button(ui, icon, filled, i18n::t("Notifications"));
+                        let mut picked = None;
+                        egui::Popup::menu(&resp).show(|ui| dir::popup(ui, |ui| {
+                            if mobile::touch() { ui.spacing_mut().interact_size.y = touch_menu::ROW; }
+                            picked = list::notify_modes(ui, mode, t);
+                            if picked.is_some() { ui.close(); }
+                        }));
+                        if let Some(m) = picked && let Some(s) = &mut self.session { s.room_action(scope, session::RoomAction::Mode(m)); }
+                    }
                     if has_room && icons::button(ui, icons::Icon::MagnifyingGlass, search_on, i18n::t("Search in room")).clicked()
                         && let Some(s) = &mut self.session
                     {
