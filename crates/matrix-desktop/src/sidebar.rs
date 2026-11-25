@@ -1760,3 +1760,191 @@ mod favourite_tests {
         assert_eq!(s.tag_error(), Some("Connection failed"));
     }
 }
+
+#[cfg(test)]
+mod space_tree_tests {
+    use super::*;
+    use matrix_engine::{RoomInfo, RoomSummary};
+
+    const ACCOUNT: AccountId = AccountId::new(1);
+
+    fn scope(id: &str) -> RoomScope {
+        RoomScope { account_id: ACCOUNT, room_id: RoomId::new(format!("!{id}:t.invalid")) }
+    }
+
+    /// Upserts a room (`kids` = `m.space.child` ids; a space when `is_space`).
+    fn put(s: &mut Sidebar, id: &str, is_space: bool, kids: &[&str], unread: u64, tags: &[&str]) {
+        s.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
+            scope: scope(id),
+            name: id.into(),
+            unread,
+            info: RoomInfo {
+                preview: Some("x".into()),
+                is_space,
+                children: kids.iter().map(|k| RoomId::new(format!("!{k}:t.invalid"))).collect(),
+                tags: tags.iter().map(|t| (*t).into()).collect(),
+                ..Default::default()
+            },
+        })));
+    }
+
+    fn rooms(s: &mut Sidebar, ids: &[&str]) {
+        ids.iter().for_each(|id| put(s, id, false, &[], 0, &[]));
+    }
+
+    fn spaces(s: &mut Sidebar, list: &[(&str, &[&str])]) {
+        list.iter().for_each(|(id, kids)| put(s, id, true, kids, 0, &[]));
+    }
+
+    /// Names shown with `space` selected, sorted (the order has its own test).
+    fn inside(s: &mut Sidebar, space: &str) -> Vec<String> {
+        assert!(s.set_space(Some(scope(space))));
+        let mut v: Vec<String> = s.visible_indices().iter().map(|&i| s.rooms()[i].name.clone()).collect();
+        v.sort();
+        v
+    }
+
+    fn badge(s: &Sidebar, space: &str) -> u64 {
+        s.navigation_entries().iter().find(|e| e.scope == Some(scope(space))).unwrap().unread
+    }
+
+    #[test]
+    fn two_levels_of_subspaces_all_show_up() {
+        let mut s = Sidebar::connected(ACCOUNT);
+        rooms(&mut s, &["r1", "r2", "r3"]);
+        spaces(&mut s, &[("top", &["r1", "mid"]), ("mid", &["r2", "deep"]), ("deep", &["r3"])]);
+        assert_eq!(inside(&mut s, "top"), ["r1", "r2", "r3"]);
+    }
+
+    #[test]
+    fn a_room_in_two_subspaces_shows_once() {
+        let mut s = Sidebar::connected(ACCOUNT);
+        rooms(&mut s, &["shared", "x", "y"]);
+        spaces(&mut s, &[("top", &["m1", "m2", "shared"]), ("m1", &["shared", "x"]), ("m2", &["shared", "y"])]);
+        assert_eq!(inside(&mut s, "top"), ["shared", "x", "y"]);
+    }
+
+    #[test]
+    fn a_cycle_between_spaces_ends_and_each_side_sees_both_rooms() {
+        let mut s = Sidebar::connected(ACCOUNT);
+        rooms(&mut s, &["ra", "rb"]);
+        spaces(&mut s, &[("A", &["B", "ra"]), ("B", &["A", "rb"])]);
+        assert_eq!(inside(&mut s, "A"), ["ra", "rb"]);
+        assert_eq!(inside(&mut s, "B"), ["ra", "rb"]);
+        // Self-loop too.
+        spaces(&mut s, &[("S", &["S", "ra"])]);
+        assert_eq!(inside(&mut s, "S"), ["ra"]);
+    }
+
+    #[test]
+    fn a_selected_subspace_shows_only_its_branch() {
+        let mut s = Sidebar::connected(ACCOUNT);
+        rooms(&mut s, &["top_room", "mid_room", "deep_room", "other_room", "loose"]);
+        spaces(&mut s, &[("top", &["top_room", "mid", "other"]), ("mid", &["mid_room", "deep"]), ("deep", &["deep_room"]), ("other", &["other_room"])]);
+        assert_eq!(inside(&mut s, "mid"), ["deep_room", "mid_room"]);
+        assert_eq!(inside(&mut s, "deep"), ["deep_room"]);
+        assert_eq!(inside(&mut s, "other"), ["other_room"]);
+        // No parent leaks down: «loose» is in no space.
+        assert!(!inside(&mut s, "top").contains(&"loose".to_string()));
+    }
+
+    #[test]
+    fn spaces_are_never_listed_but_dms_are() {
+        let mut s = Sidebar::connected(ACCOUNT);
+        rooms(&mut s, &["r"]);
+        s.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
+            scope: scope("dm"),
+            name: "dm".into(),
+            unread: 0,
+            info: RoomInfo { preview: Some("x".into()), joined_members: 2, dm_user_id: Some("@u:t.invalid".into()), ..Default::default() },
+        })));
+        spaces(&mut s, &[("top", &["mid", "r", "dm"]), ("mid", &["deep"]), ("deep", &[])]);
+        assert_eq!(inside(&mut s, "top"), ["dm", "r"]);
+    }
+
+    #[test]
+    fn a_space_without_children_is_empty() {
+        let mut s = Sidebar::connected(ACCOUNT);
+        rooms(&mut s, &["r"]);
+        spaces(&mut s, &[("empty", &[])]);
+        assert!(inside(&mut s, "empty").is_empty());
+        assert_eq!(badge(&s, "empty"), 0);
+    }
+
+    #[test]
+    fn a_subspace_not_joined_or_only_invited_adds_nothing() {
+        let mut s = Sidebar::connected(ACCOUNT);
+        rooms(&mut s, &["r", "hidden"]);
+        spaces(&mut s, &[("top", &["ghost", "inv", "r"])]); // «ghost»: no row at all
+        put(&mut s, "inv", true, &["hidden"], 0, &[]);
+        s.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
+            scope: scope("inv"),
+            name: "inv".into(),
+            unread: 0,
+            info: RoomInfo { is_space: true, invited: true, children: vec![RoomId::new("!hidden:t.invalid")], ..Default::default() },
+        })));
+        let seen = inside(&mut s, "top");
+        assert!(seen.contains(&"r".to_string()) && !seen.contains(&"hidden".to_string()), "{seen:?}");
+    }
+
+    #[test]
+    fn order_is_pinned_then_recency_then_low_priority() {
+        let mut s = Sidebar::connected(ACCOUNT);
+        put(&mut s, "new", false, &[], 0, &[]);
+        put(&mut s, "old", false, &[], 0, &[]);
+        put(&mut s, "pin", false, &[], 0, &["m.favourite"]);
+        put(&mut s, "low", false, &[], 0, &["m.lowpriority"]);
+        spaces(&mut s, &[("top", &["mid", "low", "old"]), ("mid", &["new", "pin"])]);
+        // SDK order: low is the most recent, then new, pin, old.
+        s.set_order(["low", "new", "pin", "old"].map(scope).to_vec());
+        assert!(s.set_space(Some(scope("top"))));
+        assert_eq!(names(&s), ["pin", "new", "old", "low"]);
+    }
+
+    fn names(s: &Sidebar) -> Vec<&str> {
+        s.visible_indices().iter().map(|&i| s.rooms()[i].name.as_str()).collect()
+    }
+
+    #[test]
+    fn the_badge_sums_the_same_rooms_the_list_shows() {
+        let mut s = Sidebar::connected(ACCOUNT);
+        put(&mut s, "a", false, &[], 1, &[]);
+        put(&mut s, "b", false, &[], 2, &[]);
+        put(&mut s, "c", false, &[], 4, &[]);
+        put(&mut s, "out", false, &[], 8, &[]);
+        spaces(&mut s, &[("top", &["mid", "a"]), ("mid", &["b", "deep", "a"]), ("deep", &["c", "top"])]);
+        let listed: u64 = {
+            inside(&mut s, "top");
+            s.visible_indices().iter().map(|&i| s.rooms()[i].unread).sum()
+        };
+        assert_eq!((listed, badge(&s, "top"), badge(&s, "mid")), (7, 7, 7)); // a counted once, «out» never
+        assert_eq!(badge(&s, "deep"), 7); // cycle: the whole tree sits under it
+    }
+
+    #[test]
+    fn the_cache_follows_hierarchy_changes_and_rooms_entering_or_leaving() {
+        let mut s = Sidebar::connected(ACCOUNT);
+        put(&mut s, "a", false, &[], 1, &[]);
+        spaces(&mut s, &[("top", &["mid"]), ("mid", &[])]);
+        assert_eq!(inside(&mut s, "top"), Vec::<String>::new());
+        // The subspace gains a child that is already joined.
+        spaces(&mut s, &[("mid", &["a"])]);
+        assert_eq!(inside(&mut s, "top"), ["a"]);
+        assert_eq!(badge(&s, "top"), 1);
+        // A room that was only named by the hierarchy arrives.
+        spaces(&mut s, &[("mid", &["a", "late"])]);
+        put(&mut s, "late", false, &[], 2, &[]);
+        assert_eq!(inside(&mut s, "top"), ["a", "late"]);
+        assert_eq!(badge(&s, "top"), 3);
+        // The room leaves.
+        s.apply_diff(RoomListDiff::Remove(scope("late")));
+        assert_eq!(inside(&mut s, "top"), ["a"]);
+        // The subspace is detached from the top.
+        spaces(&mut s, &[("top", &[])]);
+        assert!(inside(&mut s, "top").is_empty());
+        // A new subspace joins: the top follows it down.
+        put(&mut s, "z", false, &[], 0, &[]);
+        spaces(&mut s, &[("new", &["z"]), ("top", &["new"])]);
+        assert_eq!(inside(&mut s, "top"), ["z"]);
+    }
+}
