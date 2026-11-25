@@ -120,6 +120,26 @@ pub fn clickable(resp: egui::Response) -> egui::Response {
     if resp.sense.senses_click() && resp.enabled() { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
 }
 
+/// The one emoji cell of every grid (composer popup, drawer, message menu): `size` box, `glyph` px emoji, no fill at rest.
+/// Desktop: a soft rounded fill under the pointer or focus. Touch: never a fill, not even pressed. `on` = the user's own reaction (accent disc);
+/// `grow` enlarges the emoji under pointer or finger.
+#[allow(clippy::too_many_arguments)]
+pub fn emoji_cell(ui: &mut egui::Ui, size: egui::Vec2, glyph: f32, name: &str, emoji: &str, on: bool, grow: bool, t: &matrix_desktop::DesignTokens) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let resp = clickable(resp);
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, matrix_desktop::i18n::t(name)));
+    let rgb = crate::list::rgb;
+    let disc = rect.width().min(rect.height()) / 2. - 1.;
+    if on {
+        ui.painter().circle_filled(rect.center(), disc, rgb(t.accent).gamma_multiply(0.3));
+    } else if resp.has_focus() || (resp.hovered() && !crate::mobile::touch()) {
+        ui.painter().rect_filled(rect.shrink(2.), 8., rgb(t.selected));
+    }
+    let hot = grow && (resp.is_pointer_button_down_on() || resp.hovered());
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, emoji, egui::FontId::proportional(if hot { (glyph * 1.18).round() } else { glyph }), rgb(t.text));
+    resp
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +158,31 @@ mod tests {
             cursor = out.platform_output.cursor_icon;
         }
         cursor
+    }
+
+    /// Filled shapes drawn for one emoji cell after a few frames, pointer at `at` (None = away) and `touch` or desktop.
+    fn cell_fills(at: Option<egui::Pos2>, touch: bool) -> usize {
+        crate::mobile::FORCE_TOUCH.set(touch);
+        let ctx = egui::Context::default();
+        let events = at.map(egui::Event::PointerMoved).into_iter().collect();
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200., 100.))), events, ..Default::default() };
+        let tokens = matrix_desktop::Theme::Dark.tokens();
+        let mut fills = 0;
+        for _ in 0..3 {
+            let mut out = ctx.run_ui(input.clone(), |ui| { emoji_cell(ui, egui::vec2(40., 40.), 20., "x", "😀", false, false, &tokens); });
+            out.textures_delta.clear();
+            fills = out.shapes.iter().filter(|s| matches!(s.shape, egui::epaint::Shape::Rect(ref r) if r.fill != egui::Color32::TRANSPARENT)).count();
+        }
+        crate::mobile::FORCE_TOUCH.set(false);
+        fills
+    }
+
+    #[test]
+    fn emoji_cell_fills_only_on_desktop_hover() {
+        assert_eq!(cell_fills(None, false), 0);
+        assert_eq!(cell_fills(Some(egui::pos2(60., 60.)), false), 0);
+        assert_eq!(cell_fills(Some(egui::pos2(20., 20.)), false), 1);
+        assert_eq!(cell_fills(Some(egui::pos2(20., 20.)), true), 0);
     }
 
     #[test]

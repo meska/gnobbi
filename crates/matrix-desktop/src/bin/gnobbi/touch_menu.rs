@@ -415,23 +415,6 @@ fn card<R>(ctx: &egui::Context, under: &egui::Painter, name: &'static str, rect:
     area.inner
 }
 
-/// One emoji button of `size`; `on` = the user's own reaction, shown on an accent disc. Under the pointer or the finger the emoji grows a little.
-fn emoji_cell(ui: &mut egui::Ui, size: Vec2, name: &str, emoji: &str, on: bool, t: &DesignTokens) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    let resp = crate::metrics::clickable(resp);
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, i18n::t(name)));
-    let disc = rect.width().min(rect.height()) / 2. - 1.;
-    if on {
-        ui.painter().circle_filled(rect.center(), disc, rgb(t.accent).gamma_multiply(0.3));
-    } else if resp.has_focus() {
-        ui.painter().circle_filled(rect.center(), disc, rgb(t.selected));
-    }
-    let font = (rect.width().min(rect.height()) * 0.68).clamp(22., 30.);
-    let hot = resp.is_pointer_button_down_on() || resp.hovered();
-    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, emoji, egui::FontId::proportional(if hot { (font * 1.18).round() } else { font.round() }), rgb(t.text));
-    resp.clicked()
-}
-
 /// The round chevron that unfolds the full emoji grid: down, up once it is open.
 fn more_button(ui: &mut egui::Ui, rect: Rect, id: egui::Id, open: bool, label: &str, t: &DesignTokens) -> bool {
     let resp = crate::metrics::clickable(ui.interact(rect, id, Sense::click()));
@@ -472,7 +455,7 @@ pub fn reaction_rows(ui: &mut egui::Ui, own: &dyn Fn(&str) -> bool, t: &DesignTo
     let (cell, mut pick) = (vec2(side, side), None);
     ui.horizontal(|ui| {
         for (name, emoji) in QUICK {
-            if emoji_cell(ui, cell, name, emoji, own(emoji), t) { pick = Some(emoji); }
+            if crate::metrics::emoji_cell(ui, cell, (cell.x.min(cell.y) * 0.68).clamp(22., 30.), name, emoji, own(emoji), true, t).clicked() { pick = Some(emoji); }
         }
         let (rect, _) = ui.allocate_exact_size(cell, Sense::hover());
         if more_button(ui, rect, id.with("button"), open, i18n::t("More reactions"), t) {
@@ -482,7 +465,7 @@ pub fn reaction_rows(ui: &mut egui::Ui, own: &dyn Fn(&str) -> bool, t: &DesignTo
     if open {
         egui::Grid::new("reaction-emoji-grid").spacing(Vec2::splat(QUICK_GAP)).min_col_width(side).min_row_height(side).show(ui, |ui| {
             for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
-                if emoji_cell(ui, cell, name, emoji, own(emoji), t) { pick = Some(*emoji); }
+                if crate::metrics::emoji_cell(ui, cell, (cell.x.min(cell.y) * 0.68).clamp(22., 30.), name, emoji, own(emoji), true, t).clicked() { pick = Some(*emoji); }
                 if i % 8 == 7 { ui.end_row(); }
             }
         });
@@ -567,7 +550,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 ui.horizontal(|ui| {
                     let size = vec2(ui.available_width() / (QUICK.len() + 1) as f32, CELL);
                     for ((name, emoji), on) in QUICK.into_iter().zip(lift.own) {
-                        if emoji_cell(ui, size, name, emoji, on, t) {
+                        if crate::metrics::emoji_cell(ui, size, (size.x.min(size.y) * 0.68).clamp(22., 30.), name, emoji, on, true, t).clicked() {
                             pick = Some(Pick::React(emoji));
                         }
                     }
@@ -587,7 +570,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                         for line in matrix_desktop::EMOJI_SET.chunks(columns) {
                             ui.horizontal(|ui| {
                                 for (name, emoji) in line {
-                                    if emoji_cell(ui, size, name, emoji, mine.iter().any(|k| k == emoji), t) {
+                                    if crate::metrics::emoji_cell(ui, size, (size.x.min(size.y) * 0.68).clamp(22., 30.), name, emoji, mine.iter().any(|k| k == emoji), true, t).clicked() {
                                         pick = Some(Pick::React(*emoji));
                                     }
                                 }

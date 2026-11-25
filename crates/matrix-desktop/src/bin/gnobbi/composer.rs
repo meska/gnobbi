@@ -218,7 +218,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
                 return;
             }
             let width = crate::stickers::width(ui.ctx().content_rect().width());
-            if emoji_grid(ui, nid("emoji-scroll"), nid("emoji-grid"), id, draft, width, crate::stickers::body_height(width, crate::stickers::ROWS, ui.spacing().item_spacing.y)) {
+            if emoji_grid(ui, nid("emoji-scroll"), nid("emoji-grid"), id, draft, t, width, crate::stickers::body_height(width, crate::stickers::ROWS, ui.spacing().item_spacing.y)) {
                 ui.close();
             }
         }));
@@ -242,7 +242,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
                         ui.set_width(cols as f32 * cell);
                         ui.set_min_height(height); // whole rows: the area must not shrink them
                         egui::ScrollArea::vertical().id_salt(nid("emoji-hover-scroll")).max_height(height).auto_shrink([false, false]).show(ui, |ui| {
-                            emoji_cells(ui, nid("emoji-hover-grid"), cols, egui::Vec2::splat(cell), id, draft)
+                            emoji_cells(ui, nid("emoji-hover-grid"), cols, egui::Vec2::splat(cell), id, draft, t)
                         }).inner
                     })).inner
                 });
@@ -301,13 +301,13 @@ fn popup_rows(count: usize, columns: usize, cell: f32) -> (usize, f32) {
 }
 
 /// `columns` x `cell` grid of the emoji set, no margins. True when an emoji was inserted.
-fn emoji_cells(ui: &mut egui::Ui, grid_id: egui::Id, columns: usize, cell: egui::Vec2, id: egui::Id, draft: &mut String) -> bool {
+fn emoji_cells(ui: &mut egui::Ui, grid_id: egui::Id, columns: usize, cell: egui::Vec2, id: egui::Id, draft: &mut String, t: &matrix_desktop::DesignTokens) -> bool {
     let glyph = egui::TextStyle::Body.resolve(ui.style()).size * 1.4;
     let mut inserted = false;
-    ui.spacing_mut().button_padding = egui::Vec2::ZERO; // the cell is the button: padding would widen it past `cell`
     egui::Grid::new(grid_id).spacing(egui::Vec2::ZERO).min_col_width(cell.x).min_row_height(cell.y).show(ui, |ui| { // else a column is the 48 px button size
         for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
-            if ui.add_sized(cell, egui::Button::new(RichText::new(*emoji).size(glyph)).min_size(egui::Vec2::ZERO)).on_hover_text(i18n::t(name)).clicked() {
+            let resp = crate::metrics::emoji_cell(ui, cell, glyph, name, emoji, false, false, t);
+            if resp.on_hover_text(i18n::t(name)).clicked() {
                 insert_emoji(ui.ctx(), id, draft, emoji);
                 inserted = true;
             }
@@ -337,7 +337,7 @@ fn dock(ui: &mut egui::Ui, dock_id: egui::Id, scroll_id: egui::Id, grid_id: egui
         if let (true, Some((panel, textures))) = (sticker_tab, stickers.as_mut()) {
             crate::stickers::show(ui, panel, textures, t, w, DOCK_ROWS);
         } else {
-            dock_grid(ui, scroll_id, grid_id, id, draft, crate::stickers::body_height(w, DOCK_ROWS, ui.spacing().item_spacing.y));
+            dock_grid(ui, scroll_id, grid_id, id, draft, t, crate::stickers::body_height(w, DOCK_ROWS, ui.spacing().item_spacing.y));
         }
     });
     if close {
@@ -346,7 +346,7 @@ fn dock(ui: &mut egui::Ui, dock_id: egui::Id, scroll_id: egui::Id, grid_id: egui
 }
 
 /// The emoji set centred in the drawer's width (what is left of the row), in a box `height` tall.
-fn dock_grid(ui: &mut egui::Ui, scroll_id: egui::Id, grid_id: egui::Id, id: egui::Id, draft: &mut String, height: f32) {
+fn dock_grid(ui: &mut egui::Ui, scroll_id: egui::Id, grid_id: egui::Id, id: egui::Id, draft: &mut String, t: &matrix_desktop::DesignTokens, height: f32) {
     let cell = POPUP_CELL;
     let columns = ((ui.available_width() / cell).floor() as usize).max(1);
     let margin = ((ui.available_width() - columns as f32 * cell) / 2.).max(0.);
@@ -355,13 +355,13 @@ fn dock_grid(ui: &mut egui::Ui, scroll_id: egui::Id, grid_id: egui::Id, id: egui
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
         ui.horizontal(|ui| {
             ui.add_space(margin);
-            emoji_cells(ui, grid_id, columns, egui::Vec2::splat(cell), id, draft);
+            emoji_cells(ui, grid_id, columns, egui::Vec2::splat(cell), id, draft, t);
         });
     });
 }
 
 /// The emoji grid centred in `width`, in a box `height` tall. True when an emoji was inserted.
-fn emoji_grid(ui: &mut egui::Ui, scroll_id: egui::Id, grid_id: egui::Id, id: egui::Id, draft: &mut String, width: f32, height: f32) -> bool {
+fn emoji_grid(ui: &mut egui::Ui, scroll_id: egui::Id, grid_id: egui::Id, id: egui::Id, draft: &mut String, t: &matrix_desktop::DesignTokens, width: f32, height: f32) -> bool {
     let zoom = ui.ctx().zoom_factor();
     let (columns, cell, margin) = emoji_grid_geometry(width * zoom, zoom);
     let (cell, margin) = (cell / zoom, margin / zoom);
@@ -372,7 +372,7 @@ fn emoji_grid(ui: &mut egui::Ui, scroll_id: egui::Id, grid_id: egui::Id, id: egu
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
         ui.horizontal(|ui| {
             ui.add_space(margin);
-            inserted = emoji_cells(ui, grid_id, columns, egui::vec2(cell, cell.max(44. / zoom)), id, draft);
+            inserted = emoji_cells(ui, grid_id, columns, egui::vec2(cell, cell.max(44. / zoom)), id, draft, t);
         });
     });
     inserted
