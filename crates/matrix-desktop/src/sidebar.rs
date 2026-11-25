@@ -123,9 +123,32 @@ pub struct Sidebar {
     counts: (u64, u64),
     /// Changes (globally unique) whenever a room or a count does: the merged multi-account list is rebuilt only then.
     revision: u64,
+    /// Every id under each joined space, at any depth; dropped only when a room comes or goes or a space's children change.
+    reach: std::cell::OnceCell<std::collections::HashMap<RoomId, std::collections::HashSet<RoomId>>>,
+}
+
+/// Ids reachable from `root` through `children` (rooms and subspaces, any depth), once each; a cycle ends at the visited set.
+/// `root` is in the result only when a cycle leads back to it.
+pub fn descendants<'a>(root: &'a RoomId, children: &std::collections::HashMap<&'a RoomId, &'a [RoomId]>) -> std::collections::HashSet<RoomId> {
+    let (mut seen, mut todo) = (std::collections::HashSet::new(), vec![root]);
+    while let Some(space) = todo.pop() {
+        for child in children.get(space).copied().unwrap_or_default() {
+            if seen.insert(child.clone()) {
+                todo.push(child);
+            }
+        }
+    }
+    seen
 }
 
 impl Sidebar {
+    fn reach(&self) -> &std::collections::HashMap<RoomId, std::collections::HashSet<RoomId>> {
+        self.reach.get_or_init(|| {
+            let children: std::collections::HashMap<_, _> = self.spaces().map(|s| (&s.scope.room_id, s.info.children.as_slice())).collect();
+            children.keys().map(|&id| (id.clone(), descendants(id, &children))).collect()
+        })
+    }
+
     pub fn connected(account_id: AccountId) -> Self {
         Self {
             navigation_revision: 0,
@@ -152,6 +175,7 @@ impl Sidebar {
             mode_error: None,
             counts: (0, 0),
             revision: next_revision(),
+            reach: Default::default(),
         }
     }
 
@@ -168,6 +192,7 @@ impl Sidebar {
                 let old_len = self.rooms.len();
                 self.rooms.retain(|room| room.scope != scope);
                 if old_len != self.rooms.len() {
+                    self.reach.take();
                     self.retire_navigation();
                 }
                 self.selected = selected
@@ -197,11 +222,15 @@ impl Sidebar {
         };
         let visible = self.visible.clone();
         if let Some(index) = self.rooms.iter().position(|room| room.scope == row.scope) {
+            if self.rooms[index].info.is_space != row.info.is_space || self.rooms[index].info.invited != row.info.invited || self.rooms[index].info.children != row.info.children {
+                self.reach.take();
+            }
             if self.rooms[index].info.is_space != row.info.is_space {
                 self.retire_navigation();
             }
             self.rooms[index] = row;
         } else {
+            self.reach.take();
             if row.info.is_space {
                 self.retire_navigation();
             }
@@ -280,6 +309,7 @@ impl Sidebar {
             mode_error: None,
             counts: (0, 0),
             revision: next_revision(),
+            reach: Default::default(),
         }
     }
 
@@ -583,7 +613,7 @@ impl Sidebar {
         }];
         entries.extend(self.spaces().map(|space| {
             let (unread, mentions) = total(&|room| {
-                room.scope == space.scope || space.info.children.contains(&room.scope.room_id)
+                room.scope == space.scope || self.reach().get(&space.scope.room_id).is_some_and(|r| r.contains(&room.scope.room_id))
             });
             NavigationEntry {
                 scope: Some(space.scope.clone()),
@@ -720,10 +750,7 @@ impl Sidebar {
             self.space = None;
         }
         let needle = query.trim().to_lowercase();
-        let space = self
-            .space
-            .as_ref()
-            .and_then(|scope| self.rooms.iter().find(|r| r.scope == *scope));
+        let space = self.space.as_ref().map(|scope| self.reach().get(&scope.room_id));
         self.visible = self
             .rooms
             .iter()
@@ -732,7 +759,7 @@ impl Sidebar {
                 // Joined spaces live in the rail only; an invitation to one stays an invite row.
                 (room.info.invited || !room.info.is_space)
                     && room.name.to_lowercase().contains(&needle)
-                    && (room.info.invited || space.is_none_or(|s| s.info.children.contains(&room.scope.room_id)))
+                    && (room.info.invited || space.is_none_or(|s| s.is_some_and(|r| r.contains(&room.scope.room_id))))
                     && (!self.unread_view || Self::in_unread_view(room))
             })
             .map(|(i, _)| i)
@@ -1285,6 +1312,50 @@ mod tests {
         assert!(sidebar.set_unread_view(false));
         assert_eq!(names(&sidebar).len(), 4);
         assert!(sidebar.navigation_entries()[0].selected);
+    }
+
+    #[test]
+    fn a_space_lists_the_rooms_of_all_its_subspaces_once_each_even_around_a_cycle() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let upsert = |sidebar: &mut Sidebar, id: &str, unread, is_space, children: &[&str]| {
+            sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
+                scope: scope(&account, id),
+                name: id.into(),
+                unread,
+                info: RoomInfo { is_space, children: children.iter().map(|c| RoomId::new(format!("!{c}:t.invalid"))).collect(), ..Default::default() },
+            })));
+        };
+        for (id, unread) in [("a", 1), ("b", 2), ("c", 4), ("out", 8)] {
+            upsert(&mut sidebar, id, unread, false, &[]);
+        }
+        // top > mid > deep; «a» sits in top and deep (once), deep points back at top (cycle).
+        upsert(&mut sidebar, "deep", 0, true, &["b", "a", "top"]);
+        upsert(&mut sidebar, "mid", 0, true, &["deep", "c"]);
+        upsert(&mut sidebar, "top", 0, true, &["mid", "a"]);
+        let ids = |sidebar: &mut Sidebar, space: &str| {
+            assert!(sidebar.set_space(Some(scope(&account, space))));
+            let mut v = names(sidebar);
+            v.sort();
+            v.join("")
+        };
+        assert_eq!(ids(&mut sidebar, "top"), "abc");
+        assert_eq!(ids(&mut sidebar, "mid"), "abc");
+        assert_eq!(ids(&mut sidebar, "deep"), "abc"); // the cycle puts the whole tree under it
+        let unread = |sidebar: &Sidebar, space: &str| sidebar.navigation_entries().iter().find(|e| e.scope == Some(scope(&account, space))).unwrap().unread;
+        assert_eq!((unread(&sidebar, "top"), unread(&sidebar, "deep")), (7, 7));
+        // A room entering a subspace shows up: the cache follows the hierarchy.
+        upsert(&mut sidebar, "deep", 0, true, &["b", "a", "top", "out"]);
+        assert_eq!(ids(&mut sidebar, "top"), "abcout");
+    }
+
+    #[test]
+    fn descendants_ends_on_cycles_and_unknown_ids() {
+        let id = |s: &str| RoomId::new(s);
+        let (a, b, x) = (id("a"), id("b"), id("x"));
+        let (ab, ba) = ([b.clone(), x.clone()], [a.clone()]);
+        let hierarchy = std::collections::HashMap::from([(&a, &ab[..]), (&b, &ba[..])]);
+        assert_eq!(super::descendants(&a, &hierarchy), [a.clone(), b, x].into_iter().collect());
     }
 
     #[test]
