@@ -173,6 +173,8 @@ pub struct Session {
     /// Set by the app each frame: the window has focus, the newest message is in view, the «Conferme di lettura» setting.
     pub reading: (bool, bool, bool),
     read_dirty: bool,
+    /// Debounce for the receipt after a new event: nothing goes out before this.
+    read_after: Option<std::time::Instant>,
     /// Rooms seen with unread messages: when one reaches zero its delivered alerts are removed.
     alerted_unread: std::collections::HashSet<String>,
     /// The shown room was opened with unread messages: first-unread anchor and progressive reading.
@@ -310,6 +312,9 @@ pub struct Session {
     pub phrase: String,
 }
 
+/// A new message in the open room is read after this quiet time, so a burst sends one receipt.
+const READ_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
+
 impl Session {
     /// Opens the default profile under the app data directory; a saved account unlocks by itself through the OS vault.
     /// Remote to end this account's worker with a server logout («Esci»).
@@ -379,6 +384,7 @@ impl Session {
             voice: None,
             reading: (false, false, true),
             read_dirty: true,
+            read_after: None,
             alerted_unread: Default::default(),
             unread_open: None,
             unread_notice: None,
@@ -565,7 +571,10 @@ impl Session {
                     if let Some(th) = &mut self.thread {
                         th.next_read = std::time::Instant::now();
                     }
-                    self.read_dirty |= self.sidebar.selected().is_some_and(|r| r.scope == scope);
+                    if self.sidebar.selected().is_some_and(|r| r.scope == scope) {
+                        self.read_dirty = true;
+                        self.read_after = Some(std::time::Instant::now() + READ_DEBOUNCE);
+                    }
                     if self.roles_stale.as_ref() == Some(&scope) {
                         self.roles_stale = None;
                         self.members_requested = None;
@@ -1062,7 +1071,15 @@ impl Session {
             && let Some(scope) = self.sidebar.selected().map(|r| r.scope.clone())
             && self.messages.is_some()
         {
+            // A burst of messages sends one receipt: wait until it has been quiet for the debounce (the next frame is asked for).
+            if self.read_after.is_some_and(|at| std::time::Instant::now() < at) {
+                self.heights.watching = true;
+                return;
+            }
             self.read_dirty = false;
+            self.read_after = None;
+            // The tracker of an open with unread rows counts from its own read id: move it, or the badge lights up again next frame.
+            self.unread_follow_read(&scope);
             self.op_pending = Some(OperationCommand::MarkRoom { scope, read: true, public, main_only: true });
         }
     }

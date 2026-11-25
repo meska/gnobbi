@@ -88,6 +88,15 @@ impl Session {
         self.history.load_older()
     }
 
+    /// The room was marked read up to its newest row: the open's own read id follows, or its local count lights the badge again.
+    pub(super) fn unread_follow_read(&mut self, scope: &matrix_domain::RoomScope) {
+        use matrix_desktop::read_track::ReadRow;
+        let last = self.messages.as_ref().and_then(|m| m.events().iter().rev().find_map(|e| e.event_id().map(str::to_owned)));
+        if let Some(u) = self.unread_open.as_mut().filter(|u| u.anchored && &u.scope == scope) {
+            u.read_id = last.or(u.read_id.take());
+        }
+    }
+
     /// Once per frame: places the open, then follows what is in view. True when the sidebar changed.
     pub(super) fn drive_unread(&mut self) -> bool {
         let current = self.sidebar.selected().map(|r| (r.scope.clone(), r.unread));
