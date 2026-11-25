@@ -983,3 +983,6 @@ mod open_tests {
         assert!(open_done(true, false, 8));
     }
 }
+
+#[cfg(test)]
+mod scroll_tests;
