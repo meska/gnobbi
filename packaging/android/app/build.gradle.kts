@@ -15,9 +15,20 @@ android {
         applicationId = "net.meskatech.gnobbi"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        // tools/android-build.sh passes the real values: code = git rev-list --count (same build number as iOS), name = workspace version.
+        versionCode = (findProperty("gnobbiVersionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("gnobbiVersionName") as String?) ?: "0.1"
         ndk { abiFilters += listOf("arm64-v8a") }
+    }
+    // Optional: sign bundleRelease here when the upload key is given by env (path, password file, alias), never from the repo.
+    // The standard flow leaves the AAB unsigned and tools/android-build.sh signs it on the Mac, so the key never reaches the CT.
+    System.getenv("GNOBBI_UPLOAD_STORE")?.let { store ->
+        signingConfigs.create("upload") {
+            storeFile = file(store)
+            storePassword = file(System.getenv("GNOBBI_UPLOAD_PASS_FILE")).readText().trim()
+            keyAlias = System.getenv("GNOBBI_UPLOAD_ALIAS") ?: "gnobbi-upload"
+        }
+        buildTypes.getByName("release").signingConfig = signingConfigs["upload"]
     }
     testOptions.unitTests.isIncludeAndroidResources = true
     sourceSets["main"].jniLibs.srcDir(nativeLibs)
