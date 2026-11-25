@@ -173,3 +173,164 @@ impl Session {
         changed
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use matrix_engine::{RoomInfo, RoomListDiff, RoomSummary};
+    use std::time::{Duration, Instant};
+
+    const ROWS: usize = 6;
+
+    /// An offline session with the room `!r` of account `account` open and `unread` rows after the read id (read id = the row before them).
+    /// Focused, newest row in view, receipts public: the state of a room open on the screen.
+    fn open_room(name: &str, account: u64, unread: usize) -> (Session, matrix_domain::RoomScope) {
+        let root = std::env::temp_dir().join(format!("gnobbi-receipt-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dirs = AppDirs { config: root.join("c"), data: root.join("d"), cache: root.join("k") };
+        let mut s = Session::start(&dirs, root.join("s"), None).expect("offline session");
+        let acc = matrix_domain::AccountId::new(account);
+        let scope = matrix_domain::RoomScope { account_id: acc, room_id: matrix_domain::RoomId::new("!r:t.invalid") };
+        s.account = Some(acc);
+        s.sidebar = matrix_desktop::Sidebar::connected(acc);
+        s.sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary { scope: scope.clone(), name: "r".into(), unread: unread as u64, info: RoomInfo::default() })));
+        assert!(s.sidebar.select(&scope));
+        let history = DemoHistory::new(scope.clone(), ROWS);
+        // The demo rows alternate own and foreign ones: read id = the row before the unread ones, counted by the real rule.
+        let read_id = history.events()[ROWS - unread - 1].event_id().map(str::to_owned);
+        s.messages = Some(history);
+        s.unread_open = Some(UnreadOpen { scope: scope.clone(), unread0: unread as u64, saved: None, markers: None, retry_at: None, anchored: true, opened: Instant::now(), read_id, tracker: ReadTracker::default() });
+        s.reading = (true, true, true);
+        s.read_dirty = false;
+        (s, scope)
+    }
+
+    /// What the app does on `TimelineActivity` for the open room.
+    fn new_event(s: &mut Session) {
+        s.read_dirty = true;
+        s.read_after = Some(Instant::now() + READ_DEBOUNCE);
+    }
+
+    /// The debounce is over (time travel instead of sleeping).
+    fn quiet(s: &mut Session) {
+        s.read_after = Some(Instant::now() - Duration::from_millis(1));
+    }
+
+    fn badge(s: &Session, scope: &matrix_domain::RoomScope) -> u64 {
+        s.sidebar.rooms().iter().find(|r| &r.scope == scope).unwrap().unread
+    }
+
+    fn sent(s: &mut Session) -> Option<OperationCommand> {
+        s.op_pending.take()
+    }
+
+    #[test]
+    fn open_focused_bottom_sends_one_receipt_and_the_badge_stays_off() {
+        let (mut s, scope) = open_room("one", 0, 2);
+        s.drive_unread();
+        assert!(badge(&s, &scope) > 0, "precondition: the open counts its unread rows locally");
+        new_event(&mut s);
+        s.queue_read_marker();
+        assert!(sent(&mut s).is_none(), "nothing goes out inside the debounce");
+        quiet(&mut s);
+        s.queue_read_marker();
+        let cmd = sent(&mut s).expect("a receipt after the quiet time");
+        assert!(matches!(&cmd, OperationCommand::MarkRoom { scope: sc, read: true, public: true, main_only: true } if *sc == scope));
+        // Same frame loop, next frames: no second receipt, and the local count no longer lights the badge.
+        s.queue_read_marker();
+        assert!(sent(&mut s).is_none(), "one event, one receipt");
+        s.drive_unread();
+        assert_eq!(badge(&s, &scope), 0);
+        assert_eq!(s.unread_open.as_ref().unwrap().read_id.as_deref(), s.messages.as_ref().unwrap().events().last().unwrap().event_id());
+    }
+
+    #[test]
+    fn badge_counts_up_without_focus_and_the_receipt_follows_the_focus() {
+        let (mut s, scope) = open_room("focus", 0, 2);
+        s.reading.0 = false;
+        new_event(&mut s);
+        quiet(&mut s);
+        s.queue_read_marker();
+        s.drive_unread();
+        assert!(sent(&mut s).is_none(), "no receipt without focus");
+        assert!(badge(&s, &scope) > 0, "the counter keeps counting the new rows");
+        assert!(s.read_dirty, "the receipt stays owed");
+        s.reading.0 = true;
+        s.queue_read_marker();
+        assert!(matches!(sent(&mut s), Some(OperationCommand::MarkRoom { read: true, .. })));
+        s.drive_unread();
+        assert_eq!(badge(&s, &scope), 0);
+    }
+
+    #[test]
+    fn scrolled_up_sends_nothing_and_the_receipt_comes_back_at_the_bottom() {
+        let (mut s, scope) = open_room("up", 0, 2);
+        s.reading.1 = false;
+        new_event(&mut s);
+        quiet(&mut s);
+        s.queue_read_marker();
+        assert!(sent(&mut s).is_none());
+        s.drive_unread();
+        assert!(badge(&s, &scope) > 0);
+        s.reading.1 = true;
+        s.queue_read_marker();
+        assert!(sent(&mut s).is_some());
+    }
+
+    #[test]
+    fn burst_sends_one_receipt_on_the_last_event() {
+        let (mut s, scope) = open_room("burst", 0, 1);
+        let mut receipts = 0;
+        for _ in 0..5 {
+            new_event(&mut s);
+            s.queue_read_marker();
+            receipts += sent(&mut s).is_some() as u32;
+        }
+        assert_eq!(receipts, 0, "events 500 ms apart or closer keep pushing the receipt back");
+        assert!(s.heights.watching, "the next frame is asked for, or the receipt would wait for input");
+        quiet(&mut s);
+        s.queue_read_marker();
+        receipts += sent(&mut s).is_some() as u32;
+        s.queue_read_marker();
+        receipts += sent(&mut s).is_some() as u32;
+        assert_eq!(receipts, 1);
+        s.drive_unread();
+        assert_eq!(badge(&s, &scope), 0);
+    }
+
+    #[test]
+    fn receipt_is_for_the_room_of_a_secondary_account() {
+        let (mut s, scope) = open_room("second", 2, 2);
+        assert_eq!(scope.account_id, matrix_domain::AccountId::new(2));
+        new_event(&mut s);
+        quiet(&mut s);
+        s.queue_read_marker();
+        match sent(&mut s) {
+            Some(OperationCommand::MarkRoom { scope: sc, .. }) => assert_eq!(sc.account_id, matrix_domain::AccountId::new(2)),
+            other => panic!("expected MarkRoom, got a command: {}", other.is_some()),
+        }
+    }
+
+    #[test]
+    fn divider_survives_the_receipt() {
+        let (mut s, _) = open_room("divider", 0, 2);
+        s.heights.divider = Some(EventId::new("$demo-5:fixture.invalid"));
+        new_event(&mut s);
+        quiet(&mut s);
+        s.queue_read_marker();
+        assert!(sent(&mut s).is_some());
+        s.drive_unread();
+        assert_eq!(s.heights.divider.as_ref().map(EventId::as_str), Some("$demo-5:fixture.invalid"), "«Nuovi messaggi» stays where the reading started");
+    }
+
+    #[test]
+    fn busy_operation_slot_keeps_the_receipt_owed() {
+        let (mut s, _) = open_room("pending", 0, 2);
+        s.read_dirty = true;
+        s.read_after = None;
+        s.op_pending = Some(OperationCommand::ReadMarkers { scope: s.sidebar.selected().unwrap().scope.clone() });
+        s.queue_read_marker();
+        assert!(matches!(sent(&mut s), Some(OperationCommand::ReadMarkers { .. })), "an operation in flight is not replaced");
+        assert!(s.read_dirty, "the receipt waits for the slot");
+    }
+}
