@@ -631,6 +631,68 @@ mod tests {
         assert!(!opened && swallowed, "and the release of the finger is kept from opening the room");
     }
 
+    /// A pad of chat rows drawn the way the list draws them: tap to open, long press for the menu, the release of a long press swallowed.
+    fn chat_pad() -> crate::touch_list::pad::Pad {
+        use matrix_domain::{AccountId, RoomId, RoomScope};
+        let room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
+        let (mut confirm, mut pick) = (None, None);
+        crate::touch_list::pad::Pad::new(move |ui, range, seen| {
+            let (press, swallow) = (crate::touch_menu::long_press(ui.ctx()), released_after_press(ui.ctx()));
+            for _ in range {
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), crate::touch_list::pad::ROW_H), egui::Sense::click());
+                let long = pressed_here(ui, rect, press);
+                seen.tapped.set(seen.tapped.get() | (crate::touch_list::tapped(&resp) && !swallow));
+                room_menu(row_popup(&resp, long), &room, &None, &mut confirm, &mut pick, &matrix_desktop::DARK);
+            }
+            seen.menu.set(egui::Popup::is_any_open(ui.ctx()));
+        })
+    }
+
+    #[test]
+    fn chat_row_still_tap_opens_without_the_menu() {
+        let mut pad = chat_pad();
+        let p = egui::pos2(100., 100.);
+        pad.down(p);
+        pad.wait(0.1);
+        pad.up(p);
+        assert!(pad.seen.tapped.get() && !pad.seen.menu.get());
+    }
+
+    #[test]
+    fn chat_row_long_press_opens_the_menu_and_the_release_opens_no_chat() {
+        let mut pad = chat_pad();
+        let p = egui::pos2(100., 100.);
+        pad.down(p);
+        pad.wait(crate::touch_menu::HOLD + 0.1);
+        assert!(pad.seen.menu.get(), "the menu opens while the finger is still down");
+        pad.up(p);
+        assert!(!pad.seen.tapped.get(), "the release does not open the chat");
+    }
+
+    #[test]
+    fn chat_row_movement_cancels_the_long_press_and_scrolls_without_opening() {
+        let mut pad = chat_pad();
+        let p = egui::pos2(100., 300.);
+        pad.down(p);
+        pad.wait(0.1);
+        pad.drag(p, p - egui::vec2(0., 20.), 4); // leaves the slop before the hold completes
+        pad.wait(crate::touch_menu::HOLD + 0.2);
+        pad.up(p - egui::vec2(0., 20.));
+        assert!(!pad.seen.menu.get() && !pad.seen.tapped.get());
+        assert!(pad.offset > 0.);
+    }
+
+    #[test]
+    fn chat_row_touch_that_catches_a_fling_opens_neither_chat_nor_menu() {
+        let mut pad = chat_pad();
+        pad.fling();
+        let q = egui::pos2(100., 100.);
+        pad.down(q);
+        pad.wait(crate::touch_menu::HOLD + 0.2);
+        pad.up(q);
+        assert!(!pad.seen.menu.get() && !pad.seen.tapped.get());
+    }
+
     #[test]
     fn a_space_without_the_right_gives_no_menu_entry() {
         use matrix_domain::{AccountId, RoomId, RoomScope};

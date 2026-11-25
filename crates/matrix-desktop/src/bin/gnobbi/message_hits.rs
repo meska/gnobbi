@@ -234,6 +234,35 @@ mod tests {
     }
 
     #[test]
+    fn hit_row_opens_on_tap_and_not_on_scroll_or_catch() {
+        let (h, t) = (hit("Anna", "ciao", vec![0..4]), matrix_desktop::Theme::Dark.tokens());
+        let mk = || {
+            let (h, t) = (h.clone(), t);
+            crate::touch_list::pad::Pad::new(move |ui, range, seen| {
+                for _ in range {
+                    let r = row(ui, &h, None, &Default::default(), &t);
+                    seen.tapped.set(seen.tapped.get() | crate::touch_list::tapped(&r));
+                }
+            })
+        };
+        let p = egui::pos2(100., 300.);
+        let mut pad = mk();
+        pad.down(p);
+        pad.drag(p, p - egui::vec2(0., 20.), 4);
+        pad.up(p - egui::vec2(0., 20.));
+        assert!(!pad.seen.tapped.get(), "a scroll");
+        let mut pad = mk();
+        pad.fling();
+        pad.down(egui::pos2(100., 100.));
+        pad.up(egui::pos2(100., 100.));
+        assert!(!pad.seen.tapped.get(), "a catch");
+        let mut pad = mk();
+        pad.down(egui::pos2(100., 100.));
+        pad.up(egui::pos2(100., 100.));
+        assert!(pad.seen.tapped.get(), "a tap");
+    }
+
+    #[test]
     fn the_section_has_a_header_and_a_row_per_hit_and_a_more_button() {
         let ctx = crate::icons::test_context();
         let t = matrix_desktop::Theme::Dark.tokens();

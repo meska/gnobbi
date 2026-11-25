@@ -68,119 +68,144 @@ pub fn radio<T: PartialEq>(ui: &mut Ui, current: &mut T, value: T, text: &str) {
     }
 }
 
+/// A scrolling list under a simulated finger, on egui's own clock (no real sleeps): shared by the tests of every touch list.
 #[cfg(test)]
-mod tests {
+pub(crate) mod pad {
     use super::*;
-    use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Sense, Vec2, pos2};
+    use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Sense, Vec2};
+    use std::{cell::Cell, ops::Range, rc::Rc};
 
-    struct Pad {
-        ctx: Context,
+    /// What the rows reported, across frames.
+    #[derive(Default)]
+    pub struct Seen {
+        pub tapped: Cell<bool>,
+        pub pressed: Cell<bool>,
+        pub menu: Cell<bool>,
+    }
+
+    pub const ROW_H: f32 = 40.;
+
+    pub struct Pad {
+        pub ctx: Context,
+        pub seen: Rc<Seen>,
+        pub offset: f32,
         time: f64,
-        tapped: bool,
-        pressed: bool,
-        offset: f32,
+        rows: Box<dyn FnMut(&mut Ui, Range<usize>, &Seen)>,
     }
 
     impl Pad {
-        fn new() -> Self {
+        /// `rows` draws the visible rows of a 100-row list, 40 pt each, 300x400 screen.
+        pub fn new(rows: impl FnMut(&mut Ui, Range<usize>, &Seen) + 'static) -> Self {
             crate::mobile::FORCE_TOUCH.set(true);
-            let ctx = Context::default();
+            let ctx = crate::icons::test_context();
             apply_touch(&ctx);
-            let mut pad = Self { ctx, time: 1., tapped: false, pressed: false, offset: 0. };
+            let mut pad = Self { ctx, seen: Rc::default(), offset: 0., time: 1., rows: Box::new(rows) };
             pad.wait(0.2); // the list settles over its first frames
             pad
         }
 
-        fn frame(&mut self, dt: f64, events: Vec<Event>) {
+        /// Plain rows: `tapped` and `pressed` as every list calls them.
+        pub fn bare() -> Self {
+            Self::new(|ui, range, seen| {
+                for _ in range {
+                    let (_, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::click());
+                    seen.tapped.set(seen.tapped.get() | tapped(&resp));
+                    seen.pressed.set(seen.pressed.get() | pressed(ui, &resp));
+                }
+            })
+        }
+
+        pub fn clear(&self) {
+            self.seen.tapped.set(false);
+            self.seen.pressed.set(false);
+            self.seen.menu.set(false);
+        }
+
+        pub fn frame(&mut self, dt: f64, events: Vec<Event>) {
             self.time += dt;
             let input = RawInput { time: Some(self.time), screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(300., 400.))), events, ..Default::default() };
+            let (rows, seen) = (&mut self.rows, &self.seen);
             let mut out = self.ctx.run_ui(input, |ui| { egui::CentralPanel::default().show_inside(ui, |ui| {
-                let area = egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, 40., 100, |ui, range| {
-                    for _ in range {
-                        let (_, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), Sense::click());
-                        self.tapped |= tapped(&resp);
-                        self.pressed |= pressed(ui, &resp);
-                    }
-                });
+                let area = egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, ROW_H, 100, |ui, range| rows(ui, range, seen));
                 after(ui.ctx(), &area);
                 self.offset = area.state.clamped_offset().y;
             }); });
             out.textures_delta.clear();
         }
 
-        fn down(&mut self, p: Pos2) {
+        pub fn down(&mut self, p: Pos2) {
             let touch = Event::Touch { device_id: egui::TouchDeviceId(0), id: egui::TouchId(0), phase: egui::TouchPhase::End, pos: p, force: None };
             self.frame(0.016, vec![touch, Event::PointerMoved(p)]);
             self.frame(0.016, vec![Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
         }
 
-        fn up(&mut self, p: Pos2) {
+        pub fn up(&mut self, p: Pos2) {
             self.frame(0.016, vec![Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }]);
             self.frame(0.016, vec![Event::PointerGone]);
             self.frame(0.016, vec![]);
         }
 
-        fn wait(&mut self, secs: f64) {
+        pub fn wait(&mut self, secs: f64) {
             for _ in 0..(secs / 0.016) as usize {
                 self.frame(0.016, vec![]);
             }
         }
 
-        fn drag(&mut self, from: Pos2, to: Pos2, steps: usize) {
+        pub fn drag(&mut self, from: Pos2, to: Pos2, steps: usize) {
             for k in 1..=steps {
                 let p = from + (to - from) * (k as f32 / steps as f32);
                 self.frame(0.016, vec![Event::PointerMoved(p)]);
             }
         }
+
+        /// A quick swipe up that leaves the list flinging; the next frame still scrolls.
+        pub fn fling(&mut self) {
+            let from = Pos2::new(100., 300.);
+            self.down(from);
+            self.drag(from, Pos2::new(100., 60.), 8);
+            self.up(Pos2::new(100., 60.));
+            let flying = self.offset;
+            self.frame(0.016, vec![]);
+            assert!(self.offset > flying, "the list is still flinging");
+            self.clear();
+        }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pad::*;
+    use super::*;
+    use egui::{Vec2, pos2};
+    use std::{cell::Cell, rc::Rc};
 
     #[test]
-    fn still_tap_opens_on_release_with_a_delayed_look() {
-        let mut pad = Pad::new();
-        let p = pos2(100., 100.);
-        pad.down(p);
-        assert!(!pad.pressed, "no look right at the press");
-        pad.wait(0.03);
-        assert!(!pad.pressed && !pad.tapped);
-        pad.wait(0.1);
-        assert!(pad.pressed, "look after the delay");
-        assert!(!pad.tapped, "nothing opens before the release");
-        pad.up(p);
-        assert!(pad.tapped);
-    }
-
-    #[test]
-    fn small_wobble_is_still_a_tap_and_a_drag_is_not() {
-        let mut pad = Pad::new();
-        let p = pos2(100., 100.);
-        pad.down(p);
-        pad.drag(p, p + Vec2::new(0., 8.), 2);
-        pad.up(p + Vec2::new(0., 8.));
-        assert!(pad.tapped, "8 pt is within the slop");
-
-        let mut pad = Pad::new();
+    fn dragging_20_pt_from_a_row_scrolls_and_opens_nothing() {
+        let mut pad = Pad::bare();
+        let p = pos2(100., 300.);
         pad.down(p);
         pad.drag(p, p - Vec2::new(0., 20.), 4);
         pad.wait(0.2);
         pad.up(p - Vec2::new(0., 20.));
-        assert!(!pad.tapped, "20 pt is a scroll");
-        assert!(!pad.pressed, "rows do not flash while scrolling");
-        assert!(pad.offset > 0.);
+        assert!(!pad.seen.tapped.get(), "20 pt is a scroll, not a tap");
+        assert!(pad.offset > 0., "the list scrolled");
     }
 
     #[test]
-    fn touch_that_stops_a_fling_neither_taps_nor_looks_pressed() {
-        let mut pad = Pad::new();
-        let p = pos2(100., 300.);
+    fn still_tap_opens_at_the_release_not_before() {
+        let mut pad = Pad::bare();
+        let p = pos2(100., 100.);
         pad.down(p);
-        pad.drag(p, pos2(100., 60.), 8);
-        pad.up(pos2(100., 60.));
-        let flying = pad.offset;
-        assert!(flying > 0.);
-        pad.frame(0.016, vec![]);
-        assert!(pad.offset > flying, "the list is still flinging");
-        pad.tapped = false;
-        pad.pressed = false;
+        pad.wait(0.3);
+        assert!(!pad.seen.tapped.get(), "nothing opens while the finger is down");
+        pad.up(p);
+        assert!(pad.seen.tapped.get());
+    }
+
+    #[test]
+    fn touch_that_stops_a_fling_stops_it_and_opens_nothing() {
+        let mut pad = Pad::bare();
+        pad.fling();
         let q = pos2(100., 100.);
         pad.down(q);
         pad.wait(0.2);
@@ -188,11 +213,145 @@ mod tests {
         pad.wait(0.1);
         assert_eq!(pad.offset, held, "the finger stops the list");
         pad.up(q);
-        assert!(!pad.tapped && !pad.pressed);
+        assert!(!pad.seen.tapped.get() && !pad.seen.pressed.get(), "neither a tap nor a pressed look");
         // The next tap, on the resting list, works.
         pad.down(q);
         pad.wait(0.15);
         pad.up(q);
-        assert!(pad.tapped && pad.pressed);
+        assert!(pad.seen.tapped.get() && pad.seen.pressed.get());
+    }
+
+    #[test]
+    fn movement_under_the_threshold_still_opens() {
+        for d in [4., 5., 9.] {
+            let mut pad = Pad::bare();
+            let p = pos2(100., 100.);
+            pad.down(p);
+            pad.drag(p, p + Vec2::new(0., d), 2);
+            pad.up(p + Vec2::new(0., d));
+            assert!(pad.seen.tapped.get(), "{d} pt is within the slop");
+        }
+        let mut pad = Pad::bare();
+        let p = pos2(100., 100.);
+        pad.down(p);
+        pad.drag(p, p + Vec2::new(0., touch_menu_slop() + 2.), 2);
+        pad.up(p + Vec2::new(0., touch_menu_slop() + 2.));
+        assert!(!pad.seen.tapped.get(), "just past the slop is a drag");
+    }
+
+    fn touch_menu_slop() -> f32 {
+        crate::touch_menu::SLOP
+    }
+
+    #[test]
+    fn apply_touch_sets_egui_tap_distance_to_the_long_press_slop() {
+        let ctx = Context::default();
+        apply_touch(&ctx);
+        assert_eq!(ctx.options(|o| o.input_options.max_click_dist), crate::touch_menu::SLOP);
+    }
+
+    #[test]
+    fn pressed_look_waits_for_the_delay() {
+        let mut pad = Pad::bare();
+        let p = pos2(100., 100.);
+        pad.down(p);
+        pad.wait(DELAY - 0.04);
+        assert!(!pad.seen.pressed.get(), "no look before the delay");
+        pad.wait(0.08);
+        assert!(pad.seen.pressed.get(), "look once the finger has rested");
+    }
+
+    #[test]
+    fn pressed_look_never_shows_when_the_finger_moves_and_goes_when_it_starts_to() {
+        let mut pad = Pad::bare();
+        let p = pos2(100., 300.);
+        pad.down(p);
+        pad.drag(p, p - Vec2::new(0., 20.), 4); // moving from the start
+        pad.wait(0.3);
+        assert!(!pad.seen.pressed.get(), "a scroll never flashes the row");
+
+        let mut pad = Pad::bare();
+        pad.down(p);
+        pad.wait(0.15);
+        assert!(pad.seen.pressed.get());
+        pad.drag(p, p - Vec2::new(0., 30.), 3); // the first step is still inside the slop
+        pad.seen.pressed.set(false);
+        pad.wait(0.05);
+        assert!(!pad.seen.pressed.get(), "the look goes as soon as the finger leaves the slop");
+    }
+
+    #[test]
+    fn stopped_is_false_until_a_fling_is_caught_and_clears_on_the_next_press() {
+        let mut pad = Pad::bare();
+        assert!(!stopped(&pad.ctx));
+        pad.fling();
+        pad.down(pos2(100., 100.));
+        assert!(stopped(&pad.ctx), "the press landed on a flinging list");
+        pad.up(pos2(100., 100.));
+        pad.wait(0.5);
+        pad.down(pos2(100., 100.));
+        assert!(!stopped(&pad.ctx), "the list was at rest");
+    }
+
+    /// Rows of exactly one list step, so a tap at x=20 hits the radio of the row under it.
+    fn radio_pad() -> (Pad, Rc<Cell<u8>>) {
+        let chosen = Rc::new(Cell::new(0u8));
+        let c = chosen.clone();
+        let pad = Pad::new(move |ui, range, _| {
+            ui.spacing_mut().item_spacing.y = 0.;
+            ui.spacing_mut().interact_size.y = ROW_H;
+            for i in range {
+                let mut cur = c.get();
+                radio(ui, &mut cur, i as u8 + 1, "x");
+                c.set(cur);
+            }
+        });
+        (pad, chosen)
+    }
+
+    #[test]
+    fn radio_is_chosen_by_a_tap_not_by_a_scroll_or_a_catch() {
+        let (mut pad, chosen) = radio_pad();
+        let p = pos2(20., 300.);
+        pad.down(p);
+        pad.drag(p, p - Vec2::new(0., 20.), 4);
+        pad.up(p - Vec2::new(0., 20.));
+        assert_eq!(chosen.get(), 0, "a scroll chooses nothing");
+
+        let (mut pad, chosen) = radio_pad();
+        pad.fling();
+        pad.down(pos2(20., 100.));
+        pad.up(pos2(20., 100.));
+        assert_eq!(chosen.get(), 0, "the finger that catches a fling chooses nothing");
+
+        let (mut pad, chosen) = radio_pad();
+        pad.down(pos2(20., 100.));
+        pad.up(pos2(20., 100.));
+        assert_ne!(chosen.get(), 0, "a plain tap chooses");
+    }
+
+    #[test]
+    fn member_row_opens_on_tap_and_not_on_scroll_or_catch() {
+        let m = matrix_engine::operations::Member { user_id: "@one:example.org".into(), name: "Marco".into(), avatar: None, role: matrix_domain::role::MemberRole::Admin };
+        let mut pad = Pad::new(move |ui, range, seen| {
+            for _ in range {
+                let r = crate::info::member_row(ui, &Default::default(), &m, false, &matrix_desktop::LIGHT);
+                seen.tapped.set(seen.tapped.get() | tapped(&r));
+            }
+        });
+        let p = pos2(100., 300.);
+        pad.down(p);
+        pad.drag(p, p - Vec2::new(0., 20.), 4);
+        pad.up(p - Vec2::new(0., 20.));
+        assert!(!pad.seen.tapped.get(), "a scroll");
+        pad.wait(3.);
+        pad.fling();
+        pad.down(pos2(100., 100.));
+        pad.up(pos2(100., 100.));
+        assert!(!pad.seen.tapped.get(), "a catch");
+        pad.wait(3.);
+        pad.down(pos2(100., 100.));
+        pad.up(pos2(100., 100.));
+        assert!(pad.seen.tapped.get(), "a tap");
     }
 }
