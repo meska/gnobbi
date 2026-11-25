@@ -69,6 +69,25 @@ mod tests {
     }
 
     #[test]
+    fn search_across_accounts_pins_first_newest_next_low_priority_last() {
+        let tagged = |sidebar: &mut Sidebar, id: &str, tag: &str, ts: u64| {
+            upsert(sidebar, id, 0, Some(ts));
+            let room = sidebar.rooms().iter().find(|r| r.name == id).unwrap();
+            sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary { scope: room.scope.clone(), name: id.into(), unread: 0, info: RoomInfo { last_event_ts: Some(ts), tags: vec![tag.into()], ..Default::default() } })));
+        };
+        let (mut a, mut b) = (Sidebar::connected(AccountId::new(1)), Sidebar::connected(AccountId::new(1)));
+        tagged(&mut a, "x_low", "m.lowpriority", 100);
+        upsert(&mut a, "x_old", 0, Some(10));
+        tagged(&mut a, "x_pin", "m.favourite", 1);
+        upsert(&mut b, "x_new", 0, Some(90));
+        upsert(&mut b, "x_mid", 0, Some(50));
+        upsert(&mut b, "other", 0, Some(99));
+        let sidebars = [a, b];
+        let got = names(&mut UnifiedList::default(), &sidebars, false, "x_");
+        assert_eq!(got, [(0, "x_pin".into()), (1, "x_new".into()), (1, "x_mid".into()), (0, "x_old".into()), (0, "x_low".into())]);
+    }
+
+    #[test]
     fn rooms_of_every_account_by_last_message_with_a_shared_room_once_per_account() {
         let mut a = Sidebar::connected(AccountId::new(1));
         let mut b = Sidebar::connected(AccountId::new(1));

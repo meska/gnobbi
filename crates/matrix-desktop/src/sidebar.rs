@@ -737,16 +737,14 @@ impl Sidebar {
             })
             .map(|(i, _)| i)
             .collect();
-        // Search keeps match order; the plain list follows the SDK order, rooms not yet ordered last by name.
-        if needle.is_empty() {
-            let (rooms, order) = (&self.rooms, &self.order);
-            self.visible.sort_by_cached_key(|&i| {
-                (
-                    order.get(&rooms[i].scope).copied().unwrap_or(usize::MAX),
-                    rooms[i].name.to_lowercase(),
-                )
-            });
-        }
+        // List and search follow the SDK order (last message, not opening), rooms not yet ordered last by name.
+        let (rooms, order) = (&self.rooms, &self.order);
+        self.visible.sort_by_cached_key(|&i| {
+            (
+                order.get(&rooms[i].scope).copied().unwrap_or(usize::MAX),
+                rooms[i].name.to_lowercase(),
+            )
+        });
         // Invitations wait for an answer: first. Then the pinned (lowest `order` first, those without one last in
         // activity order), the rest, and low priority at the bottom: whatever the search. Stable: ties keep the order above.
         let rooms = &self.rooms;
@@ -974,9 +972,9 @@ mod tests {
         // a newer message moves the room to the top
         fill(&mut sidebar, &account, &[("old", Some(100))]);
         assert_eq!(names(&sidebar)[0], "old");
-        // search keeps the unsorted match order
+        // search keeps the same order (newest first, then name)
         sidebar.set_query("a");
-        assert_eq!(names(&sidebar), ["zeta", "beta", "alfa", "Gamma"]);
+        assert_eq!(names(&sidebar), ["beta", "Gamma", "alfa", "zeta"]);
     }
 
     #[test]
@@ -1239,6 +1237,19 @@ mod tests {
         // Both tags set by another client: pinned wins.
         pinned(&mut sidebar, &account, "n1", 0, &["m.favourite", "m.lowpriority"], Some(0.9));
         assert_eq!(names(&sidebar)[..4], ["f_new", "f_old", "n1", "f_none1"]);
+    }
+
+    #[test]
+    fn search_puts_pinned_first_then_newest_and_low_priority_last_even_when_newest() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        // Arrival order is the opposite of the recency one, so only the sort can produce the expected result.
+        fill(&mut sidebar, &account, &[("x_low", Some(100)), ("x_old", Some(10)), ("x_new", Some(90)), ("x_mid", Some(50)), ("x_pin_a", Some(5)), ("x_pin_b", Some(6)), ("skip", Some(99))]);
+        pinned(&mut sidebar, &account, "x_pin_a", 0, &["m.favourite"], Some(0.25));
+        pinned(&mut sidebar, &account, "x_pin_b", 0, &["m.favourite"], Some(0.5));
+        pinned(&mut sidebar, &account, "x_low", 0, &["m.lowpriority"], None);
+        sidebar.set_query("x_");
+        assert_eq!(names(&sidebar), ["x_pin_a", "x_pin_b", "x_new", "x_mid", "x_old", "x_low"]);
     }
 
     #[test]
