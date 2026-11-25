@@ -365,6 +365,8 @@ pub struct Heights {
     pub watching: bool,
     /// Where the history request stands (set by the caller before drawing), and since when the pane / the older page has been loading.
     pub fetch: crate::loading::Fetch,
+    /// Older-page request in flight: a new one restarts the «slow» timer.
+    pub request: u32,
     opening: crate::loading::Clock,
     paging: crate::loading::Clock,
     /// «Retry» was pressed on a failed load.
@@ -961,7 +963,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     let now = std::time::Instant::now();
     let motion = crate::loading::motion(ui);
     let pane = crate::loading::pane(heights.fetch, events.len(), !hide);
-    let paging = heights.paging.elapsed(pane == crate::loading::Pane::Rows && heights.fetch != crate::loading::Fetch::Done, now);
+    let paging = heights.paging.elapsed(pane == crate::loading::Pane::Rows && heights.fetch != crate::loading::Fetch::Done, heights.request, now);
     let mut anchor = None;
     let mut visible = Vec::new();
     let mut on_screen = Vec::new();
@@ -1077,7 +1079,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     // The offset is corrected at the start of the next frame: ask for it, or the loop sleeps with the target off screen.
     if heights.pin.is_some() { ui.ctx().request_repaint(); }
     // Nothing to read yet: ghosts while it loads, else «empty» or the failure with its retry.
-    let waited = heights.opening.elapsed(pane == crate::loading::Pane::Loading, now).unwrap_or_default();
+    let waited = heights.opening.elapsed(pane == crate::loading::Pane::Loading, 0, now).unwrap_or_default();
     heights.retry |= crate::loading::pane_overlay(ui, out.inner_rect, crate::chat_background(t), pane, waited, 20., motion, t);
     if crate::loading::debug_hold(false) {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));

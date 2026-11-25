@@ -53,15 +53,18 @@ pub fn list_waiting(rooms: usize, synced: bool) -> bool {
 
 /// Since when something has been loading; forgotten as soon as it is not.
 #[derive(Default)]
-pub struct Clock(Option<Instant>);
+pub struct Clock(Option<(Instant, u32)>);
 
 impl Clock {
-    pub fn elapsed(&mut self, active: bool, now: Instant) -> Option<Duration> {
+    /// `request`: which request is loading; a different one starts again from zero (pages that follow each other without an idle frame between).
+    pub fn elapsed(&mut self, active: bool, request: u32, now: Instant) -> Option<Duration> {
         if !active {
             self.0 = None;
             return None;
         }
-        Some(now.duration_since(*self.0.get_or_insert(now)))
+        let (since, _) = *self.0.filter(|&(_, r)| r == request).get_or_insert((now, request));
+        self.0 = Some((since, request));
+        Some(now.duration_since(since))
     }
 }
 
@@ -401,7 +404,7 @@ mod tests {
         let mut clock = Clock::default();
         let mut at = |fetch, events, shown, after: u64| {
             let what = pane(fetch, events, shown);
-            (what, clock.elapsed(what == Pane::Loading, t0 + ms(after)).map(stage))
+            (what, clock.elapsed(what == Pane::Loading, 0, t0 + ms(after)).map(stage))
         };
         // Opened: nothing for the first instants, so a room that is already there never flickers.
         assert_eq!(at(Fetch::Busy, 0, false, 0), (Pane::Loading, Some(Stage { ghosts: 0., line: 0., slow: false })));
@@ -539,45 +542,45 @@ mod tests {
 
     /// Older-page indicator as `timeline::show` drives it (timeline.rs, `heights.paging.elapsed(..)` with rows on screen):
     /// `Some(slow)` while the strip is drawn, `None` when it is not. Keep the predicate in step with the call site.
-    fn paging_strip(clock: &mut Clock, fetch: Fetch, now: Instant) -> Option<bool> {
+    fn paging_strip(clock: &mut Clock, fetch: Fetch, request: u32, now: Instant) -> Option<bool> {
         let rows_on_screen = pane(fetch, 30, true) == Pane::Rows;
-        clock.elapsed(rows_on_screen && fetch != Fetch::Done, now).map(|waited| stage(waited).slow)
+        clock.elapsed(rows_on_screen && fetch != Fetch::Done, request, now).map(|waited| stage(waited).slow)
     }
 
     #[test]
     fn paging_starts_in_the_normal_phase() {
         let (t0, mut clock) = (Instant::now(), Clock::default());
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0), Some(false));
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + ms(100)), Some(false));
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0), Some(false));
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0 + ms(100)), Some(false));
     }
 
     #[test]
     fn paging_turns_slow_exactly_at_the_threshold() {
         let (t0, mut clock) = (Instant::now(), Clock::default());
-        paging_strip(&mut clock, Fetch::Busy, t0);
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + SLOW - ms(1)), Some(false));
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + SLOW), Some(true));
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + SLOW + ms(5_000)), Some(true), "stays slow until the page comes");
+        paging_strip(&mut clock, Fetch::Busy, 1, t0);
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0 + SLOW - ms(1)), Some(false));
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0 + SLOW), Some(true));
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0 + SLOW + ms(5_000)), Some(true), "stays slow until the page comes");
     }
 
     #[test]
     fn paging_after_a_slow_page_that_arrived_restarts_from_the_normal_phase() {
         let (t0, mut clock) = (Instant::now(), Clock::default());
-        paging_strip(&mut clock, Fetch::Busy, t0);
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + SLOW), Some(true));
-        assert_eq!(paging_strip(&mut clock, Fetch::Done, t0 + SLOW + ms(10)), None, "page arrived: strip gone");
+        paging_strip(&mut clock, Fetch::Busy, 1, t0);
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0 + SLOW), Some(true));
+        assert_eq!(paging_strip(&mut clock, Fetch::Done, 1, t0 + SLOW + ms(10)), None, "page arrived: strip gone");
         // The next request starts long after the room was opened: its own timer, from zero.
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + SLOW + ms(2_000)), Some(false));
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + SLOW + ms(2_000) + SLOW - ms(1)), Some(false));
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + SLOW + ms(2_000) + SLOW), Some(true));
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0 + SLOW + ms(2_000)), Some(false));
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0 + SLOW + ms(2_000) + SLOW - ms(1)), Some(false));
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0 + SLOW + ms(2_000) + SLOW), Some(true));
     }
 
     #[test]
     fn the_strip_disappears_when_the_page_arrives() {
         let (t0, mut clock) = (Instant::now(), Clock::default());
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0), Some(false));
-        assert_eq!(paging_strip(&mut clock, Fetch::Done, t0 + ms(300)), None);
-        assert_eq!(paging_strip(&mut clock, Fetch::Done, t0 + SLOW * 2), None);
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0), Some(false));
+        assert_eq!(paging_strip(&mut clock, Fetch::Done, 1, t0 + ms(300)), None);
+        assert_eq!(paging_strip(&mut clock, Fetch::Done, 1, t0 + SLOW * 2), None);
     }
 
     /// RED on the current code: a page that arrives and is followed by the next request inside one frame (scroll near the top)
@@ -585,18 +588,18 @@ mod tests {
     #[test]
     fn a_request_started_in_the_frame_the_previous_page_arrived_restarts_the_timer() {
         let (t0, mut clock) = (Instant::now(), Clock::default());
-        paging_strip(&mut clock, Fetch::Busy, t0);
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + SLOW + ms(500)), Some(true));
+        paging_strip(&mut clock, Fetch::Busy, 1, t0);
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 1, t0 + SLOW + ms(500)), Some(true));
         // Frame N: the first page arrived and the second was asked for at once; the UI only samples Busy.
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + SLOW + ms(600)), Some(false), "a new request starts normal");
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 2, t0 + SLOW + ms(600)), Some(false), "a new request starts normal");
     }
 
     /// RED on the current code: `Failed` keeps the clock running (`fetch != Done`), so a retry after a long hang starts «slow».
     #[test]
     fn a_retry_after_a_failed_page_restarts_the_timer() {
         let (t0, mut clock) = (Instant::now(), Clock::default());
-        paging_strip(&mut clock, Fetch::Busy, t0);
-        paging_strip(&mut clock, Fetch::Failed, t0 + SLOW + ms(1_000));
-        assert_eq!(paging_strip(&mut clock, Fetch::Busy, t0 + SLOW + ms(3_000)), Some(false), "the retry is a new request");
+        paging_strip(&mut clock, Fetch::Busy, 1, t0);
+        paging_strip(&mut clock, Fetch::Failed, 1, t0 + SLOW + ms(1_000));
+        assert_eq!(paging_strip(&mut clock, Fetch::Busy, 2, t0 + SLOW + ms(3_000)), Some(false), "the retry is a new request");
     }
 }

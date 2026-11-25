@@ -1195,6 +1195,8 @@ impl Session {
         (self.members_failed, self.members_requested) = (false, None);
     }
 
+    pub fn page_request(&self) -> u32 { self.history.requests() }
+
     /// «Retry» on a failed history load: the same request again (a failed live read is taken up by the next refresh).
     pub fn retry_history(&mut self) {
         if self.pending.is_none() {

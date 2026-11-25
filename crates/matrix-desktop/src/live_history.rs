@@ -57,6 +57,8 @@ pub struct HistorySession {
     live_failed: bool,
     /// Top row seen since the older page failed; a different row means the reader scrolled.
     failed_row: Option<usize>,
+    /// Older-page requests started so far: the loading indicator restarts its timer when it changes.
+    requests: u32,
     live_before: Option<String>,
     live_rows: Vec<HistoryEvent>,
     live_cursors: HashSet<String>,
@@ -82,6 +84,7 @@ impl HistorySession {
             settle: None,
             live_failed: false,
             failed_row: None,
+            requests: 0,
             live_before: None,
             live_rows: Vec::new(),
             live_cursors: HashSet::new(),
@@ -274,6 +277,7 @@ impl HistorySession {
             self.status
         }
     }
+    pub fn requests(&self) -> u32 { self.requests }
     pub fn confirmed_start(&self) -> bool { self.status() == HistoryStatus::Start && self.confirmed_start }
 
     /// Opaque lifecycle identity, never a server cursor or credential.
@@ -327,6 +331,7 @@ impl HistorySession {
         let tag = self.views.start(self.scope.clone()?).ok()?;
         self.pagination_tag = Some(tag.clone());
         self.failed_row = None;
+        self.requests = self.requests.wrapping_add(1);
         self.status = HistoryStatus::Loading;
         Some(HistoryRequest {
             tag,

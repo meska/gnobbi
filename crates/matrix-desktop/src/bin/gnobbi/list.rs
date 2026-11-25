@@ -361,7 +361,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     if let Some(u) = &unified { for e in u.parked.iter().filter_map(|p| p.session.room_error.as_deref()) { ui.colored_label(rgb(t.error), e); } }
     // Before the first sync answered an empty list is a list on its way: ghost rows instead of nothing.
     let waiting = crate::loading::list_waiting(sidebar.rooms().len(), !matches!(session.sync, None | Some(matrix_engine::RoomSyncStatus::Connecting)));
-    if let Some(waited) = session.list_wait.elapsed(waiting, std::time::Instant::now()) {
+    if let Some(waited) = session.list_wait.elapsed(waiting, 0, std::time::Instant::now()) {
         let motion = crate::loading::motion(ui);
         crate::loading::skeleton_list(ui, crate::list_fill(t), ROW, crate::loading::stage(waited).ghosts, motion, i18n::t("Loading conversations…"), t);
         // Still (Reduce Motion): nothing changes after the fade-in.

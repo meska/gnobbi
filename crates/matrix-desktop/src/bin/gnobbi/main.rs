@@ -1964,6 +1964,7 @@ impl App {
                 let members = room.map_or(3, |r| r.info.joined_members);
                 let readers = room.map(|r| messages.readers_by_row(&r.info.public_read_receipts)).unwrap_or_default();
                 s.heights.fetch = s.fetch();
+                s.heights.request = s.page_request();
                 // Scroll state per room: one shared id carried the old room's offset into the new one (jump on switch).
                 let (first, menu, save, thread) = ui.push_id(room.map(|r| r.scope.room_id.as_str()), |ui| timeline::show(ui, room.map_or(0, |r| r.unread), messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, members, &readers, t, jump, None)).inner;
                 if acts.flash_drawn && let Some(id) = &acts.flash { s.flash.mark_drawn(id, now); }
