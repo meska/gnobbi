@@ -25,8 +25,8 @@ pub struct AnimatedSticker {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StickerPrep {
     /// Not animated (or animation unusable): the UI keeps the editor → PNG path.
-    /// `warning` is a one-line, user-readable reason when an animation was lost.
-    Static { warning: Option<String> },
+    /// `warning` is a one-line English reason (a catalog key for the UI) when an animation was lost.
+    Static { warning: Option<&'static str> },
     /// Upload this payload as is; skip the editor.
     Animated(AnimatedSticker),
 }
@@ -36,7 +36,7 @@ pub fn prepare(data: &[u8]) -> StickerPrep {
     let frames = match anim::decode_up_to(data, anim::MAX_SIDE * 4) {
         Ok(f) => f,
         Err(NoAnim::NotAnimated | NoAnim::Broken) => return StickerPrep::Static { warning: None },
-        Err(NoAnim::OverLimit) => return still("Animazione troppo grande: salvata come immagine ferma.") ,
+        Err(NoAnim::OverLimit) => return still("Animation too large: saved as a still image"),
     };
     let (width, height) = (frames.width, frames.height);
     if width.max(height) <= KEEP_MAX_SIDE && data.len() <= KEEP_MAX_BYTES {
@@ -49,12 +49,12 @@ pub fn prepare(data: &[u8]) -> StickerPrep {
     }
     match reencode(&frames) {
         Some(s) => StickerPrep::Animated(s),
-        None => still("Non riesco a ridimensionare l'animazione: salvata come immagine ferma."),
+        None => still("Animation cannot be resized: saved as a still image"),
     }
 }
 
-fn still(msg: &str) -> StickerPrep {
-    StickerPrep::Static { warning: Some(msg.to_owned()) }
+fn still(msg: &'static str) -> StickerPrep {
+    StickerPrep::Static { warning: Some(msg) }
 }
 
 /// Every frame scaled to fit the square (aspect kept), re-encoded as an endless GIF with the same delays.

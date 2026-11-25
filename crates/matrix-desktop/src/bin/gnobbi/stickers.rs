@@ -5,7 +5,8 @@ use crate::avatar::{Avatar, Avatars};
 use crate::icons::Icon;
 use eframe::egui::{self, Color32, RichText, Sense, Vec2};
 use matrix_desktop::{DesignTokens, i18n};
-use matrix_engine::stickers::{PackEdit, Prepared, Sticker, StickerPack};
+use matrix_engine::sticker_anim::{ANIMATED_CROP_AVAILABLE, AnimatedSticker, StickerPrep};
+use matrix_engine::stickers::{MAX_BYTES, PackEdit, Prepared, Sticker, StickerPack};
 use serde_json::{Value, json};
 
 pub const TAB_ID: &str = "emoji-tab-sticker";
@@ -124,9 +125,15 @@ pub struct Editor {
     fill: bool,
     ready: Option<Result<Prepared, ()>>,
     texture: Option<egui::TextureHandle>,
+    /// An animated file: uploaded as it is, played by `animation` under `ANIM_KEY`; crop and fill do not apply.
+    animated: Option<AnimatedSticker>,
+    /// Why an animation was not kept (shown in the dialog).
+    warning: Option<&'static str>,
     code: String,
     pack: Option<String>,
 }
+
+const ANIM_KEY: &str = "sticker-editor";
 
 /// State of the «Stickers» window.
 #[derive(Default)]
@@ -195,15 +202,25 @@ impl Panel {
 
     /// Opens the editor on an encoded picture (a file, a pasted or inserted image).
     pub fn add_picture(&mut self, data: &[u8], name: &str) {
+        let mut warning = None;
+        match matrix_engine::sticker_anim::prepare(data) {
+            StickerPrep::Animated(a) if a.bytes.len() <= MAX_BYTES => return self.open_editor((a.width, a.height), Vec::new(), Some(a), None, name),
+            StickerPrep::Animated(_) => warning = Some("Animation too large: saved as a still image"),
+            StickerPrep::Static { warning: w } => warning = w,
+        }
         match matrix_engine::stickers::decode(data) {
-            Ok((w, h, rgba)) => self.add_rgba(w, h, rgba, name),
+            Ok((w, h, rgba)) => self.open_editor((w, h), rgba, None, warning, name),
             Err(_) => self.error = Some(i18n::t("Image cannot be used")),
         }
     }
 
     pub fn add_rgba(&mut self, w: u32, h: u32, rgba: Vec<u8>, name: &str) {
+        self.open_editor((w, h), rgba, None, None, name);
+    }
+
+    fn open_editor(&mut self, size: (u32, u32), rgba: Vec<u8>, animated: Option<AnimatedSticker>, warning: Option<&'static str>, name: &str) {
         self.error = None;
-        self.editor = Some(Editor { size: (w, h), rgba, fill: self.local.fill.unwrap_or(true), ready: None, texture: None, code: matrix_engine::stickers::shortcode_from(name), pack: None });
+        self.editor = Some(Editor { size, rgba, fill: self.local.fill.unwrap_or(true), ready: None, texture: None, animated, warning, code: matrix_engine::stickers::shortcode_from(name), pack: None });
     }
 }
 
@@ -524,7 +541,12 @@ fn editor(ctx: &egui::Context, panel: &mut Panel, t: &DesignTokens) {
     let own: Vec<(String, String, Vec<String>)> = panel.loaded().iter().filter(|p| p.own).map(|p| (p.id.clone(), p.name.clone(), p.stickers.iter().map(|s| s.shortcode.clone()).collect())).collect();
     let busy = panel.busy;
     let Some(e) = &mut panel.editor else { return };
-    if e.ready.is_none() {
+    if let Some(a) = &e.animated {
+        if e.texture.is_none() && let Some(frames) = matrix_engine::anim::decode(&a.bytes) {
+            e.texture = Some(ctx.load_texture(ANIM_KEY, egui::ColorImage::from_rgba_unmultiplied([frames.width as usize, frames.height as usize], &frames.rgba[0]), Default::default()));
+            crate::animation::insert(ANIM_KEY.to_owned(), frames);
+        }
+    } else if e.ready.is_none() {
         let ready = matrix_engine::stickers::prepare(e.size.0, e.size.1, &e.rgba, e.fill).map_err(drop);
         e.texture = ready.as_ref().ok().map(|r| ctx.load_texture("sticker-editor", egui::ColorImage::from_rgba_unmultiplied([r.side as usize; 2], &r.rgba), Default::default()));
         e.ready = Some(ready);
@@ -541,6 +563,13 @@ fn editor(ctx: &egui::Context, panel: &mut Panel, t: &DesignTokens) {
             let (rect, _) = ui.allocate_exact_size(Vec2::splat(w.min(224.)), Sense::hover());
             ui.painter().rect_filled(rect, 12., rgb(t.input));
             match (&e.texture, &e.ready) {
+                (Some(tex), _) if let Some(a) = &e.animated => {
+                    let inner = rect.shrink(12.);
+                    let fit = tex.size_vec2() * (inner.width() / tex.size_vec2().x.max(tex.size_vec2().y));
+                    crate::animation::step(ctx, ANIM_KEY, tex, true);
+                    egui::Image::new(tex).paint_at(ui, egui::Rect::from_center_size(rect.center(), fit));
+                    ui.label(RichText::new(format!("{} × {} · {} KB", a.width, a.height, a.bytes.len().div_ceil(1024))).small().color(rgb(t.secondary)));
+                }
                 (Some(tex), Some(Ok(r))) => {
                     egui::Image::new(tex).paint_at(ui, rect.shrink(12.));
                     ui.label(RichText::new(format!("{0} × {0} · {1} KB", r.side, r.png.len().div_ceil(1024))).small().color(rgb(t.secondary)));
@@ -548,7 +577,11 @@ fn editor(ctx: &egui::Context, panel: &mut Panel, t: &DesignTokens) {
                 _ => { ui.colored_label(rgb(t.error), i18n::t("Image cannot be used")); }
             }
         });
-        if crate::settings::switch(ui, i18n::t("Fill the square"), &mut e.fill, t) {
+        if let Some(w) = e.warning {
+            ui.colored_label(rgb(t.error), i18n::t(w));
+        }
+        // Animations are only fitted in the square (the engine says crop is unavailable): no switch.
+        if (e.animated.is_none() || ANIMATED_CROP_AVAILABLE) && crate::settings::switch(ui, i18n::t("Fill the square"), &mut e.fill, t) {
             e.ready = None;
             panel.local.fill = Some(e.fill);
             panel.local.save();
@@ -569,12 +602,17 @@ fn editor(ctx: &egui::Context, panel: &mut Panel, t: &DesignTokens) {
                 }
             });
         }
-        let ok = matches!(e.ready, Some(Ok(_))) && matrix_engine::stickers::valid_shortcode(&e.code) && !taken && !busy;
+        let ok = (e.animated.is_some() || matches!(e.ready, Some(Ok(_)))) && matrix_engine::stickers::valid_shortcode(&e.code) && !taken && !busy;
         save = primary(ui, ok, i18n::t("Save"), w, t);
     }));
-    if save && let Some(Editor { ready: Some(Ok(ready)), code, .. }) = panel.editor.take() {
+    if save && let Some(Editor { ready, animated, code, .. }) = panel.editor.take() {
         panel.section = section_after_save(target.as_deref());
-        panel.edit(PackEdit::Add { pack: target, default_name: i18n::t("Stickers").to_owned(), shortcode: code, png: ready.png, side: ready.side });
+        let default_name = i18n::t("Stickers").to_owned();
+        if let Some(a) = animated {
+            panel.edit(PackEdit::AddAnimated { pack: target, default_name, shortcode: code, bytes: a.bytes, mimetype: a.mimetype.to_owned(), width: a.width, height: a.height });
+        } else if let Some(Ok(ready)) = ready {
+            panel.edit(PackEdit::Add { pack: target, default_name, shortcode: code, png: ready.png, side: ready.side });
+        }
     } else if close || modal.should_close() {
         panel.editor = None;
     }
@@ -942,6 +980,51 @@ mod tests {
         panel.add_rgba(2, 2, vec![0; 16], "a");
         assert!(!panel.editor.as_ref().unwrap().fill);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn animated_file_opens_an_animated_editor_and_a_static_one_does_not() {
+        use image::{Delay, Frame, Rgba, RgbaImage, codecs::gif::GifEncoder};
+        let mut gif = Vec::new();
+        {
+            let mut e = GifEncoder::new(&mut gif);
+            for c in [10u8, 200] {
+                e.encode_frame(Frame::from_parts(RgbaImage::from_pixel(8, 6, Rgba([c, 0, 0, 255])), 0, 0, Delay::from_numer_denom_ms(40, 1))).unwrap();
+            }
+        }
+        let mut panel = Panel::default();
+        panel.add_picture(&gif, "gif");
+        let a = panel.editor.as_ref().unwrap().animated.as_ref().unwrap();
+        assert_eq!((a.mimetype, a.width, a.height, a.reencoded), ("image/gif", 8, 6, false));
+        let mut png = std::io::Cursor::new(Vec::new());
+        RgbaImage::new(4, 4).write_to(&mut png, image::ImageFormat::Png).unwrap();
+        panel.add_picture(png.get_ref(), "png");
+        assert!(panel.editor.as_ref().unwrap().animated.is_none());
+    }
+
+    #[test]
+    fn animated_editor_plays_its_preview_and_hides_fill() {
+        use image::{Delay, Frame, Rgba, RgbaImage, codecs::gif::GifEncoder};
+        let mut gif = Vec::new();
+        {
+            let mut e = GifEncoder::new(&mut gif);
+            for c in [10u8, 200] {
+                e.encode_frame(Frame::from_parts(RgbaImage::from_pixel(8, 6, Rgba([c, 0, 0, 255])), 0, 0, Delay::from_numer_denom_ms(40, 1))).unwrap();
+            }
+        }
+        let ctx = crate::icons::test_context();
+        let t = matrix_desktop::Theme::Classic.tokens();
+        let mut panel = Panel::default();
+        panel.add_picture(&gif, "gif");
+        let out = (0..2).map(|_| {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| editor(ui.ctx(), &mut panel, &t));
+            out.textures_delta.clear();
+            out
+        }).last().unwrap();
+        assert!(panel.editor.as_ref().unwrap().texture.is_some());
+        // The preview asked for the next frame: the repaint is due within the frame delay, not "never".
+        assert!(out.viewport_output.values().any(|v| v.repaint_delay < std::time::Duration::from_secs(1)));
+        crate::animation::clear();
     }
 
     #[test]
