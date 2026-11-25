@@ -16,7 +16,7 @@ cp "$root/packaging/store/apple-1024.png" "$w/Assets.xcassets/AppIcon.appiconset
 echo '{"images":[{"filename":"icon.png","idiom":"universal","platform":"ios","size":"1024x1024"}],"info":{"author":"xcode","version":1}}' > "$w/Assets.xcassets/AppIcon.appiconset/Contents.json"
 echo '{"info":{"author":"xcode","version":1}}' > "$w/Assets.xcassets/Contents.json"
 xcrun actool "$w/Assets.xcassets" --compile "$app" --platform iphoneos --minimum-deployment-target 17.0 --app-icon AppIcon \
-  --target-device iphone --output-partial-info-plist "$w/icon.plist" >/dev/null
+  --target-device iphone --target-device ipad --output-partial-info-plist "$w/icon.plist" >/dev/null
 pb=/usr/libexec/PlistBuddy; p=$app/Info.plist
 $pb -c "Set :CFBundleVersion $build" -c "Set :CFBundleShortVersionString $version" "$p"
 $pb -c "Merge $w/icon.plist" "$p"
