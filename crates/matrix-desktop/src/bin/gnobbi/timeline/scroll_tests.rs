@@ -163,7 +163,6 @@ fn at_the_bottom_a_growing_row_above_the_last_keeps_the_view_at_the_bottom() {
 }
 
 #[test]
-#[ignore = "known bug: pill_shift moves the cached height before the row is measured, so `changed` stays false and a reader 30px above the end is not re-glued (exact end is fine)"]
 fn at_the_bottom_a_reaction_keeps_the_view_at_the_bottom() {
     for slack in SLACKS {
         let mut rig = Rig::new(ROWS);

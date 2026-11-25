@@ -815,7 +815,10 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         for (i, e) in events.iter().enumerate() {
             if let (matrix_domain::TimelineId::Server(id), false, false) = (&e.id.id, e.status, e.redacted) {
                 let ph = crate::reactions::height(ui, &reactions_of(e, &acts.wishes), e.outgoing, members > 2, if pills_over_media(e) { (bubble_max(ui.available_width(), members > 2 && !e.outgoing) - 2. * PAD_X).min(320.) } else { ui.available_width() }, pills_over_media(e));
-                heights.rows[i] = pill_shift(&mut heights.pills, id, ph, heights.rows[i]);
+                let shifted = pill_shift(&mut heights.pills, id, ph, heights.rows[i]);
+                // The shift is a height change the measure below no longer sees (it compares with the shifted value).
+                changed |= (shifted - heights.rows[i]).abs() > 0.5;
+                heights.rows[i] = shifted;
             }
             let h = heights.rows[i];
             // Space below row i: tight when the next bubble belongs to the same group.
