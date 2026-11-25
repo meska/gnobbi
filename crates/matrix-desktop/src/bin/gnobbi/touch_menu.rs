@@ -415,6 +415,16 @@ fn card<R>(ctx: &egui::Context, under: &egui::Painter, name: &'static str, rect:
     area.inner
 }
 
+/// The cards of the right-click menu (pill, list) as drawn: where a press stays in the menu.
+pub fn in_menu(cards: &[Rect], at: Pos2) -> bool {
+    cards.iter().any(|r| r.contains(at))
+}
+
+/// Smallest rect around the cards: what the menu blocks from the timeline under it.
+pub fn hull(cards: &[Rect]) -> Rect {
+    cards.iter().fold(Rect::NOTHING, |a, r| a.union(*r))
+}
+
 /// The round chevron that unfolds the full emoji grid: down, up once it is open.
 fn more_button(ui: &mut egui::Ui, rect: Rect, id: egui::Id, open: bool, label: &str, t: &DesignTokens) -> bool {
     let resp = crate::metrics::clickable(ui.interact(rect, id, Sense::click()));
@@ -821,5 +831,67 @@ mod tests {
         for (name, emoji) in QUICK {
             assert_ne!(matrix_desktop::i18n::tr("it", "", name), name, "{emoji} {name} lacks an Italian name");
         }
+    }
+
+    /// Draws the cards of the right-click menu the way `message_menu` does (stand-in list) over a clickable background;
+    /// returns the pill, the list and whether the background was clicked.
+    fn frame(ctx: &egui::Context, size: Vec2, events: Vec<egui::Event>, at: Pos2) -> (Rect, Rect, bool) {
+        let t = matrix_desktop::Theme::Dark.tokens();
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)), events, ..Default::default() };
+        let (mut cards, mut clicked) = ((Rect::NOTHING, Rect::NOTHING), false);
+        let hull_id = egui::Id::new("hull");
+        let mut full = ctx.run_ui(input, |ui| {
+            clicked = ui.interact(ui.max_rect(), egui::Id::new("timeline"), Sense::click()).clicked();
+            let ctx = ui.ctx().clone();
+            let mut rects = vec![];
+            egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(at).constrain_to(ctx.content_rect().shrink(8.)).show(&ctx, |ui| {
+                ui.spacing_mut().item_spacing.y = 6.;
+                if let Some(hull) = ui.data(|d| d.get_temp::<Rect>(hull_id)) { ui.interact(hull, hull_id.with("block"), Sense::click_and_drag()); }
+                let card = egui::Frame::menu(ui.style());
+                rects.push(card.show(ui, |ui| reaction_rows(ui, &|_| false, &t)).response.rect);
+                rects.push(card.show(ui, |ui| ui.set_width(200.)).response.rect);
+            });
+            ctx.data_mut(|d| d.insert_temp(hull_id, hull(&rects)));
+            cards = (rects[0], rects[1]);
+        });
+        full.textures_delta.clear();
+        (cards.0, cards.1, clicked)
+    }
+
+    fn press(pos: Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }
+    }
+
+    #[test]
+    fn the_reaction_pill_stays_clickable_and_blocks_the_timeline_at_every_edge() {
+        let size = vec2(400., 600.);
+        for at in [pos2(20., 300.), pos2(380., 300.), pos2(5., 300.), pos2(200., 3.), pos2(200., 595.), pos2(380., 595.)] {
+            let ctx = egui::Context::default();
+            let mut last = (Rect::NOTHING, Rect::NOTHING, false);
+            for _ in 0..4 { last = frame(&ctx, size, vec![], at); }
+            let (pill, list, _) = last;
+            assert!(Rect::from_min_size(Pos2::ZERO, size).shrink(8.).contains_rect(pill.union(list)), "8 pt margin at {at:?}: {pill:?} {list:?}");
+            // The arrow (last cell of the pill), an emoji (first cell), and the strip of the pill margin above the cells.
+            let side = quick_side_for_test();
+            for target in [pos2(pill.right() - 8. - side / 2., pill.center().y), pos2(pill.left() + 8. + side / 2., pill.center().y), pos2(pill.center().x, pill.top() + 1.), pos2(pill.center().x, list.top() - 3.)] {
+                assert!(in_menu(&[pill, list], target) || target.y > pill.bottom(), "{target:?} outside the menu at {at:?}");
+                frame(&ctx, size, vec![egui::Event::PointerMoved(target)], at);
+                let down = frame(&ctx, size, vec![press(target, true)], at);
+                let up = frame(&ctx, size, vec![press(target, false)], at);
+                assert!(!down.2 && !up.2, "the click on {target:?} reached the timeline at {at:?}");
+            }
+        }
+    }
+
+    fn quick_side_for_test() -> f32 {
+        crate::metrics::button().max(38.)
+    }
+
+    #[test]
+    fn a_press_is_in_the_menu_when_it_is_in_a_card() {
+        let (pill, list) = (Rect::from_min_max(pos2(100., 300.), pos2(392., 352.)), Rect::from_min_max(pos2(100., 358.), pos2(314., 400.)));
+        assert!(in_menu(&[pill, list], pos2(380., 326.)), "the pill sticks out to the right of the list");
+        assert!(!in_menu(&[pill, list], pos2(380., 380.)), "the corner beside the narrower list is not the menu");
+        assert_eq!(hull(&[pill, list]), Rect::from_min_max(pos2(100., 300.), pos2(392., 400.)));
     }
 }
