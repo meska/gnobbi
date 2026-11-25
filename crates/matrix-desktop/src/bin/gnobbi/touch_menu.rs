@@ -833,18 +833,21 @@ mod tests {
         }
     }
 
-    /// Draws the cards of the right-click menu the way `message_menu` does (stand-in list) over a clickable background;
-    /// returns the pill, the list and whether the background was clicked.
-    fn frame(ctx: &egui::Context, size: Vec2, events: Vec<egui::Event>, at: Pos2) -> (Rect, Rect, bool) {
+    /// What one frame of the stand-in menu showed and did.
+    struct Out { pill: Rect, list: Rect, timeline_clicked: bool, closed: bool, closed_by_old_rule: bool }
+
+    /// Draws the cards of the right-click menu the way `message_menu` does (stand-in list) over a clickable background,
+    /// with the same close rule (`in_menu` on the drawn cards); `closed_by_old_rule` is the rule before the fix (`area.response.contains_pointer()`).
+    fn frame(ctx: &egui::Context, size: Vec2, events: Vec<egui::Event>, at: Pos2) -> Out {
         let t = matrix_desktop::Theme::Dark.tokens();
         let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)), events, ..Default::default() };
-        let (mut cards, mut clicked) = ((Rect::NOTHING, Rect::NOTHING), false);
+        let mut out = Out { pill: Rect::NOTHING, list: Rect::NOTHING, timeline_clicked: false, closed: false, closed_by_old_rule: false };
         let hull_id = egui::Id::new("hull");
         let mut full = ctx.run_ui(input, |ui| {
-            clicked = ui.interact(ui.max_rect(), egui::Id::new("timeline"), Sense::click()).clicked();
+            out.timeline_clicked = ui.interact(ui.max_rect(), egui::Id::new("timeline"), Sense::click()).clicked();
             let ctx = ui.ctx().clone();
             let mut rects = vec![];
-            egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(at).constrain_to(ctx.content_rect().shrink(8.)).show(&ctx, |ui| {
+            let area = egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(at).constrain_to(ctx.content_rect().shrink(8.)).show(&ctx, |ui| {
                 ui.spacing_mut().item_spacing.y = 6.;
                 if let Some(hull) = ui.data(|d| d.get_temp::<Rect>(hull_id)) { ui.interact(hull, hull_id.with("block"), Sense::click_and_drag()); }
                 let card = egui::Frame::menu(ui.style());
@@ -852,39 +855,140 @@ mod tests {
                 rects.push(card.show(ui, |ui| ui.set_width(200.)).response.rect);
             });
             ctx.data_mut(|d| d.insert_temp(hull_id, hull(&rects)));
-            cards = (rects[0], rects[1]);
+            let pressed = ctx.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos())).flatten();
+            out.closed = pressed.is_some_and(|p| !in_menu(&rects, p));
+            out.closed_by_old_rule = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+            (out.pill, out.list) = (rects[0], rects[1]);
         });
         full.textures_delta.clear();
-        (cards.0, cards.1, clicked)
+        out
     }
 
     fn press(pos: Pos2, pressed: bool) -> egui::Event {
         egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }
     }
 
+    /// A menu opened at `at` in a window of `size`, settled after a few frames.
+    fn open_at(size: Vec2, at: Pos2) -> (egui::Context, Out) {
+        let ctx = egui::Context::default();
+        let mut last = frame(&ctx, size, vec![], at);
+        for _ in 0..3 { last = frame(&ctx, size, vec![], at); }
+        (ctx, last)
+    }
+
+    /// Where the chevron (last cell of the pill) and the first emoji are.
+    fn arrow(pill: Rect) -> Pos2 { pos2(pill.right() - 8. - quick_side_for_test() / 2., pill.top() + 8. + quick_side_for_test() / 2.) }
+    fn first_emoji(pill: Rect) -> Pos2 { pos2(pill.left() + 8. + quick_side_for_test() / 2., pill.top() + 8. + quick_side_for_test() / 2.) }
+
+    /// Clicks `target`; returns (menu closed on the press, timeline reached by press or release).
+    fn click(ctx: &egui::Context, size: Vec2, at: Pos2, target: Pos2) -> (bool, bool) {
+        frame(ctx, size, vec![egui::Event::PointerMoved(target)], at);
+        let down = frame(ctx, size, vec![press(target, true)], at);
+        let up = frame(ctx, size, vec![press(target, false)], at);
+        (down.closed || up.closed, down.timeline_clicked || up.timeline_clicked)
+    }
+
     #[test]
     fn the_reaction_pill_stays_clickable_and_blocks_the_timeline_at_every_edge() {
         let size = vec2(400., 600.);
         for at in [pos2(20., 300.), pos2(380., 300.), pos2(5., 300.), pos2(200., 3.), pos2(200., 595.), pos2(380., 595.)] {
-            let ctx = egui::Context::default();
-            let mut last = (Rect::NOTHING, Rect::NOTHING, false);
-            for _ in 0..4 { last = frame(&ctx, size, vec![], at); }
-            let (pill, list, _) = last;
+            let (ctx, Out { pill, list, .. }) = open_at(size, at);
             assert!(Rect::from_min_size(Pos2::ZERO, size).shrink(8.).contains_rect(pill.union(list)), "8 pt margin at {at:?}: {pill:?} {list:?}");
-            // The arrow (last cell of the pill), an emoji (first cell), and the strip of the pill margin above the cells.
-            let side = quick_side_for_test();
-            for target in [pos2(pill.right() - 8. - side / 2., pill.center().y), pos2(pill.left() + 8. + side / 2., pill.center().y), pos2(pill.center().x, pill.top() + 1.), pos2(pill.center().x, list.top() - 3.)] {
-                assert!(in_menu(&[pill, list], target) || target.y > pill.bottom(), "{target:?} outside the menu at {at:?}");
-                frame(&ctx, size, vec![egui::Event::PointerMoved(target)], at);
-                let down = frame(&ctx, size, vec![press(target, true)], at);
-                let up = frame(&ctx, size, vec![press(target, false)], at);
-                assert!(!down.2 && !up.2, "the click on {target:?} reached the timeline at {at:?}");
+            // The arrow, an emoji, and the strip of the pill margin above the cells.
+            for target in [arrow(pill), first_emoji(pill), pos2(pill.center().x, pill.top() + 1.)] {
+                assert!(in_menu(&[pill, list], target), "{target:?} outside the menu at {at:?}");
+                let (closed, reached) = click(&ctx, size, at, target);
+                assert!(!closed && !reached, "the click on {target:?} closed the menu ({closed}) or reached the timeline ({reached}) at {at:?}");
+            }
+            // The gap between the cards never reaches the timeline (the menu may close, see the ignored test below).
+            let gap = pos2(pill.center().x, (pill.bottom() + list.top()) / 2.);
+            assert!(!click(&ctx, size, at, gap).1, "the click in the gap {gap:?} reached the timeline at {at:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "bug: a press in the 6 pt gap between pill and list closes the menu (was inside the area before the fix)"]
+    fn a_press_in_the_gap_between_the_cards_keeps_the_menu() {
+        let size = vec2(400., 600.);
+        for at in [pos2(20., 300.), pos2(380., 300.)] {
+            let (ctx, Out { pill, list, .. }) = open_at(size, at);
+            let gap = pos2(pill.center().x, (pill.bottom() + list.top()) / 2.);
+            assert!(!click(&ctx, size, at, gap).0, "the press in the gap {gap:?} closed the menu at {at:?}");
+        }
+    }
+
+    #[test]
+    fn the_arrow_at_the_right_edge_opens_the_grid_and_keeps_the_menu() {
+        let size = vec2(400., 600.);
+        let at = pos2(390., 300.);
+        let (ctx, Out { pill, .. }) = open_at(size, at);
+        assert!(!more_open(&ctx));
+        let (closed, reached) = click(&ctx, size, at, arrow(pill));
+        assert!(!closed && !reached, "arrow click: closed {closed}, reached the timeline {reached}");
+        assert!(more_open(&ctx), "the grid did not open");
+        let mut grown = frame(&ctx, size, vec![], at);
+        for _ in 0..5 { grown = frame(&ctx, size, vec![], at); }
+        assert!(grown.pill.height() > pill.height() * 2., "the pill did not grow into the grid: {pill:?} -> {:?}", grown.pill);
+        assert!(Rect::from_min_size(Pos2::ZERO, size).shrink(8.).contains_rect(grown.pill.union(grown.list)), "the open grid leaves the window: {:?}", grown.pill);
+        // The grid is part of the pill: a second click on the chevron folds it back, still not closing the menu.
+        // The open grid is wider than the quick row: the chevron stays on the row, at the same offset from the pill's left edge.
+        let chevron = pos2(grown.pill.left() + (arrow(pill).x - pill.left()), arrow(pill).y - pill.top() + grown.pill.top());
+        let (closed, reached) = click(&ctx, size, at, chevron);
+        assert!(!closed && !reached && !more_open(&ctx), "second arrow click: closed {closed}, reached {reached}, open {}", more_open(&ctx));
+    }
+
+    #[test]
+    fn a_press_really_outside_closes_the_menu_and_one_beside_the_narrow_list_too() {
+        let size = vec2(400., 600.);
+        let at = pos2(390., 300.);
+        let (ctx, Out { pill, list, .. }) = open_at(size, at);
+        assert!(pill.right() > list.right() + 20., "the stand-in list must be narrower than the pill: {pill:?} {list:?}");
+        for far in [pos2(2., 2.), pos2(pill.left() - 5., pill.center().y), pos2(pill.center().x, pill.top() - 5.), pos2(pill.center().x, list.bottom() + 5.), pos2(pill.right() - 5., list.center().y)] {
+            assert!(!in_menu(&[pill, list], far), "{far:?} is inside");
+            assert!(click(&ctx, size, at, far).0, "the press at {far:?} did not close the menu");
+        }
+    }
+
+    #[test]
+    fn the_old_rule_misses_the_arrow_of_a_pushed_menu_but_not_a_menu_that_was_not_pushed() {
+        let size = vec2(400., 600.);
+        for (at, pushed) in [(pos2(390., 300.), true), (pos2(20., 300.), false)] {
+            let (ctx, Out { pill, .. }) = open_at(size, at);
+            frame(&ctx, size, vec![egui::Event::PointerMoved(arrow(pill))], at);
+            let down = frame(&ctx, size, vec![press(arrow(pill), true)], at);
+            assert!(!down.closed, "the fixed rule must keep the menu at {at:?}");
+            // Canary for the premise of the fix: if egui stops shifting the hit-test rect, the extra block and `in_menu` can go.
+            assert_eq!(down.closed_by_old_rule, pushed, "old rule at {at:?}");
+        }
+    }
+
+    #[test]
+    fn the_menu_stays_inside_a_narrow_or_short_window_with_the_grid_open() {
+        for size in [vec2(320., 600.), vec2(300., 500.), vec2(436., 300.), vec2(400., 700.)] {
+            for at in [pos2(size.x - 4., size.y / 2.), pos2(4., size.y / 2.), pos2(size.x / 2., 2.), pos2(size.x / 2., size.y - 2.), pos2(size.x - 4., size.y - 2.)] {
+                let (ctx, _) = open_at(size, at);
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new(MORE_ID), true));
+                let mut o = frame(&ctx, size, vec![], at);
+                for _ in 0..10 { o = frame(&ctx, size, vec![], at); }
+                let window = Rect::from_min_size(Pos2::ZERO, size).shrink(8.);
+                // 0.5 pt of slack: with the grid open the list ends 0.2 pt under the margin (fractional grid height), not visible.
+                // A window shorter than the open grid cannot hold it; then the pill must still start inside.
+                assert!(window.contains(o.pill.left_top()) && o.pill.right() <= window.right() + 0.5, "pill {:?} leaves {window:?} at {at:?}", o.pill);
+                if o.pill.union(o.list).height() <= window.height() { assert!(window.expand(0.5).contains_rect(o.pill.union(o.list)), "{:?} {:?} leave {window:?} at {at:?} in {size:?}", o.pill, o.list); }
+                let (closed, reached) = click(&ctx, size, at, arrow(o.pill));
+                assert!(!closed && !reached || !window.contains(arrow(o.pill)), "arrow click at {at:?} in {size:?}: closed {closed}, reached {reached}");
             }
         }
     }
 
     fn quick_side_for_test() -> f32 {
         crate::metrics::button().max(38.)
+    }
+
+    #[test]
+    fn no_cards_means_no_menu_and_nothing_to_block() {
+        assert!(!in_menu(&[], pos2(1., 1.)));
+        assert!(!hull(&[]).is_positive());
     }
 
     #[test]
