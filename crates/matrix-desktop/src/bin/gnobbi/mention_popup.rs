@@ -24,10 +24,10 @@ fn open(ui: &egui::Ui, id: egui::Id, draft: &str, members: &[Member]) -> Option<
     // No cursor yet (text set from outside, nothing clicked): the end of the text.
     let cursor = egui::TextEdit::load_state(ui.ctx(), id).and_then(|s| s.cursor.char_range()).map_or(draft.len(), |r| draft.char_indices().nth(r.primary.index.into()).map_or(draft.len(), |(b, _)| b));
     let Some((at, query)) = matrix_desktop::mention_token(draft, cursor) else {
-        ui.data_mut(|d| d.remove::<usize>(id.with("off"))); // a closed list stays closed only until the `@` is gone
+        ui.data_mut(|d| { d.remove::<usize>(id.with("off")); d.remove::<bool>(egui::Id::new(crate::composer::MENTION_HIDDEN)); }); // a closed list stays closed only until the `@` is gone
         return None;
     };
-    if ui.data(|d| d.get_temp::<usize>(id.with("off"))) == Some(at) {
+    if ui.data(|d| d.get_temp::<usize>(id.with("off"))) == Some(at) || ui.data(|d| d.get_temp::<bool>(egui::Id::new(crate::composer::MENTION_HIDDEN))).unwrap_or(false) {
         return None;
     }
     let matches: Vec<Member> = matrix_desktop::mention_matches(members, query).into_iter().cloned().collect();
@@ -67,9 +67,13 @@ pub fn keys(ui: &egui::Ui, id: egui::Id, draft: &mut String, members: &[Member],
 /// After the text box: the list hangs above `field`; hover moves the highlight, a click inserts.
 pub fn show(ui: &mut egui::Ui, id: egui::Id, field: egui::Rect, draft: &mut String, members: &[Member], mentions: &mut Vec<matrix_engine::sending::Mention>, avatars: Option<&crate::avatar::Avatars>, t: &matrix_desktop::DesignTokens) {
     let Some(o) = open(ui, id, draft, members) else {
-        ui.data_mut(|d| d.remove::<egui::Rect>(id.with("rect")));
+        ui.data_mut(|d| { d.remove::<egui::Rect>(id.with("rect")); d.remove::<bool>(id.with("shown")); });
         return;
     };
+    if !ui.data(|d| d.get_temp::<bool>(id.with("shown"))).unwrap_or(false) {
+        ui.data_mut(|d| d.insert_temp(id.with("shown"), true));
+        crate::composer::open_popup(ui.ctx(), crate::composer::Popup::Mention); // the list takes over from any other popup
+    }
     let mxc = |m: &Member| m.avatar.clone().filter(|a| !a.is_empty());
     // Only the rows on screen ask for their picture.
     ui.data_mut(|d| d.insert_temp(egui::Id::new(crate::avatar::MENTION_AVATARS), o.matches.iter().filter_map(mxc).collect::<Vec<_>>()));
@@ -206,6 +210,16 @@ mod tests {
         assert_eq!(bar.mentions[0].user_id, "@c:x", "first entry is highlighted by default");
         bar.frame(vec![]);
         assert!(bar.popup().is_none(), "the list closes once the mention is in");
+    }
+
+    #[test]
+    fn opening_the_attach_menu_closes_the_list() {
+        let mut bar = Bar::new(PHONE);
+        assert!(bar.popup().is_some());
+        let pos = bar.ctx.read_response(egui::Id::new("composer-attach")).unwrap().rect.center();
+        let button = |pressed| Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        for events in [vec![Event::PointerMoved(pos)], vec![button(true)], vec![button(false)], vec![]] { bar.frame(events); }
+        assert!(bar.popup().is_none(), "one popup at a time");
     }
 
     #[test]

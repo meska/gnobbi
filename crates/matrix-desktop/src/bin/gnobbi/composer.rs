@@ -178,12 +178,16 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         if let Some(r) = wide_emoji {
             let button = icon_at(ui, r, &format!("composer-emoji-button{salt}"), Icon::Smiley, 1., true, i18n::t("Emoji"));
             if button.clicked() {
-                ui.data_mut(|d| d.insert_temp(dock_id, !d.get_temp::<bool>(dock_id).unwrap_or(false)));
+                let open = !ui.data(|d| d.get_temp::<bool>(dock_id)).unwrap_or(false);
+                ui.data_mut(|d| d.insert_temp(dock_id, open));
+                if open { open_popup(ui.ctx(), Popup::Drawer); }
             }
             emoji_hover = Some(button);
         }
+        if attach.clicked() { open_popup(ui.ctx(), Popup::Attach); }
         egui::Popup::menu(&attach).show(|ui| {
             if extra == 0 && ui.button(i18n::t("Emoji")).clicked() {
+                open_popup(ui.ctx(), Popup::Emoji);
                 egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&emoji));
             }
             if !thread && ui.button(i18n::t("Poll")).clicked() {
@@ -230,6 +234,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
             let (open, last) = ui.data(|d| d.get_temp::<(bool, f64)>(hid)).unwrap_or((false, 0.));
             let (mut open, last) = hover_step((open, last), button.hovered(), drawer, now);
             if open {
+                open_popup(ui.ctx(), Popup::EmojiHover);
                 let safe = ui.ctx().content_rect();
                 let (cols, cell) = (POPUP_COLUMNS, POPUP_CELL);
                 let (_, height) = popup_rows(matrix_desktop::EMOJI_SET.len(), cols, cell);
@@ -376,6 +381,26 @@ fn emoji_grid(ui: &mut egui::Ui, scroll_id: egui::Id, grid_id: egui::Id, id: egu
         });
     });
     inserted
+}
+
+/// The composer popup that is open. Every opening goes through `open_popup`, the one place that closes the others.
+/// The docked drawer is a bar above the composer, not a popup: opening the attach menu leaves it, opening it closes the menu.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Popup { Attach, Emoji, EmojiHover, Drawer, Mention }
+
+/// Id of the flag set when another popup took over from the mention list: it stays shut until the `@` is gone.
+pub const MENTION_HIDDEN: &str = "composer-mention-hidden";
+
+pub fn open_popup(ctx: &egui::Context, which: Popup) {
+    let current = egui::Id::new("composer-popup");
+    if ctx.data(|d| d.get_temp::<Popup>(current)) == Some(which) { return; }
+    ctx.data_mut(|d| {
+        d.insert_temp(current, which);
+        if which != Popup::EmojiHover { d.insert_temp(egui::Id::new("emoji-hover"), (false, 0.)); }
+        if which != Popup::Mention { d.insert_temp(egui::Id::new(MENTION_HIDDEN), true); }
+    });
+    // egui keeps a single menu open (attach or emoji) by itself; the other three are not egui menus.
+    if !matches!(which, Popup::Attach | Popup::Emoji) { egui::Popup::close_all(ctx); }
 }
 
 /// Hover state of the small emoji popup: (open, last time the pointer was on the button or the popup).
@@ -762,6 +787,88 @@ mod tests {
             }
             assert!(count > 0, "popup had no visible emoji at zoom {zoom}");
         }
+    }
+
+    /// The wide desktop bar driven with a pointer; `width` 900 has the Emoji button, 436 (touch) only the attach menu.
+    struct Bar { ctx: eframe::egui::Context, width: f32 }
+
+    impl Bar {
+        fn new(width: f32) -> Self {
+            let bar = Bar { ctx: crate::icons::test_context(), width };
+            for _ in 0..4 { bar.frame(vec![]); }
+            bar
+        }
+        fn frame(&self, events: Vec<eframe::egui::Event>) {
+            use eframe::egui;
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(self.width, 1200.))), events, ..Default::default() }; // tall: the open drawer pushes the bar down
+            let mut out = self.ctx.run_ui(input, |ui| {
+                super::panel(egui::Frame::NONE).show(ui, |ui| {
+                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (String::new(), false, false, false, None, None, None);
+                    super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
+                });
+            });
+            out.textures_delta.clear();
+        }
+        fn center(&self, id: &str) -> eframe::egui::Pos2 { self.ctx.read_response(eframe::egui::Id::new(id)).unwrap().rect.center() }
+        fn hover(&self, id: &str) {
+            let pos = self.center(id);
+            for _ in 0..3 { self.frame(vec![eframe::egui::Event::PointerMoved(pos)]); }
+        }
+        fn click(&self, id: &str) {
+            use eframe::egui::{Event, Modifiers, PointerButton};
+            for _ in 0..6 { self.frame(vec![]); }
+            let pos = self.center(id);
+            let button = |pressed| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+            self.frame(vec![Event::PointerMoved(pos)]);
+            self.frame(vec![button(true)]);
+            self.frame(vec![button(false)]);
+            self.frame(vec![]);
+        }
+        fn menu(&self) -> bool {
+            let attach = self.ctx.read_response(eframe::egui::Id::new("composer-attach")).unwrap();
+            eframe::egui::Popup::is_id_open(&self.ctx, eframe::egui::Popup::default_response_id(&attach))
+        }
+        fn small_popup(&self) -> bool { self.ctx.data(|d| d.get_temp::<(bool, f64)>(eframe::egui::Id::new("emoji-hover"))).is_some_and(|s| s.0) }
+        fn drawer(&self) -> bool { self.ctx.data(|d| d.get_temp::<bool>(eframe::egui::Id::new(super::DOCK_ID))).unwrap_or(false) }
+    }
+
+    #[test]
+    fn hovering_emoji_closes_the_attach_menu() {
+        let bar = Bar::new(900.);
+        bar.click("composer-attach");
+        assert!(bar.menu() && !bar.small_popup());
+        bar.hover("composer-emoji-button");
+        assert!(bar.small_popup() && !bar.menu(), "menu {} popup {}", bar.menu(), bar.small_popup());
+    }
+
+    #[test]
+    fn clicking_attach_closes_the_small_emoji_popup() {
+        let bar = Bar::new(900.);
+        bar.hover("composer-emoji-button");
+        assert!(bar.small_popup() && !bar.menu());
+        bar.click("composer-attach");
+        assert!(bar.menu() && !bar.small_popup());
+    }
+
+    #[test]
+    fn the_drawer_stays_when_attach_opens_and_opening_it_closes_the_menu() {
+        let bar = Bar::new(900.);
+        bar.click("composer-emoji-button");
+        assert!(bar.drawer());
+        bar.click("composer-attach");
+        assert!(bar.menu() && bar.drawer(), "the drawer is not a popup: menu {} drawer {}", bar.menu(), bar.drawer());
+        bar.click("composer-emoji-button");
+        bar.click("composer-emoji-button");
+        assert!(bar.drawer() && !bar.menu(), "opening the drawer closes the menu");
+    }
+
+    #[test]
+    fn phone_has_no_hover_popup_and_the_menu_still_opens() {
+        crate::mobile::FORCE_TOUCH.set(true);
+        let bar = Bar::new(436.);
+        bar.click("composer-attach");
+        assert!(bar.menu() && !bar.small_popup());
+        crate::mobile::FORCE_TOUCH.set(false);
     }
 
     /// Height of the composer bar after laying it out in a window `width` wide, reusing `ctx` so panel memory carries over.
