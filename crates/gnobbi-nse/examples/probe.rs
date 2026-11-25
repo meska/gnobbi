@@ -10,7 +10,7 @@ fn main() {
     let ms = t.elapsed().as_millis();
     let is = |name: &str, v: &str| std::env::var(name).map(|e| e == v).unwrap_or(false);
     match r {
-        Ok(Outcome::Message { sender, body, room }) => println!(
+        Ok(Outcome::Message { sender, body, room, .. }) => println!(
             "message body_ok={} room_ok={} sender_ok={} sender_len={} ms={ms}",
             is("EXPECT_BODY", &body),
             is("EXPECT_ROOM", room.as_deref().unwrap_or("")),

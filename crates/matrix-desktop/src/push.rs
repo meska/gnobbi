@@ -118,7 +118,7 @@ pub fn alert(notifications: bool, preview: bool, read: impl FnOnce() -> Result<O
         return Alert::Generic;
     }
     match read() {
-        Ok(Outcome::Message { sender, body, .. }) => Alert::Text { title: sender, body },
+        Ok(Outcome::Message { sender, body, .. }) => Alert::Text { title: sender, body: matrix_engine::push::trim_body(&body) },
         Ok(Outcome::Other { sender, .. }) => Alert::Sender(sender),
         Ok(Outcome::Suppress) => Alert::Suppress,
         Ok(Outcome::Encrypted) | Err(_) => Alert::Generic,
@@ -312,7 +312,7 @@ mod tests {
     }
 
     fn msg() -> Result<Outcome, Fail> {
-        Ok(Outcome::Message { sender: "Ann".into(), body: "hi\nthere".into(), room: Some("Team".into()) })
+        Ok(Outcome::Message { sender: "Ann".into(), sender_id: "@a:t".into(), body: "\n\nhi\n\n\nthere ".into(), room: Some("Team".into()) })
     }
 
     #[test]
@@ -327,7 +327,7 @@ mod tests {
         for failed in [Err(Fail::Net), Err(Fail::Store), Err(Fail::BadInput), Ok(Outcome::Encrypted)] {
             assert_eq!(alert(true, true, || failed), Alert::Generic);
         }
-        assert_eq!(alert(true, true, || Ok(Outcome::Other { sender: "Ann".into(), room: None })), Alert::Sender("Ann".into()));
+        assert_eq!(alert(true, true, || Ok(Outcome::Other { sender: "Ann".into(), sender_id: "@a:t".into(), room: None })), Alert::Sender("Ann".into()));
         assert_eq!(alert(true, true, || Ok(Outcome::Suppress)), Alert::Suppress);
     }
 

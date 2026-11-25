@@ -79,8 +79,9 @@ final class NotificationService: UNNotificationServiceExtension {
         case "encrypted":
             content.body = encryptedText
         case "message", "other":
-            if let sender = reply["sender"] as? String, !sender.isEmpty { content.title = sender }
-            if let room = reply["room"] as? String, !room.isEmpty { content.subtitle = room }
+            // Title, subtitle and trimmed body come ready from the Rust formatter (`gnobbi_nse::shown`).
+            if let title = reply["title"] as? String, !title.isEmpty { content.title = title }
+            if let subtitle = reply["subtitle"] as? String, !subtitle.isEmpty { content.subtitle = subtitle }
             if kind == "message", let body = reply["body"] as? String { content.body = body }
         default:
             return content

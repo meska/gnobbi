@@ -32,12 +32,15 @@ pub enum Outcome {
     /// Plain or decrypted text message.
     Message {
         sender: String,
+        /// The sender's MXID (`sender` is the display name when there is one).
+        sender_id: String,
         body: String,
         room: Option<String>,
     },
     /// Message of another kind (image, file, call...): show the sender, keep the generic text.
     Other {
         sender: String,
+        sender_id: String,
         room: Option<String>,
     },
     /// Encrypted and the key is not (yet) available.
@@ -132,9 +135,8 @@ fn classify(event: &Value, sender_name: Option<String>, room: Option<String>) ->
     if event["type"] == "m.room.redaction" || content["m.relates_to"]["rel_type"] == "m.replace" {
         return Outcome::Suppress;
     }
-    let sender = sender_name
-        .or_else(|| event["sender"].as_str().map(str::to_owned))
-        .unwrap_or_default();
+    let sender_id = event["sender"].as_str().unwrap_or_default().to_owned();
+    let sender = sender_name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| sender_id.clone());
     let text = event["type"] == "m.room.message"
         && matches!(
             content["msgtype"].as_str(),
@@ -143,10 +145,38 @@ fn classify(event: &Value, sender_name: Option<String>, room: Option<String>) ->
     match content["body"].as_str() {
         Some(body) if text && !body.is_empty() => Outcome::Message {
             sender,
+            sender_id,
             body: body.to_owned(),
             room,
         },
-        _ => Outcome::Other { sender, room },
+        _ => Outcome::Other { sender, sender_id, room },
+    }
+}
+
+/// Body for display: trimmed, and every run of line breaks (blank lines, spaces between them) collapsed into one `\n`.
+pub fn trim_body(body: &str) -> String {
+    body.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join("\n").trim().to_owned()
+}
+
+/// What a notification shows. Title: the sender's name, else the MXID. Subtitle: the MXID (none when it is the title). A room
+/// name that is not the sender's own name (a group; in a bridged DM the room is named after the contact) prefixes the text.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Shown {
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub body: String,
+}
+
+pub fn shown(sender: &str, sender_id: &str, room: Option<&str>, body: &str) -> Shown {
+    let body = trim_body(body);
+    let body = match room.filter(|r| !r.is_empty() && *r != sender) {
+        Some(r) => format!("{r}: {body}"),
+        None => body,
+    };
+    Shown {
+        title: sender.to_owned(),
+        subtitle: Some(sender_id.to_owned()).filter(|id| !id.is_empty() && id != sender),
+        body,
     }
 }
 
@@ -220,15 +250,33 @@ pub async fn read_event(client: &Client, room_id: &str, event_id: &str, sync_key
             .map(ToOwned::to_owned);
     let (who, room) = tokio::join!(
         async {
-            #[allow(deprecated)] // the profile-field endpoint is newer than many homeservers
-            match sender {
-                Some(user) => client
-                    .send(get_display_name::v3::Request::new(user))
-                    .await
-                    .ok()
-                    .and_then(|r| r.displayname),
-                None => None,
+            let Some(user) = sender else { return None };
+            // The per-room name first (bridge ghosts often have no global profile name), then the profile.
+            let member = client
+                .send(get_state_event_for_key::v3::Request::new(
+                    rid.to_owned(),
+                    StateEventType::RoomMember,
+                    user.to_string(),
+                ))
+                .await
+                .ok()
+                .and_then(|r| serde_json::to_value(&r.event_or_content).ok())
+                .and_then(|v| {
+                    v["displayname"]
+                        .as_str()
+                        .or(v["content"]["displayname"].as_str())
+                        .filter(|n| !n.trim().is_empty())
+                        .map(str::to_owned)
+                });
+            if member.is_some() {
+                return member;
             }
+            #[allow(deprecated)] // the profile-field endpoint is newer than many homeservers
+            client
+                .send(get_display_name::v3::Request::new(user))
+                .await
+                .ok()
+                .and_then(|r| r.displayname)
         },
         async {
             let r = client
@@ -284,16 +332,17 @@ pub fn run_for(
 
 fn to_json(o: &Outcome) -> Value {
     match o {
-        Outcome::Message { sender, body, room } => {
-            json!({"kind": "message", "sender": sender, "body": body, "room": room})
+        Outcome::Message { sender, sender_id, body, room } => {
+            let s = shown(sender, sender_id, room.as_deref(), body);
+            json!({"kind": "message", "title": s.title, "subtitle": s.subtitle, "body": s.body})
         }
-        Outcome::Other { sender, room } => json!({"kind": "other", "sender": sender, "room": room}),
+        Outcome::Other { sender, .. } => json!({"kind": "other", "title": sender}),
         Outcome::Encrypted => json!({"kind": "encrypted"}),
         Outcome::Suppress => json!({"kind": "suppress"}),
     }
 }
 
-/// C ABI. Returns 0 and a malloc'd JSON `{kind, sender?, body?, room?}` in `*out`, or 1 with `*out` NULL (the shell then shows
+/// C ABI. Returns 0 and a malloc'd JSON `{kind, title?, subtitle?, body?}` in `*out`, or 1 with `*out` NULL (the shell then shows
 /// the generic text). Free with [`gnobbi_nse_free`]. `data_dir` is the App Group data dir (`.../Library/Application Support/Gnobbi`).
 ///
 /// # Safety
@@ -398,6 +447,7 @@ mod tests {
             ),
             Outcome::Message {
                 sender: "Ann".into(),
+                sender_id: "@a:h".into(),
                 body: "hi".into(),
                 room: Some("Team".into())
             }
@@ -406,6 +456,7 @@ mod tests {
             classify(&msg("m.text", "hi"), None, None),
             Outcome::Message {
                 sender: "@a:h".into(),
+                sender_id: "@a:h".into(),
                 body: "hi".into(),
                 room: None
             }
@@ -414,6 +465,7 @@ mod tests {
             classify(&msg("m.image", "x.png"), None, None),
             Outcome::Other {
                 sender: "@a:h".into(),
+                sender_id: "@a:h".into(),
                 room: None
             }
         );
@@ -421,6 +473,7 @@ mod tests {
             classify(&msg("m.text", ""), None, None),
             Outcome::Other {
                 sender: "@a:h".into(),
+                sender_id: "@a:h".into(),
                 room: None
             }
         );
@@ -433,6 +486,32 @@ mod tests {
                 None
             ),
             Outcome::Suppress
+        );
+    }
+
+    #[test]
+    fn body_is_trimmed_and_line_breaks_collapse() {
+        assert_eq!(trim_body("\n\n  ciao\n\n\nmondo  "), "ciao\nmondo");
+        assert_eq!(trim_body("a\n \t\n\nb"), "a\nb");
+        assert_eq!(trim_body(" \n "), "");
+    }
+
+    #[test]
+    fn dm_and_group_titles() {
+        // name present: name + MXID; bridged DM room named after the contact adds nothing
+        assert_eq!(
+            shown("Idealmedica", "@wa_1:h", Some("Idealmedica"), "\n\nciao"),
+            Shown { title: "Idealmedica".into(), subtitle: Some("@wa_1:h".into()), body: "ciao".into() }
+        );
+        // name absent: MXID alone, no subtitle
+        assert_eq!(
+            shown("@a:h", "@a:h", None, "hi"),
+            Shown { title: "@a:h".into(), subtitle: None, body: "hi".into() }
+        );
+        // group: sender stays the title, the room name leads the text
+        assert_eq!(
+            shown("Ann", "@a:h", Some("Team"), " hi "),
+            Shown { title: "Ann".into(), subtitle: Some("@a:h".into()), body: "Team: hi".into() }
         );
     }
 
