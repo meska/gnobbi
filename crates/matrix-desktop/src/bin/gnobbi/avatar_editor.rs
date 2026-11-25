@@ -480,8 +480,25 @@ impl Editor {
             });
             let ready = self.picture.is_some();
             // Title and buttons stay in view; a short window scrolls what is between them.
-            let room = (screen.y - 72. - 3. * crate::metrics::button() - 32.).max(120.);
+            let line = if self.error.is_some() { ui.text_style_height(&egui::TextStyle::Body) + 8. } else { 0. };
+            let room = (screen.y - 72. - 3. * crate::metrics::button() - 32. - line).max(120.);
             egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
+                // The gnome rows scroll with the rest (first, so a phone shows them at once): fixed, they pushed the window off a short screen.
+                ui.add_enabled_ui(self.saving.is_none() && self.gnome.is_none(), |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.selectable_value(&mut self.female, false, i18n::t("Male gnome"));
+                        ui.selectable_value(&mut self.female, true, i18n::t("Female gnome"));
+                        if ui.button(i18n::t("Generate gnome")).clicked() {
+                            gnome = Some(0);
+                        }
+                        if ui.button(i18n::t("Another one")).clicked() {
+                            gnome = Some(self.counter + 1);
+                        }
+                        if self.gnome.is_some() {
+                            ui.spinner();
+                        }
+                    });
+                });
                 ui.add_enabled_ui(ready && self.saving.is_none(), |ui| {
                     if wide {
                         ui.horizontal_top(|ui| {
@@ -492,21 +509,6 @@ impl Editor {
                     } else {
                         self.frame_side(ui, column, t);
                         self.colour_side(ui, column, t);
-                    }
-                });
-            });
-            ui.add_enabled_ui(self.saving.is_none() && self.gnome.is_none(), |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.selectable_value(&mut self.female, false, i18n::t("Male gnome"));
-                    ui.selectable_value(&mut self.female, true, i18n::t("Female gnome"));
-                    if ui.button(i18n::t("Generate gnome")).clicked() {
-                        gnome = Some(0);
-                    }
-                    if ui.button(i18n::t("Another one")).clicked() {
-                        gnome = Some(self.counter + 1);
-                    }
-                    if self.gnome.is_some() {
-                        ui.spinner();
                     }
                 });
             });
@@ -732,6 +734,31 @@ fn slider(ui: &mut egui::Ui, label: &str, label_w: f32, value: &mut f32, range: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_window_stays_on_screen_on_phones_and_short_windows() {
+        for touch in [false, true] {
+            crate::mobile::FORCE_TOUCH.set(touch);
+            for (w, h) in [(390., 640.), (472., 750.), (700., 900.), (900., 420.)] {
+                for error in [None, Some("Could not prepare the photo.")] {
+                    let ctx = crate::icons::test_context();
+                    crate::metrics::apply(&ctx, &matrix_desktop::Preferences::default(), 1.);
+                    let mut editor = Editor { open: true, error, ..Default::default() };
+                    editor.install(&ctx, Loaded::new(&RgbaImage::new(64, 64)));
+                    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h));
+                    for _ in 0..3 {
+                        let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                            editor.show(ui.ctx(), &matrix_desktop::DARK);
+                        });
+                        output.textures_delta.clear();
+                    }
+                    let window = ctx.memory(|m| m.area_rect(egui::Id::new("avatar-editor"))).expect("the editor is drawn");
+                    assert!(window.height() <= h, "{w}x{h} touch {touch} error {}: {window:?} is taller than the screen", error.is_some());
+                }
+            }
+        }
+        crate::mobile::FORCE_TOUCH.set(false);
+    }
 
     const RED: [u8; 4] = [255, 0, 0, 255];
     const GREEN: [u8; 4] = [0, 255, 0, 255];
