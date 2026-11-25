@@ -16,6 +16,7 @@ pub struct ThreadSummary {
     pub num_replies: u32,
 }
 
+/// `want` is the number of replies to try to hold; 0 answers from the cache only.
 pub(crate) async fn open(
     timelines: &Timelines,
     room: &matrix_sdk::Room,
@@ -28,7 +29,9 @@ pub(crate) async fn open(
     let thread = timelines.thread(room, &root_id).await?;
     let mut now = loaded(room, &thread).await;
     let mut offline = false;
-    if now.rows.is_empty() {
+    // `want == 0`: the cache only, no network (the panel's first paint).
+    if want == 0 {
+    } else if now.rows.is_empty() {
         let (filled, status) = fill(room, &thread, want.max(PAGE)).await;
         now = filled;
         if now.rows.is_empty() && let Err(e) = status {

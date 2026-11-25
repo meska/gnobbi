@@ -2459,6 +2459,11 @@ pub(crate) async fn fill(
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
+        // The server has nothing older. A thread has no start marker of its own, so without this it paged on to the step
+        // limit (~1.1 s for a 5-reply thread) while the rows it wanted did not exist.
+        if reached_start {
+            break;
+        }
     }
     (now, Ok(()))
 }

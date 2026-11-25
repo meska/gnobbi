@@ -34,7 +34,7 @@ fn video_facts(v: matrix_engine::history::VideoInfo) -> VideoFacts {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DemoEvent {
     /// Observed server event/ACK, never a peer read receipt or fixture inference.
     pub server_confirmed: bool,
@@ -173,6 +173,13 @@ impl DemoHistory {
 
     pub fn scope(&self) -> &RoomScope {
         &self.scope
+    }
+
+    /// A history holding one row already known (a thread's root, taken from the room's timeline).
+    pub fn seeded(scope: RoomScope, row: DemoEvent) -> Self {
+        let mut history = Self::new(scope, 0);
+        history.events.push(row);
+        history
     }
 
     pub fn new(scope: RoomScope, count: usize) -> Self {

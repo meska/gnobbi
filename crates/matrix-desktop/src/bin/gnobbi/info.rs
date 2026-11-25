@@ -521,7 +521,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, pictures:
     }));
     th.tail_visible = false;
     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show_inside(ui, |ui| crate::dir::scope(ui, |ui| {
-        let Some(history) = &th.history else {
+        let Some(history) = th.history.as_ref().filter(|_| th.loaded || !th.failed) else {
             ui.add_space(16.);
             if th.failed {
                 ui.vertical_centered(|ui| ui.colored_label(rgb(t.error), i18n::t("Thread unavailable")));
@@ -547,7 +547,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, pictures:
         if opened.is_some() { th.menu = opened; }
         th.tail_visible = th.heights.at_bottom;
         th.scrolled(first);
-        if th.growing.is_some() {
+        if th.growing.is_some() || !th.loaded {
             // Over the list, not in it: the rows do not move when it comes and goes.
             ui.put(egui::Rect::from_center_size(top + Vec2::new(0., 16.), Vec2::splat(16.)), egui::Spinner::new().size(16.));
         }

@@ -20,6 +20,8 @@ pub struct ThreadState {
     views: matrix_engine::ViewRequests,
     /// The root (when the room holds it) and the replies, as timeline rows; `None` until the first page.
     pub history: Option<matrix_desktop::DemoHistory>,
+    /// The first page of replies has arrived (until then `history` holds at most the root).
+    pub loaded: bool,
     at_start: bool,
     pub heights: crate::timeline::Heights,
     pub failed: bool,
@@ -68,7 +70,7 @@ impl ThreadState {
 
     /// The list scrolled to `first_visible`: asks for the older replies when it is time.
     pub fn scrolled(&mut self, first_visible: usize) {
-        let Some(h) = &self.history else { return };
+        let Some(h) = self.history.as_ref().filter(|_| self.loaded) else { return };
         let held = h.events().len() - self.head();
         let total = h.events().first().filter(|_| self.head() == 1).and_then(|e| e.thread.as_ref()).map(|t| t.num_replies as usize);
         if wants_older(first_visible, held, total, self.at_start, self.stalled, self.growing.is_some()) {
@@ -1581,14 +1583,24 @@ impl Session {
                 match (result, &self.draft_scope) {
                     (Ok(page), Some(scope)) => {
                         let page = *page;
+                        // `want` 0 = the first answer, from the cache alone; the full page is asked for at once.
+                        let cached = th.want == 0;
+                        if cached {
+                            th.want = 50;
+                            th.next_read = std::time::Instant::now();
+                        }
                         if let Some(before) = th.growing.take() {
                             th.stalled = page.replies.len() <= before;
                         }
-                        // Rebuilt from the page: older replies land between the root and the ones held, which an append could not do.
-                        let mut rows = matrix_desktop::DemoHistory::new(scope.clone(), 0);
-                        rows.append_server(page.root.into_iter().chain(page.replies).collect());
-                        th.history = Some(rows);
-                        th.at_start = page.at_start;
+                        // An empty cache answer leaves what is on screen (the root seeded from the room) alone.
+                        if !cached || !page.replies.is_empty() {
+                            // Rebuilt from the page: older replies land between the root and the ones held, which an append could not do.
+                            let mut rows = matrix_desktop::DemoHistory::new(scope.clone(), 0);
+                            rows.append_server(page.root.into_iter().chain(page.replies).collect());
+                            th.history = Some(rows);
+                            th.loaded = true;
+                            th.at_start = page.at_start;
+                        }
                         th.failed = false;
                     }
                     _ => { th.failed = true; th.growing = None; },
@@ -1789,7 +1801,9 @@ impl Session {
     }
 
     pub fn open_thread(&mut self, root: EventId) {
-        self.thread = Some(ThreadState { root, views: Default::default(), history: None, at_start: false, heights: Default::default(), failed: false, draft: String::new(), attachment: None, reply_to: None, menu: None, want: 50, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
+        // The root is already in the room's timeline: show it at once, the page only adds the replies.
+        let seed = self.messages.as_ref().and_then(|m| m.row(&root).map(|r| matrix_desktop::DemoHistory::seeded(m.scope().clone(), r.clone())));
+        self.thread = Some(ThreadState { root, views: Default::default(), history: seed, loaded: false, at_start: false, heights: Default::default(), failed: false, draft: String::new(), attachment: None, reply_to: None, menu: None, want: 0, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
         self.info_open = false;
         self.search_open = false;
     }
