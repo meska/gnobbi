@@ -155,7 +155,9 @@ fn classify(event: &Value, sender_name: Option<String>, room: Option<String>) ->
 
 /// Body for display: trimmed, and every run of line breaks (blank lines, spaces between them) collapsed into one `\n`.
 pub fn trim_body(body: &str) -> String {
-    body.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join("\n").trim().to_owned()
+    // Every Unicode line break (not only \n / \r\n: lone \r, NEL, LS, PS) counts; inner indentation is kept.
+    let brk = |c: char| matches!(c, '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}');
+    body.split(brk).map(str::trim_end).filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join("\n").trim().to_owned()
 }
 
 /// What a notification shows. Title: the sender's name, else the MXID. Subtitle: the MXID (none when it is the title). A room
@@ -169,7 +171,9 @@ pub struct Shown {
 
 pub fn shown(sender: &str, sender_id: &str, room: Option<&str>, body: &str) -> Shown {
     let body = trim_body(body);
-    let body = match room.filter(|r| !r.is_empty() && *r != sender) {
+    // A blank sender name falls back to the MXID (the title is never empty).
+    let sender = if sender.trim().is_empty() { sender_id } else { sender };
+    let body = match room.filter(|r| !r.trim().is_empty() && *r != sender) {
         Some(r) => format!("{r}: {body}"),
         None => body,
     };
@@ -513,6 +517,44 @@ mod tests {
             shown("Ann", "@a:h", Some("Team"), " hi "),
             Shown { title: "Ann".into(), subtitle: Some("@a:h".into()), body: "Team: hi".into() }
         );
+    }
+
+    #[test]
+    fn body_edge_cases() {
+        assert_eq!(trim_body(""), "");
+        assert_eq!(trim_body("\n\n\r\n \u{2028}\u{85}"), "");
+        assert_eq!(trim_body("a\r\n\r\nb\rc"), "a\nb\nc");
+        assert_eq!(trim_body("a\u{2028}\u{2029}\u{85}b"), "a\nb");
+        assert_eq!(trim_body("a\n\n\n\n\nb"), "a\nb");
+        assert_eq!(trim_body("a\nb\nc"), "a\nb\nc"); // single inner breaks stay
+        assert_eq!(trim_body("  \n  riga\n    indentata  \n"), "riga\n    indentata");
+        assert_eq!(trim_body("\n 🎉 ciao à 日本語 \n\n👩\u{200d}👩\u{200d}👧 \n"), "🎉 ciao à 日本語\n👩\u{200d}👩\u{200d}👧");
+        let long = "x".repeat(10_000);
+        assert_eq!(trim_body(&format!("\n{long}\n")), long);
+    }
+
+    #[test]
+    fn title_and_subtitle_edge_cases() {
+        // blank name: MXID is the title, no subtitle
+        for blank in ["", "   ", "\t\n"] {
+            assert_eq!(
+                shown(blank, "@a:h", None, "hi"),
+                Shown { title: "@a:h".into(), subtitle: None, body: "hi".into() },
+                "{blank:?}"
+            );
+        }
+        // name == MXID: no duplicate subtitle
+        assert_eq!(shown("@a:h", "@a:h", None, "hi").subtitle, None);
+        // blank room name adds no prefix; empty body stays empty
+        assert_eq!(shown("Ann", "@a:h", Some("  "), "hi").body, "hi");
+        assert_eq!(shown("Ann", "@a:h", Some("Team"), " \n ").body, "Team: ");
+        // MXID of a WhatsApp bridge ghost, very long: passed through untouched
+        let id = format!("@whatsapp_{}:bridge.example.org", "3".repeat(200));
+        let s = shown("Mario Rossi 🇮🇹", &id, None, "ciao");
+        assert_eq!((s.title.as_str(), s.subtitle.as_deref()), ("Mario Rossi 🇮🇹", Some(id.as_str())));
+        // JSON handed to the Swift shell
+        let j = to_json(&Outcome::Message { sender: "Ann".into(), sender_id: "@a:h".into(), body: "\n\nhi\n\n\nyo".into(), room: Some("Team".into()) });
+        assert_eq!(j, json!({"kind": "message", "title": "Ann", "subtitle": "@a:h", "body": "Team: hi\nyo"}));
     }
 
     #[test]
