@@ -395,16 +395,12 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
                 ui.horizontal_wrapped(|ui| {
                     ui.add_space(((ui.available_width() - id_w) / 2.).max(0.));
                     ui.label(RichText::new(id).color(rgb(t.secondary)));
-                    if copy_icon(ui).clicked() {
-                        ui.ctx().copy_text(id.to_owned());
-                    }
+                    copy_button(ui, "mxid", id);
                 });
             });
             ui.horizontal_wrapped(|ui| {
                 ui.label(i18n::t("Profile link"));
-                if copy_icon(ui).clicked() {
-                    ui.ctx().copy_text(format!("https://matrix.to/#/{id}"));
-                }
+                copy_button(ui, "link", &format!("https://matrix.to/#/{id}"));
             });
             match p.verified {
                 Some(true) => ui.label(i18n::t("Verified")),
@@ -550,9 +546,45 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, pictures:
     out
 }
 
-/// The small copy button.
-pub fn copy_icon(ui: &mut egui::Ui) -> egui::Response {
-    crate::icons::button(ui, crate::icons::Icon::Copy, false, i18n::t("Copy"))
+/// How long the copy button shows the check.
+const COPIED_FOR: f64 = 1.5;
+
+/// The icon a copy button shows `now` (egui time, seconds) after a click at `click`; `None` = never clicked.
+fn copy_icon_at(click: Option<f64>, now: f64) -> crate::icons::Icon {
+    match click {
+        Some(t) if (0. ..COPIED_FOR).contains(&(now - t)) => crate::icons::Icon::Check,
+        _ => crate::icons::Icon::Copy,
+    }
+}
+
+/// The one copy button: a click runs `copy` and turns the icon into a check in the accent colour for `COPIED_FOR`.
+/// `id` must be unique among the copy buttons of the same parent; the screen-reader name is «Copied» meanwhile.
+pub fn copy_button_with(ui: &mut egui::Ui, id: &str, label: &str, copy: impl FnOnce(&egui::Context)) -> egui::Response {
+    let id = ui.scope_id().with(("copy-button", id));
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(crate::metrics::button()), egui::Sense::hover());
+    let ctx = ui.ctx().clone();
+    let now = ctx.input(|i| i.time);
+    let mut click: Option<f64> = ctx.data(|d| d.get_temp(id));
+    let icon = copy_icon_at(click, now);
+    let done = icon == crate::icons::Icon::Check;
+    let accent = done.then(|| ui.visuals().hyperlink_color);
+    let resp = crate::icons::button_at(ui, rect, id, icon, false, crate::metrics::get().icon, if done { i18n::t("Copied") } else { label }, accent, true, 1.);
+    if resp.clicked() {
+        copy(&ctx);
+        crate::mobile::haptic_tick();
+        click = Some(now);
+        ctx.data_mut(|d| d.insert_temp(id, now));
+    }
+    // Repaints only while the check shows, and once more when it is due to go.
+    if copy_icon_at(click, now) == crate::icons::Icon::Check {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(COPIED_FOR - (now - click.unwrap_or(now))));
+    }
+    resp
+}
+
+/// A copy button that puts `text` on the clipboard.
+pub fn copy_button(ui: &mut egui::Ui, id: &str, text: &str) {
+    copy_button_with(ui, id, i18n::t("Copy"), |ctx| ctx.copy_text(text.to_owned()));
 }
 
 /// What the panel needs for the room's addresses and what the user did with them this frame.
@@ -591,9 +623,7 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
                 ui.push_id(alias, |ui| {
                     ui.horizontal(|ui| {
                         ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
-                            if copy_icon(ui).clicked() {
-                                ui.ctx().copy_text(alias.clone());
-                            }
+                            copy_button(ui, "alias", alias);
                             if data.can_edit_aliases && crate::info::close_icon(ui, i18n::t("Remove address")).clicked() {
                                 view.action = Some(AliasAction::Remove { alias: alias.clone() });
                             }
@@ -646,4 +676,18 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
 /// The small close button; `label` is its screen-reader name.
 pub fn close_icon(ui: &mut egui::Ui, label: &str) -> egui::Response {
     crate::icons::button(ui, crate::icons::Icon::X, false, label)
+}
+
+#[cfg(test)]
+mod copy_button_tests {
+    use super::*;
+    use crate::icons::Icon;
+
+    #[test]
+    fn check_shows_for_a_second_and_a_half_after_the_click() {
+        assert_eq!(copy_icon_at(None, 10.), Icon::Copy);
+        assert_eq!(copy_icon_at(Some(10.), 10.), Icon::Check);
+        assert_eq!(copy_icon_at(Some(10.), 11.49), Icon::Check);
+        assert_eq!(copy_icon_at(Some(10.), 11.5), Icon::Copy);
+    }
 }
