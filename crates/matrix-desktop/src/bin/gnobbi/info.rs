@@ -682,6 +682,7 @@ pub fn close_icon(ui: &mut egui::Ui, label: &str) -> egui::Response {
 mod copy_button_tests {
     use super::*;
     use crate::icons::Icon;
+    use std::{cell::Cell, collections::HashMap};
 
     #[test]
     fn check_shows_for_a_second_and_a_half_after_the_click() {
@@ -689,5 +690,176 @@ mod copy_button_tests {
         assert_eq!(copy_icon_at(Some(10.), 10.), Icon::Check);
         assert_eq!(copy_icon_at(Some(10.), 11.49), Icon::Check);
         assert_eq!(copy_icon_at(Some(10.), 11.5), Icon::Copy);
+        // A click time in the future (clock reset) must not leave the check on.
+        assert_eq!(copy_icon_at(Some(10.), 9.), Icon::Copy);
+    }
+
+    /// Two copy buttons («a», «b») side by side on a headless egui context, driven through the real `copy_button_with`.
+    /// What is on screen is read back from the frame: the icon glyphs painted and the screen-reader name of each button.
+    struct Rig {
+        ctx: egui::Context,
+        time: f64,
+        rects: Vec<(egui::Id, egui::Rect)>,
+        names: HashMap<egui::accesskit::NodeId, String>,
+        copies: Cell<[u32; 2]>,
+        glyphs: String,
+        /// How soon the last frame asked to be painted again (`ZERO` = at once).
+        repaint_in: std::time::Duration,
+    }
+
+    impl Rig {
+        fn new() -> Self {
+            let ctx = crate::icons::test_context();
+            ctx.enable_accesskit();
+            let mut rig = Rig { ctx, time: 100., rects: Vec::new(), names: HashMap::new(), copies: Cell::new([0; 2]), glyphs: String::new(), repaint_in: std::time::Duration::MAX };
+            rig.frame(vec![]);
+            rig.frame(vec![]);
+            rig
+        }
+
+        fn frame(&mut self, events: Vec<egui::Event>) {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 100.))), events, time: Some(self.time), ..Default::default() };
+            let (rects, copies) = (&mut self.rects, &self.copies);
+            let mut out = self.ctx.run_ui(raw, |ui| {
+                rects.clear();
+                ui.horizontal(|ui| {
+                    for (i, id) in ["a", "b"].into_iter().enumerate() {
+                        let r = copy_button_with(ui, id, "Copy", |_| { let mut c = copies.get(); c[i] += 1; copies.set(c) });
+                        rects.push((r.id, r.rect));
+                    }
+                });
+            });
+            out.textures_delta.clear();
+            self.repaint_in = out.viewport_output.values().map(|v| v.repaint_delay).min().unwrap_or(std::time::Duration::MAX);
+            self.glyphs = out.shapes.iter().filter_map(|s| match &s.shape { egui::Shape::Text(t) => Some(t.galley.text().to_owned()), _ => None }).collect();
+            for (id, node) in out.platform_output.accesskit_update.into_iter().flat_map(|u| u.nodes) {
+                self.names.insert(id, node.label().unwrap_or_default().to_owned());
+            }
+        }
+
+        fn click(&mut self, button: usize) {
+            let pos = self.rects[button].1.center();
+            let btn = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+            self.frame(vec![egui::Event::PointerMoved(pos)]);
+            self.frame(vec![btn(true)]);
+            self.frame(vec![btn(false)]);
+            // The frame of the click still paints the old icon: it has to ask for the next one at once, or the check would wait for more input.
+            assert_eq!(self.repaint_in, std::time::Duration::ZERO, "no immediate repaint after the click");
+            self.frame(vec![]);
+        }
+
+        fn advance(&mut self, secs: f64) {
+            self.time += secs;
+            self.frame(vec![]);
+        }
+
+        fn icon(&self, button: usize) -> Icon {
+            // Each button paints exactly one icon glyph, in layout order.
+            let glyphs: Vec<char> = self.glyphs.chars().collect();
+            assert_eq!(glyphs.len(), 2, "expected two icon glyphs, got {:?}", self.glyphs);
+            [Icon::Copy, Icon::Check].into_iter().find(|i| i.ch() == glyphs[button]).expect("a copy or check glyph")
+        }
+
+        fn name(&self, button: usize) -> &str {
+            &self.names[&self.rects[button].0.accesskit_id()]
+        }
+    }
+
+    #[test]
+    fn idle_buttons_show_copy() {
+        let rig = Rig::new();
+        assert_eq!((rig.icon(0), rig.icon(1)), (Icon::Copy, Icon::Copy));
+        assert_eq!(rig.copies.get(), [0, 0]);
+    }
+
+    #[test]
+    fn click_copies_once_and_shows_check() {
+        let mut rig = Rig::new();
+        rig.click(0);
+        assert_eq!(rig.copies.get(), [1, 0]);
+        assert_eq!(rig.icon(0), Icon::Check);
+    }
+
+    #[test]
+    fn check_goes_back_to_copy_after_one_and_a_half_seconds() {
+        let mut rig = Rig::new();
+        rig.click(0);
+        rig.advance(1.0);
+        assert_eq!(rig.icon(0), Icon::Check, "still inside the feedback window");
+        rig.advance(0.6);
+        assert_eq!(rig.icon(0), Icon::Copy, "1.6 s after the click");
+        assert_eq!(rig.copies.get(), [1, 0], "waiting must not copy again");
+    }
+
+    #[test]
+    fn buttons_with_different_ids_are_independent() {
+        let mut rig = Rig::new();
+        rig.click(0);
+        assert_eq!((rig.icon(0), rig.icon(1)), (Icon::Check, Icon::Copy));
+        rig.advance(1.0);
+        rig.click(1);
+        assert_eq!((rig.icon(0), rig.icon(1)), (Icon::Check, Icon::Check));
+        assert_eq!(rig.copies.get(), [1, 1]);
+        // The first one expires on its own clock, the second keeps its check.
+        rig.advance(0.6);
+        assert_eq!((rig.icon(0), rig.icon(1)), (Icon::Copy, Icon::Check));
+        rig.advance(1.0);
+        assert_eq!((rig.icon(0), rig.icon(1)), (Icon::Copy, Icon::Copy));
+    }
+
+    #[test]
+    fn a_second_click_restarts_the_feedback() {
+        let mut rig = Rig::new();
+        rig.click(0);
+        rig.advance(1.2);
+        rig.click(0);
+        rig.advance(1.2);
+        assert_eq!(rig.icon(0), Icon::Check, "2.4 s after the first click but 1.2 s after the second");
+        assert_eq!(rig.copies.get(), [2, 0]);
+    }
+
+    #[test]
+    fn screen_reader_name_is_copied_only_during_the_feedback() {
+        let mut rig = Rig::new();
+        assert_eq!((rig.name(0), rig.name(1)), ("Copy", "Copy"));
+        rig.click(0);
+        assert_eq!((rig.name(0), rig.name(1)), (i18n::t("Copied"), "Copy"));
+        rig.advance(1.6);
+        assert_eq!((rig.name(0), rig.name(1)), ("Copy", "Copy"));
+    }
+
+    /// Every copy button goes through `copy_button`/`copy_button_with`: no direct `Icon::Copy` or `copy_text(` in the app binary
+    /// outside the helper and these places, which are not copy buttons (checked by hand, see the notes):
+    /// - secret_clip.rs: the clipboard write with the timed wipe, called by the helper's closure (recovery key);
+    /// - touch_menu.rs: the long-press menu entry «Copy», which closes the menu;
+    /// - main.rs: the text button «Copy link» of a modal that closes.
+    #[test]
+    fn no_copy_button_bypasses_the_helper() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bin/gnobbi");
+        let allowed = ["info.rs", "secret_clip.rs", "touch_menu.rs", "main.rs"];
+        let mut stack = vec![dir.clone()];
+        let mut seen = 0;
+        let mut offenders = Vec::new();
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().path()) {
+                if e.is_dir() {
+                    stack.push(e);
+                } else if e.extension().is_some_and(|x| x == "rs") {
+                    seen += 1;
+                    let name = e.strip_prefix(&dir).unwrap().to_string_lossy().into_owned();
+                    let text = std::fs::read_to_string(&e).unwrap();
+                    // The old helper must be gone everywhere, info.rs included (this file's own test text is cut off).
+                    let text = text.split("mod copy_button_tests").next().unwrap();
+                    if text.contains("copy_icon(") {
+                        offenders.push(format!("{name}: copy_icon"));
+                    }
+                    if !allowed.contains(&name.as_str()) && (text.contains("Icon::Copy") || text.contains(".copy_text(")) {
+                        offenders.push(format!("{name}: Icon::Copy / copy_text"));
+                    }
+                }
+            }
+        }
+        assert!(seen > 20, "the scan found only {seen} files");
+        assert!(offenders.is_empty(), "copy buttons outside the helper: {offenders:?}");
     }
 }
