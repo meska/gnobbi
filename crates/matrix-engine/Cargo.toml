@@ -136,3 +136,7 @@ required-features = ["sdk"]
 [[test]]
 name = "recovery_later"
 required-features = ["sdk"]
+
+[[test]]
+name = "sticker_anim"
+required-features = ["sdk"]
