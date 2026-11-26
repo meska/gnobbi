@@ -463,8 +463,12 @@ fn pressed_here(ui: &egui::Ui, rect: egui::Rect, press: Option<egui::Pos2>) -> b
 }
 
 /// The frame in which the finger of a long press lifts: its click belongs to the menu, not to the row.
+/// Same for a touch that starts while a menu is open: it only closes the menu.
 fn released_after_press(ctx: &egui::Context) -> bool {
     let id = egui::Id::new(SWALLOW);
+    if crate::mobile::touch() && egui::Popup::is_any_open(ctx) && ctx.input(|i| i.pointer.any_pressed()) {
+        ctx.data_mut(|d| d.insert_temp(id, true));
+    }
     let up = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false) && !ctx.input(|i| i.pointer.any_down());
     if up { ctx.data_mut(|d| d.remove_temp::<bool>(id)); }
     up
@@ -667,6 +671,31 @@ mod tests {
         assert!(pad.seen.menu.get(), "the menu opens while the finger is still down");
         pad.up(p);
         assert!(!pad.seen.tapped.get(), "the release does not open the chat");
+    }
+
+    #[test]
+    fn chat_row_tap_that_closes_the_menu_opens_no_other_chat() {
+        use matrix_domain::{AccountId, RoomId, RoomScope};
+        let room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
+        let (mut confirm, mut pick) = (None, None);
+        let first = std::cell::Cell::new(true);
+        // The menu of the first row is open, the finger of its long press already lifted.
+        let mut pad = crate::touch_list::pad::Pad::new(move |ui, range, seen| {
+            let swallow = released_after_press(ui.ctx());
+            for i in range {
+                let (_, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), crate::touch_list::pad::ROW_H), egui::Sense::click());
+                seen.tapped.set(seen.tapped.get() | (crate::touch_list::tapped(&resp) && !swallow));
+                room_menu(row_popup(&resp, i == 0 && first.replace(false)), &room, &None, &mut confirm, &mut pick, &matrix_desktop::DARK);
+            }
+            seen.menu.set(egui::Popup::is_any_open(ui.ctx()));
+        });
+        pad.wait(0.1);
+        let q = egui::pos2(100., 300.); // another row, outside the menu
+        pad.down(q);
+        pad.wait(0.1);
+        pad.up(q);
+        pad.wait(0.1);
+        assert!(!pad.seen.tapped.get(), "the tap that closes the menu opens no chat");
     }
 
     #[test]
