@@ -403,7 +403,7 @@ enum Edit {
 
 /// How far the drawer `name` is out (0..1), sliding towards `shown`.
 fn slide(ctx: &egui::Context, name: &str, shown: bool) -> f32 {
-    if ctx.content_rect().width() < crate::SINGLE_WIDTH {
+    if crate::layout::compact(ctx) {
         // One column: `page` moves it; here only «is it still on screen».
         return if shown { 1. } else { 1. - ctx.data(|d| d.get_temp::<crate::mobile::Nav>(egui::Id::new((name, "page")))).map_or(1., |n| n.progress) };
     }
@@ -454,8 +454,8 @@ fn page(ctx: &egui::Context, name: &str, shown: bool, child: bool) -> (f32, f32,
 
 /// Left edge and width of a drawer. In the single-column mobile layout the list fills the window, so the rail's right edge leaves
 /// no room: the drawer takes the whole content rect (already inside the safe area) instead of 0 px.
-fn drawer_span(rail_right: f32, content: egui::Rect) -> (f32, f32) {
-    if content.width() < crate::NARROW_WIDTH { (content.left(), content.width()) } else { (rail_right, DRAWER.min(content.right() - rail_right)) }
+fn drawer_span(rail_right: f32, content: egui::Rect, compact: bool) -> (f32, f32) {
+    if compact { (content.left(), content.width()) } else { (rail_right, DRAWER.min(content.right() - rail_right)) }
 }
 
 /// A drawer beside the rail (`panel`): it slides out from the rail's right edge over the dimmed window, with its title and an X.
@@ -468,13 +468,13 @@ pub fn drawer(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str
 pub fn drawer_back(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str, title: &str, shown: bool, t: &DesignTokens, back: Option<&mut bool>, body: impl FnOnce(&mut egui::Ui, egui::Rect)) -> bool {
     let content = ctx.content_rect();
     // One column (a phone): a page from the far side, over the list or over the drawer it came from, that follows the back swipe.
-    let phone = content.width() < crate::SINGLE_WIDTH;
+    let phone = crate::layout::compact(ctx);
     let (open, above, swiped) = if phone { page(ctx, name, shown, back.is_some()) } else { (slide(ctx, name, shown), 0., false) };
     let Some(panel) = panel.filter(|_| open > 0.) else { return false };
     // Worked out as if the rail were on the left, then mirrored in the window: in RTL the drawer slides out of the rail's left edge.
     let flip = |r| crate::dir::flip(content, r);
     let panel = flip(panel);
-    let (left, width) = drawer_span(panel.right(), content);
+    let (left, width) = drawer_span(panel.right(), content, phone);
     let clip = egui::Rect::from_min_max(egui::pos2(left, panel.top()), egui::pos2(content.right(), panel.bottom()));
     let shift = if phone { page_shift(open, above, width) } else { -(1. - open) * width };
     let rect = flip(egui::Rect::from_min_size(clip.min + Vec2::new(shift, 0.), Vec2::new(width, panel.height())));
@@ -745,8 +745,8 @@ mod tests {
     #[test]
     fn drawer_fills_a_narrow_window_and_stays_beside_the_rail_on_desktop() {
         let r = |w| egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, 800.));
-        assert_eq!(super::drawer_span(393., r(393.)), (0., 393.));
-        assert_eq!(super::drawer_span(72., r(1000.)), (72., 380.));
+        assert_eq!(super::drawer_span(393., r(393.), true), (0., 393.));
+        assert_eq!(super::drawer_span(72., r(1000.), false), (72., 380.));
     }
 
     #[test]

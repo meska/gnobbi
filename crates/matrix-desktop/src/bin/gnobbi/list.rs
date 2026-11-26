@@ -320,7 +320,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
         return chosen;
     }
     let (press, swallow) = (crate::touch_menu::long_press(ui.ctx()), released_after_press(ui.ctx()));
-    let (mut scroll_ui, bottom) = crate::mobile::extend_list(ui, crate::mobile::touch() && ui.ctx().content_rect().width() < crate::SINGLE_WIDTH);
+    let (mut scroll_ui, bottom) = crate::mobile::extend_list(ui, crate::layout::compact(ui.ctx()));
     let mut margin = ui.spacing().scroll.content_margin;
     margin.bottom = margin.bottom.saturating_add(bottom.round() as i8);
     if let Some(Unified { parked, cache, open }) = unified {

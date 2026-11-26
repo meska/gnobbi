@@ -78,7 +78,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
     let mut changed = false;
     let (mut devices, mut accounts, mut customize, mut feedback) = (false, false, false, false);
     // One column: the pages that return here («‹») slide over this one, which stays under them.
-    let under = ctx.content_rect().width() < crate::SINGLE_WIDTH && (rail.accounts || rail.devices || rail.customize);
+    let under = crate::layout::compact(ctx) && (rail.accounts || rail.devices || rail.customize);
     let closed = crate::rail::drawer(ctx, rail.panel, "settings-drawer", tr("Settings"), rail.settings || under, t, |ui, rect| {
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {

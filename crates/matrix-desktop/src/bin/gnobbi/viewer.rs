@@ -118,7 +118,7 @@ impl Viewer {
         if key(egui::Key::ArrowLeft) && let Some(p) = previous { action = Action::Go(p.clone()); }
         if key(egui::Key::ArrowRight) && let Some(n) = next { action = Action::Go(n.clone()); }
         let screen = ctx.content_rect();
-        let phone = crate::mobile::touch();
+        let phone = crate::layout::compact(ctx);
         // The whole window (on a phone the safe area), above everything, on the panel colour.
         let fill = ctx.global_style().visuals.panel_fill;
         egui::Area::new(egui::Id::new("viewer-full")).order(egui::Order::Foreground).fixed_pos(screen.min).constrain(false)

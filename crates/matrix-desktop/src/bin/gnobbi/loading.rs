@@ -365,7 +365,7 @@ pub fn demo(ctx: &egui::Context, view: &str, pane_fill: Color32, list_fill: Colo
     egui::Area::new(egui::Id::unique("loading-demo")).order(egui::Order::Foreground).fixed_pos(screen.min).show(ctx, |ui| {
         ui.painter().rect_filled(screen, 0., pane_fill);
         let mut area = screen;
-        if screen.width() >= crate::SINGLE_WIDTH {
+        if !crate::layout::compact(ctx) {
             let list = Rect::from_min_size(screen.min, Vec2::new(320., screen.height()));
             ui.painter().rect_filled(list, 0., list_fill);
             ui.scope_builder(egui::UiBuilder::new().max_rect(list.shrink2(Vec2::new(0., 12.))), |ui| skeleton_list(ui, list_fill, 52., 1., time, i18n::t("Loading conversations…"), t));

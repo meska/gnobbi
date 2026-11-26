@@ -29,6 +29,7 @@ mod highlight;
 mod icons;
 mod info;
 mod join;
+mod layout;
 mod list;
 mod loading;
 mod members;
@@ -95,13 +96,9 @@ struct Parked<S = Session> {
     recorded: bool,
 }
 
-/// Below this window width the room list hides: rail 76 + list 320 + a chat of at least ~376.
-const NARROW_WIDTH: f32 = 772.;
 /// Narrow layout shows rail 76 + chat; the chat needs ≥360.
 const MIN_WIDTH: f32 = 436.;
 const MIN_HEIGHT: f32 = 420.;
-/// Below this (a phone held upright) there is one column: the list, or the chat without the rail, or a side panel in place of the chat.
-const SINGLE_WIDTH: f32 = 480.;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Side { Member, Info, Search, Thread }
@@ -736,7 +733,7 @@ impl eframe::App for App {
                 if let Some(thread) = &mut session.thread { thread.tail_visible = false; }
             }
             // Narrow layout with the chat list on top: the selected room is not on screen.
-            let room_hidden = self.list_open && ctx.content_rect().width() < NARROW_WIDTH;
+            let room_hidden = self.list_open && layout::compact(&ctx);
             session.reading = (ctx.input(|i| i.focused) && !room_hidden, session.heights.at_bottom, self.prefs.read_receipts);
             if !self.recorded
                 && let (Some(v), Some(dirs)) = (&session.verification, &self.dirs)
@@ -1370,9 +1367,9 @@ impl App {
             Some(RoomSyncStatus::SyncFailed) => i18n::t("Sync interrupted"),
             _ => i18n::t("Connecting…"),
         };
-        let width = ui.ctx().content_rect().width();
-        let narrow = width < NARROW_WIDTH;
-        let single = width < SINGLE_WIDTH;
+        // One layout switch: Compact = one column (list, or chat, or a side panel); the old «narrow» middle tier is gone.
+        let single = layout::compact(ui.ctx());
+        let narrow = single;
         if !narrow {
             self.list_open = false;
         }
