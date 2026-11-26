@@ -103,7 +103,7 @@ pub enum RoomAction {
 }
 
 /// Files read from disk: `(for the thread's composer, [(name, bytes or None when unreadable / too big)])`.
-type FileBatch = (bool, Vec<(Option<String>, Option<Vec<u8>>)>);
+type FileBatch = (bool, Option<matrix_domain::RoomScope>, Vec<(Option<String>, Option<Vec<u8>>)>);
 
 /// Pages of older history one viewer opening (or step) may load by itself: it must not walk a whole chat for one picture.
 const VIEWER_PAGES: u8 = 2;
@@ -114,6 +114,8 @@ pub struct Upload {
     pub name: String,
     pub sent: u64,
     pub total: u64,
+    /// The room it goes to: its card is shown there only (`None`: in every room).
+    pub room: Option<matrix_domain::RoomScope>,
 }
 
 pub struct Session {
@@ -182,6 +184,7 @@ pub struct Session {
     /// Requests the send route had no room for yet: they go out in order as it frees up.
     outgoing: std::collections::VecDeque<matrix_engine::sending::SendRequest>,
     /// Files being read off the UI thread: batches (`thread`, files) arrive here; `reads` counts the batches on their way.
+    shelf: crate::attach::Shelf<matrix_domain::RoomScope>,
     files_in: (std::sync::mpsc::Sender<FileBatch>, std::sync::mpsc::Receiver<FileBatch>),
     reads: usize,
     /// Pages of older history the open viewer already asked for (it stops asking after `VIEWER_PAGES`).
@@ -401,6 +404,7 @@ impl Session {
             audio_wave: Vec::new(),
             uploads: Vec::new(),
             outgoing: Default::default(),
+            shelf: Default::default(),
             files_in: std::sync::mpsc::channel(),
             reads: 0,
             viewer_pages: 0,
@@ -947,7 +951,9 @@ impl Session {
             self.target = None;
             self.parked.clear();
             self.menu = None;
-            if let Some(old) = self.draft_scope.take() {
+            let old = self.draft_scope.take();
+            self.shelf.switch(&mut self.attachment, old.clone(), scope.as_ref());
+            if let Some(old) = old {
                 self.drafts.insert(old, std::mem::take(&mut self.draft));
             }
             self.draft = scope.as_ref().and_then(|s| self.drafts.remove(s)).unwrap_or_default();
@@ -2055,7 +2061,7 @@ impl Session {
     /// `thread`: for the open thread's composer instead of the room's.
     pub fn attach_all(&mut self, paths: &[std::path::PathBuf], thread: bool) {
         if paths.is_empty() { return; }
-        let (paths, limit, tx) = (paths.to_vec(), self.upload_limit.unwrap_or(50 << 20), self.files_in.0.clone());
+        let (paths, limit, tx, room) = (paths.to_vec(), self.upload_limit.unwrap_or(50 << 20), self.files_in.0.clone(), self.draft_scope.clone());
         self.reads += 1;
         // Off the UI thread: a file may be as big as the server's limit.
         std::thread::spawn(move || {
@@ -2064,19 +2070,24 @@ impl Session {
                 let data = std::fs::metadata(path).ok().filter(|m| 0 < m.len() && m.len() <= limit).and_then(|_| std::fs::read(path).ok());
                 (name, data)
             }).collect();
-            let _ = tx.send((thread, files));
+            let _ = tx.send((thread, room, files));
         });
     }
 
     /// The files read in the background join the previews, in the order they were picked.
     fn take_files(&mut self) -> bool {
         let mut changed = false;
-        while let Ok((thread, files)) = self.files_in.1.try_recv() {
+        while let Ok((thread, room, files)) = self.files_in.1.try_recv() {
             self.reads = self.reads.saturating_sub(1);
             changed = true;
+            let elsewhere = room.filter(|r| !thread && self.draft_scope.as_ref() != Some(r));
             for (name, data) in files {
                 match (name, data) {
-                    (Some(name), Some(data)) => self.add_attachment(thread, name, data),
+                    // The room was changed while the file was being read: it joins the preview of the room it was picked in.
+                    (Some(name), Some(data)) => match &elsewhere {
+                        Some(r) => if !self.shelf.add(r.clone(), name, data) { self.notice = Some(i18n::t("At most 10 files").to_owned()); },
+                        None => self.add_attachment(thread, name, data),
+                    },
                     _ => self.notice = Some(i18n::t("File cannot be attached").to_owned()),
                 }
             }
@@ -2260,7 +2271,7 @@ impl Session {
                 poll: None,
                 mentions: if i == last { std::mem::take(&mut mentions) } else { Vec::new() },
             };
-            let card = request.attachment.as_ref().filter(|a| a.voice.is_none()).map(|a| Upload { id: request.transaction_id.clone(), name: a.filename.clone(), sent: 0, total: a.data.len() as u64 });
+            let card = request.attachment.as_ref().filter(|a| a.voice.is_none()).map(|a| Upload { id: request.transaction_id.clone(), name: a.filename.clone(), sent: 0, total: a.data.len() as u64, room: Some(scope.clone()) });
             self.history.activity(&scope);
             self.uploads.extend(card);
             self.outgoing.push_back(request);
@@ -2286,6 +2297,11 @@ impl Session {
             }
         }
         before != self.outgoing.len()
+    }
+
+    /// The upload cards of the open room.
+    pub fn room_uploads(&self) -> impl Iterator<Item = &Upload> {
+        self.uploads.iter().filter(|u| u.room.is_none() || u.room == self.draft_scope)
     }
 
     /// The download of a file now running, `(file, bytes received, declared size)`.

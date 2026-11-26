@@ -1063,7 +1063,7 @@ impl App {
                 self.hook_viewer = Some((at, true));
             }
             if matrix_desktop::hooks::var_os("GNOBBI_EGUI_UPLOAD_FIXTURE").is_some() && s.uploads.is_empty() {
-                s.uploads.push(session::Upload { id: matrix_engine::sending::fresh_transaction_id(), name: "vacanze-2026.mov".into(), sent: 12 << 20, total: 30 << 20 });
+                s.uploads.push(session::Upload { id: matrix_engine::sending::fresh_transaction_id(), name: "vacanze-2026.mov".into(), sent: 12 << 20, total: 30 << 20, room: None });
             }
             // View «thread»: the drawer of the room's first thread; GNOBBI_EGUI_THREAD_TYPE=<text> is typed into its composer.
             if view == "thread"
@@ -1794,7 +1794,7 @@ impl App {
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
                 let recording = s.recording(false);
                 let mut stop = None;
-                for u in &s.uploads {
+                for u in s.room_uploads() {
                     if ui.push_id(("upload", u.id.as_str()), |ui| media_cards::upload_card(ui, &u.name, u.sent, u.total, t)).inner { stop = Some(u.id.clone()); }
                 }
                 if let Some(id) = stop { s.cancel_upload(&id); }

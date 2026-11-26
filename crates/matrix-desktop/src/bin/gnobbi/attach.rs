@@ -70,6 +70,35 @@ impl Pending {
     }
 }
 
+/// The pending files follow the room like the draft: parked when the room is left, back when it is reopened, so a
+/// preview never goes out into a room other than the one it was built in. Files read in the background land in their own room.
+pub struct Shelf<K>(std::collections::HashMap<K, Pending>);
+
+impl<K> Default for Shelf<K> {
+    fn default() -> Self { Self(Default::default()) }
+}
+
+impl<K: std::hash::Hash + Eq> Shelf<K> {
+    /// The open room changes from `old` to `new`: `current` is parked under `old` and replaced by what `new` had parked.
+    pub fn switch(&mut self, current: &mut Option<Pending>, old: Option<K>, new: Option<&K>) {
+        if let (Some(old), Some(pending)) = (old, current.take()) {
+            self.0.insert(old, pending);
+        }
+        *current = new.and_then(|k| self.0.remove(k));
+    }
+
+    /// A file for a room that is not open; false when its album is full.
+    pub fn add(&mut self, room: K, name: String, data: Vec<u8>) -> bool {
+        match self.0.get_mut(&room) {
+            Some(pending) => pending.push(name, data),
+            None => {
+                self.0.insert(room, Pending::single(name, data, None));
+                true
+            }
+        }
+    }
+}
+
 /// What the card asks for this frame.
 #[derive(Default)]
 pub struct Acts {
@@ -216,5 +245,19 @@ mod tests {
         assert!(!p.push("x.png".into(), vec![1]));
         let out = p.into_attachments();
         assert!(out[0].voice.is_some() && out[0].album.is_none() && out[0].delivery == Delivery::Original);
+    }
+
+    #[test]
+    fn the_preview_stays_in_its_room_and_a_late_file_joins_its_own() {
+        let mut shelf = Shelf::default();
+        let mut open = Some(Pending::single("a.png".into(), vec![1], None));
+        shelf.switch(&mut open, Some("cifrata"), Some(&"chiara"));
+        assert!(open.is_none(), "the other room starts with no preview");
+        assert!(shelf.add("cifrata", "b.png".into(), vec![2]));
+        shelf.switch(&mut open, Some("chiara"), Some(&"cifrata"));
+        assert_eq!(open.unwrap().items.len(), 2, "back in the room: its files, the late one included");
+        let mut none = None;
+        shelf.switch(&mut none, Some("cifrata"), Some(&"cifrata"));
+        assert!(none.is_none(), "a sent or removed preview is not parked again");
     }
 }
