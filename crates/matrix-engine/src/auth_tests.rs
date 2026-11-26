@@ -1190,20 +1190,29 @@ async fn room_request(
     path: &str,
     body: serde_json::Value,
 ) -> serde_json::Value {
-    let response = http(config)
-        .request(
-            method,
-            format!(
-                "{}_matrix/client/v3/{path}",
-                config["url"].as_str().unwrap()
-            ),
-        )
-        .bearer_auth(config[format!("{actor}_token")].as_str().unwrap())
-        .header("Content-Type", "application/json")
-        .body(body.to_string())
-        .send()
-        .await
-        .unwrap();
+    // The first room request of a fresh Synapse on a loaded host can pass the client's 10 s timeout: creating or joining a
+    // room is repeated twice (a second room, or joining again, changes nothing for the fixture); other requests are not.
+    let repeat = if path == "createRoom" || path.starts_with("join/") { 2 } else { 0 };
+    let mut attempt = 0;
+    let response = loop {
+        let sent = http(config)
+            .request(
+                method.clone(),
+                format!(
+                    "{}_matrix/client/v3/{path}",
+                    config["url"].as_str().unwrap()
+                ),
+            )
+            .bearer_auth(config[format!("{actor}_token")].as_str().unwrap())
+            .header("Content-Type", "application/json")
+            .body(body.to_string())
+            .send()
+            .await;
+        match sent {
+            Err(e) if e.is_timeout() && attempt < repeat => attempt += 1,
+            sent => break sent.unwrap(),
+        }
+    };
     let status = response.status();
     let text = response.text().await.unwrap();
     assert!(status.is_success(), "room fixture request accepted: status {} {path}: {text}", status.as_u16());
