@@ -31,8 +31,22 @@ fn private_dir(profile: &Path) -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
-fn extension(mime: Option<&str>) -> &'static str {
-    match mime.map(|value| value.split(';').next().unwrap_or_default().trim()) {
+/// Extensions «Open» may hand to the system's program: documents, pictures, audio, video and archives. Never anything
+/// that runs (exe, app, sh, html...), and svg is left out because a browser runs its scripts.
+const OPENABLE: &[&str] = &[
+    "pdf", "doc", "docx", "odt", "rtf", "txt", "md", "xls", "xlsx", "ods", "csv", "ppt", "pptx", "odp", "png", "jpg", "jpeg",
+    "gif", "webp", "heic", "mp3", "ogg", "opus", "m4a", "wav", "flac", "mp4", "mov", "m4v", "mkv", "webm", "avi", "zip", "7z",
+];
+
+/// The extension from the file name when it is one of `OPENABLE`: the sender names the file, so it only counts from the list.
+pub fn openable_name(name: &str) -> Option<&'static str> {
+    let ext = name.rsplit_once('.')?.1.to_ascii_lowercase();
+    OPENABLE.iter().copied().find(|e| *e == ext)
+}
+
+/// The extension of the temp file for «Open», from the type or else the name; `None` when neither is safe to open.
+fn extension(mime: Option<&str>, name: Option<&str>) -> Option<&'static str> {
+    Some(match mime.map(|value| value.split(';').next().unwrap_or_default().trim()) {
         Some("video/webm") => "webm",
         Some("video/quicktime") => "mov",
         Some("video/x-matroska") => "mkv",
@@ -52,9 +66,10 @@ fn extension(mime: Option<&str>) -> &'static str {
         Some("application/msword") => "doc",
         Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document") => "docx",
         Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") => "xlsx",
-        Some(m) if !m.starts_with("video/") => "bin",
-        _ => "mp4",
-    }
+        Some(m) if m.starts_with("video/") => "mp4",
+        // A generic type (octet-stream, a office type not listed above, none at all): the name decides, from the list only.
+        _ => return name.and_then(openable_name),
+    })
 }
 
 /// Fetch `source` through the SDK (auth and E2EE decryption included), refusing more
@@ -116,11 +131,11 @@ pub(crate) async fn fetch_bytes(
     Ok(bytes)
 }
 
-/// [`fetch_bytes`], then a plaintext private temp file for the system player.
+/// [`fetch_bytes`], then a plaintext private temp file for the system player, named with `ext`.
 pub(crate) async fn fetch_to_file(
     client: &matrix_sdk::Client,
     source: MediaSource,
-    mime: Option<&str>,
+    ext: &str,
     profile: &Path,
     max_bytes: usize,
     tag: &RequestTag,
@@ -137,7 +152,7 @@ pub(crate) async fn fetch_to_file(
         "{}-{}.{}",
         std::process::id(),
         NAMES.fetch_add(1, Ordering::Relaxed),
-        extension(mime)
+        ext
     ));
     let file = VideoFile::new(path);
     crate::fsx::private_file(std::fs::OpenOptions::new().write(true).create_new(true))
@@ -179,7 +194,7 @@ async fn attachment(
     tag: &RequestTag,
     event: &EventId,
     any: bool,
-) -> Result<(MediaSource, Option<u64>, Option<String>), MediaError> {
+) -> Result<(MediaSource, Option<u64>, Option<String>, Option<String>), MediaError> {
     if tag.scope().account_id != account {
         return Err(MediaError::InvalidScope);
     }
@@ -198,7 +213,8 @@ async fn attachment(
     attachment_content(event.raw(), any)
 }
 
-fn attachment_content<T>(raw: &matrix_sdk::ruma::serde::Raw<T>, any: bool) -> Result<(MediaSource, Option<u64>, Option<String>), MediaError> {
+/// `(source, declared size, MIME, file name)` of an attachment event.
+fn attachment_content<T>(raw: &matrix_sdk::ruma::serde::Raw<T>, any: bool) -> Result<(MediaSource, Option<u64>, Option<String>, Option<String>), MediaError> {
     use matrix_sdk::ruma::events::room::message::{MessageType, RoomMessageEventContent};
     if raw.get_field::<String>("type").ok().flatten().as_deref() == Some("m.sticker") {
         use matrix_sdk::ruma::events::sticker::{StickerEventContent, StickerMediaSource};
@@ -210,7 +226,7 @@ fn attachment_content<T>(raw: &matrix_sdk::ruma::serde::Raw<T>, any: bool) -> Re
             StickerMediaSource::Encrypted(file) => MediaSource::Encrypted(file),
             _ => return Err(MediaError::UnsupportedType),
         };
-        return Ok((source, sticker.info.size.map(u64::from), sticker.info.mimetype));
+        return Ok((source, sticker.info.size.map(u64::from), sticker.info.mimetype, None));
     }
     let content = raw
         .get_field::<RoomMessageEventContent>("content")
@@ -220,7 +236,7 @@ fn attachment_content<T>(raw: &matrix_sdk::ruma::serde::Raw<T>, any: bool) -> Re
         ($m:expr) => {{
             let m = $m;
             let i = m.info.as_deref();
-            (m.source, i.and_then(|i| i.size).map(u64::from), i.and_then(|i| i.mimetype.clone()))
+            { let name = Some(m.filename().to_owned()); (m.source, i.and_then(|i| i.size).map(u64::from), i.and_then(|i| i.mimetype.clone()), name) }
         }};
     }
     Ok(match content.msgtype {
@@ -243,14 +259,16 @@ pub async fn download_video(
     max_bytes: usize,
     progress: impl FnMut(usize),
 ) -> Result<VideoFile, MediaError> {
-    let (source, size, mime) = attachment(client, account, tag, event, true).await?;
+    let (source, size, mime, name) = attachment(client, account, tag, event, true).await?;
+    // Decided before anything is fetched: a file with no safe extension is for «Save», not «Open».
+    let ext = extension(mime.as_deref(), name.as_deref()).ok_or(MediaError::UnsupportedType)?;
     if size.is_some_and(|size| size > max_bytes as u64) {
         return Err(MediaError::TooLarge);
     }
     fetch_to_file(
         client,
         source,
-        mime.as_deref(),
+        ext,
         profile,
         max_bytes,
         tag,
@@ -270,7 +288,7 @@ pub async fn download_audio(
     event: &EventId,
     max_bytes: usize,
 ) -> Result<crate::media::OpenedAudio, MediaError> {
-    let (source, size, _) = attachment(client, account, tag, event, false).await?;
+    let (source, size, ..) = attachment(client, account, tag, event, false).await?;
     if size.is_some_and(|size| size > max_bytes as u64) {
         return Err(MediaError::TooLarge);
     }
@@ -317,7 +335,7 @@ pub async fn save_attachment_with_progress(
     max_bytes: usize,
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> Result<(), MediaError> {
-    let (source, size, _) = attachment(client, account, tag, event, true).await?;
+    let (source, size, ..) = attachment(client, account, tag, event, true).await?;
     if size.is_some_and(|size| size > max_bytes as u64) {
         return Err(MediaError::TooLarge);
     }
@@ -358,7 +376,7 @@ mod tests {
         let event = matrix_sdk::ruma::serde::Raw::<serde_json::Value>::from_json_string(
             r#"{"type":"m.sticker","content":{"body":"sticker","url":"mxc://example.org/sticker","info":{"mimetype":"image/png","size":42}}}"#.to_owned()
         ).unwrap();
-        let (source, size, mime) = attachment_content(&event, true).expect("stickers can be saved");
+        let (source, size, mime, _) = attachment_content(&event, true).expect("stickers can be saved");
         assert!(matches!(source, MediaSource::Plain(_)));
         assert_eq!(size, Some(42));
         assert_eq!(mime.as_deref(), Some("image/png"));
@@ -367,7 +385,15 @@ mod tests {
 
     #[test]
     fn parameterized_audio_mime_keeps_ogg_extension() {
-        assert_eq!(extension(Some("audio/ogg; codecs=opus")), "ogg");
+        assert_eq!(extension(Some("audio/ogg; codecs=opus"), None), Some("ogg"));
+        // A generic type takes the name's extension only from the list; none of it, or an unsafe one, is not opened.
+        assert_eq!(extension(Some("application/octet-stream"), Some("foto.JPG")), Some("jpg"));
+        assert_eq!(extension(None, Some("conti.xlsx")), Some("xlsx"));
+        assert_eq!(extension(Some("video/x-unknown"), Some("clip")), Some("mp4"));
+        for bad in ["setup.exe", "run.sh", "pagina.html", "a.svg", "senza", "x.app"] {
+            assert_eq!(extension(Some("application/octet-stream"), Some(bad)), None, "{bad}");
+        }
+        assert_eq!(extension(None, None), None);
     }
 
     const CHUNK: usize = 1024;
@@ -457,7 +483,7 @@ mod tests {
             let file = fetch_to_file(
                 &client,
                 source(),
-                Some("video/mp4"),
+                "mp4",
                 &profile,
                 CHUNK * CHUNKS,
                 &tag,
@@ -490,7 +516,7 @@ mod tests {
             let result = fetch_to_file(
                 &client,
                 source(),
-                None,
+                "mp4",
                 &profile,
                 CHUNK * 2 + 1,
                 &tag,
@@ -514,7 +540,7 @@ mod tests {
             let result = fetch_to_file(
                 &client,
                 source(),
-                None,
+                "mp4",
                 &profile,
                 CHUNK * CHUNKS,
                 &tag,
@@ -532,7 +558,7 @@ mod tests {
         runtime().block_on(async {
             let (client, (_views, tag), profile) =
                 (body_client(Vec::new()).await, tag(), temp_profile());
-            let result = fetch_to_file(&client, source(), None, &profile, CHUNK, &tag, |_| ()).await;
+            let result = fetch_to_file(&client, source(), "mp4", &profile, CHUNK, &tag, |_| ()).await;
             assert!(matches!(result, Err(MediaError::Failed)), "{result:?}");
             assert_eq!(files(&profile), 0);
             std::fs::remove_dir_all(profile).unwrap();

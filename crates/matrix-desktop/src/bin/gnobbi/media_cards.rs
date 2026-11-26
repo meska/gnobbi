@@ -28,6 +28,11 @@ fn album_key(e: &DemoEvent) -> Option<(bool, &str, &str)> {
     Some((e.outgoing, e.sender.as_ref().map_or("", |s| s.id.as_str()), album.id.as_str()))
 }
 
+/// A row that says something of its own: a caption, reactions or a thread.
+fn carries_content(e: &DemoEvent) -> bool {
+    !e.text.is_empty() || !e.reactions.is_empty() || e.thread.is_some()
+}
+
 /// The role of every row. A run of one (the rest of its album is missing or not loaded yet) stays a single row.
 pub fn album_roles(events: &[DemoEvent]) -> Vec<Role> {
     let mut roles = vec![Role::Single; events.len()];
@@ -35,7 +40,17 @@ pub fn album_roles(events: &[DemoEvent]) -> Vec<Role> {
     while start < events.len() {
         let key = album_key(&events[start]);
         let mut end = start + 1;
-        while key.is_some() && end < events.len() && album_key(&events[end]) == key {
+        // The mark is the sender's word: a run holds at most `count` (and 10) items, with growing indexes, and a row that
+        // carries text, reactions or a thread ends it, so such a row is always drawn (as the leader), never hidden.
+        let album = |e: &DemoEvent| e.media.as_ref().and_then(|m| m.album.as_ref()).map(|a| (a.index, a.count));
+        let cap = album(&events[start]).map_or(1, |(_, count)| usize::from(count).clamp(1, 10));
+        while key.is_some()
+            && end < events.len()
+            && end - start < cap
+            && album_key(&events[end]) == key
+            && album(&events[end]).map(|a| a.0) > album(&events[end - 1]).map(|a| a.0)
+            && !carries_content(&events[end - 1])
+        {
             end += 1;
         }
         if end - start > 1 {
@@ -278,7 +293,10 @@ pub fn file_card(ui: &mut egui::Ui, e: &DemoEvent, name: &str, transfer: Option<
         if transfer.is_some() {
             out.cancel = ui.add(egui::Button::new(i18n::t("Cancel")).min_size(size)).clicked();
         } else {
-            out.open = ui.add(egui::Button::new(i18n::t("Open")).min_size(size)).clicked();
+            // Only what the system may open without running anything; the rest is saved.
+            if matrix_engine::video_file::openable_name(name).is_some() {
+                out.open = ui.add(egui::Button::new(i18n::t("Open")).min_size(size)).clicked();
+            }
             out.save = ui.add(egui::Button::new(crate::icons::with_label(crate::icons::Icon::DownloadSimple, i18n::t("Save"))).min_size(size)).clicked();
         }
     });
@@ -344,6 +362,22 @@ mod tests {
         assert_eq!(album_roles(&[file, file2]), [Role::Single; 2]);
         // The same album id from another sender is another album; a row in between splits the run.
         assert_eq!(album_roles(&[ev(0, Some("a"), "@x:y"), ev(0, None, "@x:y"), ev(1, Some("a"), "@x:y")]), [Role::Single; 3]);
+    }
+
+    #[test]
+    fn a_marked_album_is_bounded_by_its_count_and_never_hides_a_row_with_content() {
+        let who = "@x:y";
+        // 12 rows with the same id but a count of 3: runs of 3, the rest of their own.
+        let rows: Vec<_> = (0..12).map(|_| ev(0, Some("a"), who)).collect();
+        assert!(album_roles(&rows).iter().all(|r| *r == Role::Single), "equal indexes are not an album");
+        let rows: Vec<_> = (0..12).map(|i| ev(i % 3, Some("a"), who)).collect();
+        let roles = album_roles(&rows);
+        assert_eq!(roles[..3], [Role::Hidden, Role::Hidden, Role::Leader(0)]);
+        assert_eq!(roles.iter().filter(|r| **r == Role::Hidden).count(), 8);
+        // A member in the middle with text ends the run: it is drawn, not hidden.
+        let mut rows = [ev(0, Some("b"), who), ev(1, Some("b"), who), ev(2, Some("b"), who)];
+        rows[1].text = "@tutti".into();
+        assert_eq!(album_roles(&rows), [Role::Hidden, Role::Leader(0), Role::Single]);
     }
 
     #[test]
