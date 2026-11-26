@@ -710,6 +710,8 @@ impl Session {
         let mut changed = false;
         while let Ok(p) = self.avatar_chan.1.try_recv() {
             if let Some(frames) = p.anim { crate::animation::insert(p.mxc.clone(), frames); }
+            // A member picture dropped by `trim_members` while loading: nobody waits for it, so it must not re-enter the map.
+            if !self.avatars.contains_key(&p.mxc) { continue; }
             let tex = p.rgba.map(|(w, h, rgba)| ctx.load_texture(&p.mxc, egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba), Default::default()));
             changed |= tex.is_some();
             if tex.is_none() && p.retry {

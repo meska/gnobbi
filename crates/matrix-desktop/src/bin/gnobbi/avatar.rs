@@ -25,7 +25,7 @@ pub type Avatars = std::collections::HashMap<String, Avatar>;
 /// pictures of other things (rooms, stickers, timeline senders) are never counted nor dropped here. shortcut: no LRU, a picture is not refreshed when seen again.
 pub const MEMBER_CAP: usize = 300;
 
-/// Costs nothing under the cap (one length check per tick).
+/// A dropped picture still downloading loses its `Loading` mark too: `Session::drive_avatars` discards an answer nobody waits for.
 pub fn trim_members(avatars: &mut Avatars, queue: &mut Vec<String>, keep: &[String]) {
     let mut excess = queue.len().saturating_sub(MEMBER_CAP);
     queue.retain(|m| {
@@ -33,7 +33,7 @@ pub fn trim_members(avatars: &mut Avatars, queue: &mut Vec<String>, keep: &[Stri
             return true;
         }
         excess -= 1;
-        if matches!(avatars.get(m), Some(Avatar::Ready(_))) {
+        if matches!(avatars.get(m), Some(Avatar::Ready(_) | Avatar::Loading)) {
             avatars.remove(m);
         }
         false
@@ -98,6 +98,17 @@ mod tests {
         }
         // Over the cap in the map, under it in members: everything stays, senders of the timeline included.
         assert_eq!((map.len(), queue.len(), others.iter().all(|o| map.contains_key(o))), (MEMBER_CAP + 50, 10, true));
+    }
+
+    #[test]
+    fn an_evicted_loading_picture_cannot_come_back_when_it_arrives() {
+        let (names, _) = ready(MEMBER_CAP + 5);
+        let mut map: Avatars = names.iter().map(|n| (n.clone(), Avatar::Loading)).collect();
+        let mut queue = names.clone();
+        trim_members(&mut map, &mut queue, &[]);
+        assert_eq!((queue.len(), map.len()), (MEMBER_CAP, MEMBER_CAP));
+        // The answer of an evicted one finds no entry: the session drops it (`contains_key`), so the map stays at the cap.
+        assert!(!map.contains_key(&names[0]) && map.contains_key(&names[MEMBER_CAP + 4]));
     }
 
     #[test]
