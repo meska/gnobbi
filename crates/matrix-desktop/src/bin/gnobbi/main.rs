@@ -1045,6 +1045,7 @@ impl App {
             // GNOBBI_EGUI_SEND=<text>: sends it once into the open room (disposable servers only).
             if !self.hook_sent
                 && s.messages.as_ref().is_some_and(|m| !m.events().is_empty())
+                && (matrix_desktop::hooks::var_os("GNOBBI_EGUI_ATTACH").is_none() || s.attachment.is_some()) // the files are read in the background: wait for the card
                 && let Ok(text) = matrix_desktop::hooks::var("GNOBBI_EGUI_SEND")
             {
                 s.send(text);
