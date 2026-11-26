@@ -370,6 +370,20 @@ mod quote_tests {
         assert_eq!(reply_plan(Error, false, Some(REPLY_RETRY)), (S::Unavailable, true));
         assert_eq!(reply_plan(Unavailable, false, Some(D::from_secs(30))), (S::Unavailable, false));
     }
+
+    /// D4: an original that is not in memory goes from «loading» to its text, or to «unavailable» when the fetch fails or times out.
+    #[test]
+    fn reply_not_in_memory_leaves_loading() {
+        use std::time::Duration as D;
+        use {ReplyDetail::*, ReplySource as S};
+        // First read starts the single-event fetch; while it runs the quote says «loading».
+        assert_eq!(reply_plan(Unavailable, false, None), (S::Loading, true));
+        assert_eq!(reply_plan(Pending, false, Some(D::from_secs(2))), (S::Loading, false));
+        // Fetched: the quote reads the text (no new request).
+        assert_eq!(reply_plan(Ready, false, None), (S::Detail, false));
+        // Failed or timed out: «unavailable», no request storm.
+        assert_eq!(reply_plan(Error, false, Some(D::from_secs(1))), (S::Unavailable, false));
+    }
 }
 
 /// The summary under a thread root, as the Timeline keeps it (live).

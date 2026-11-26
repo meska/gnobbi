@@ -2200,33 +2200,51 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
     out
 }
 
-/// Reply ids whose original we asked the server for, with the time: one request each, a retry only after `REPLY_RETRY`.
-static REPLY_REQUESTED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<matrix_sdk::ruma::OwnedEventId, std::time::Instant>>> = std::sync::LazyLock::new(Default::default);
+/// Originals of replies, by the id of the original: asked (since), fetched, or failed (since).
+enum ReplyFetch {
+    Asked(std::time::Instant),
+    Done(std::sync::Arc<matrix_sdk_ui::timeline::EmbeddedEvent>),
+    Failed(std::time::Instant),
+}
+// shortcut: a fetched original is kept until restart (an edit of it shows after that); upgrade with a size cap if memory matters.
+static REPLY_FETCHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<matrix_sdk::ruma::OwnedEventId, ReplyFetch>>> = std::sync::LazyLock::new(Default::default);
+/// A request that has not answered by then counts as failed: the quote says «unavailable», not «loading».
+const REPLY_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
-/// The quote of reply `id`: the original from the timeline's own items, else the SDK detail, else a
-/// background `fetch_details_for_event` (the next `loaded` shows the result).
+/// The quote of reply `id`: the original from the timeline's own items, else the SDK detail, else the
+/// SDK's single-event fetch (`Room::load_or_fetch_event`) in the background, with a timeout (the next read shows the result).
+/// The timeline's own `fetch_details_for_event` is not used: it leaves the detail «pending» for ever when the request fails or hangs.
 async fn reply_ref(
     room: &matrix_sdk::room::Room,
     timeline: &std::sync::Arc<matrix_sdk_ui::timeline::Timeline>,
-    id: &matrix_sdk::ruma::EventId,
+    _id: &matrix_sdk::ruma::EventId,
     r: &matrix_sdk_ui::timeline::InReplyToDetails,
     in_timeline: Option<&matrix_sdk_ui::timeline::EventTimelineItem>,
 ) -> crate::history::ReplyRef {
     use crate::history::{ReplyDetail, ReplySource, ReplyState};
     use matrix_sdk_ui::timeline::{EmbeddedEvent, MsgLikeKind, TimelineDetails};
-    let detail = match &r.event {
-        TimelineDetails::Ready(_) => ReplyDetail::Ready,
-        TimelineDetails::Pending => ReplyDetail::Pending,
-        TimelineDetails::Unavailable => ReplyDetail::Unavailable,
-        TimelineDetails::Error(_) => ReplyDetail::Error,
+    let (detail, asked, cached) = match (&r.event, REPLY_FETCHED.lock().unwrap().get(&r.event_id)) {
+        (TimelineDetails::Ready(_), _) => (ReplyDetail::Ready, None, None),
+        (_, Some(ReplyFetch::Done(e))) => (ReplyDetail::Ready, None, Some(e.clone())),
+        (_, Some(ReplyFetch::Asked(t))) => (ReplyDetail::Pending, Some(t.elapsed()), None),
+        (_, Some(ReplyFetch::Failed(t))) => (ReplyDetail::Error, Some(t.elapsed()), None),
+        (_, None) => (ReplyDetail::Unavailable, None, None),
     };
-    let asked = REPLY_REQUESTED.lock().unwrap().get(id).map(|t| t.elapsed());
     let (source, fetch) = crate::history::reply_plan(detail, in_timeline.is_some(), asked);
     if fetch {
-        REPLY_REQUESTED.lock().unwrap().insert(id.to_owned(), std::time::Instant::now());
-        let (timeline, id) = (timeline.clone(), id.to_owned());
+        REPLY_FETCHED.lock().unwrap().insert(r.event_id.clone(), ReplyFetch::Asked(std::time::Instant::now()));
+        let (room, timeline, target) = (room.clone(), timeline.clone(), r.event_id.clone());
         tokio::spawn(async move {
-            let _ = timeline.fetch_details_for_event(&id).await;
+            let got = tokio::time::timeout(REPLY_FETCH_TIMEOUT, async {
+                let event = room.load_or_fetch_event(&target, None).await.ok()?;
+                timeline.make_replied_to(event).await.ok().flatten()
+            })
+            .await;
+            let entry = match got {
+                Ok(Some(e)) => ReplyFetch::Done(std::sync::Arc::new(e)),
+                _ => ReplyFetch::Failed(std::time::Instant::now()),
+            };
+            REPLY_FETCHED.lock().unwrap().insert(target, entry);
         });
     }
     let own;
@@ -2236,13 +2254,14 @@ async fn reply_ref(
             Some(&own)
         }
         (ReplySource::Detail, TimelineDetails::Ready(e)) => Some(e),
+        (ReplySource::Detail, _) => cached.as_deref(),
         _ => None,
     };
-    let (mut author, mut preview, mut placeholder) = (None, None, false);
     let mut state = match source {
         ReplySource::Loading => ReplyState::Loading,
         _ => ReplyState::Unavailable,
     };
+    let (mut author, mut preview, mut placeholder) = (None, None, false);
     if let Some(orig) = orig {
         let text = match orig.content.as_msglike().map(|m| &m.kind) {
             Some(MsgLikeKind::Message(m)) => {
