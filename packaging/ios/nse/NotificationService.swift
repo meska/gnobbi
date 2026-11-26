@@ -112,8 +112,6 @@ final class NotificationService: UNNotificationServiceExtension {
         let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: nil,
                                          speakableGroupName: group.map { INSpeakableString(spokenPhrase: $0) },
                                          conversationIdentifier: group == nil ? nil : room, serviceName: nil, sender: sender, attachments: nil)
-        // In a group iOS shows the group name itself: the body goes without the room-name prefix.
-        if group != nil, let text = reply["text"] as? String { content.body = text }
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.direction = .incoming
         interaction.donate(completion: nil) // best effort; the notification does not wait for it

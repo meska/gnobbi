@@ -231,7 +231,12 @@ async fn fetch(dir: &Path, pass: &str, room_id: &str, event_id: &str, avatar: bo
 
 /// The `mxc://` URI in a member event's content or a profile answer; blank or missing = none.
 fn avatar_uri(v: &Value) -> Option<String> {
-    v["avatar_url"].as_str().or(v["content"]["avatar_url"].as_str()).filter(|u| u.starts_with("mxc://")).map(str::to_owned)
+    v["avatar_url"].as_str().or(v["content"]["avatar_url"].as_str()).filter(|u| safe_mxc(u)).map(str::to_owned)
+}
+
+/// `mxc://server/id` whose server part is under 250 bytes: ruma's `validate()` panics on longer ones (same guard as the engine's `checked_source`).
+fn safe_mxc(u: &str) -> bool {
+    u.strip_prefix("mxc://").and_then(|r| r.find('/')).is_some_and(|i| i < 250)
 }
 
 /// The sender's picture as a small thumbnail (the per-room one first, then the profile's), or None on any failure.
@@ -254,6 +259,9 @@ async fn sender_avatar(client: &Client, room_id: &str, sender_id: &str) -> Optio
 
 /// Thumbnail of `mxc`, refused as soon as more than `max_bytes` arrive (SDK `max_response_size`); only plausible pictures pass.
 async fn download_avatar(client: &Client, mxc: &str, max_bytes: usize) -> Option<Vec<u8>> {
+    if !safe_mxc(mxc) {
+        return None;
+    }
     let uri = <&matrix_sdk::ruma::MxcUri>::from(mxc);
     uri.validate().ok()?;
     let request = MediaRequestParameters {
@@ -704,9 +712,16 @@ mod tests {
     fn avatar_uri_from_member_or_profile() {
         assert_eq!(avatar_uri(&json!({"content": {"avatar_url": "mxc://h/abc"}})).as_deref(), Some("mxc://h/abc"));
         assert_eq!(avatar_uri(&json!({"avatar_url": "mxc://h/abc"})).as_deref(), Some("mxc://h/abc"));
-        for none in [json!({}), json!({"avatar_url": ""}), json!({"avatar_url": "https://h/x.png"}), json!({"avatar_url": null})] {
+        for none in [json!({}), json!({"avatar_url": ""}), json!({"avatar_url": "https://h/x.png"}), json!({"avatar_url": null}), json!({"avatar_url": format!("mxc://{}/x", "a".repeat(250))})] {
             assert_eq!(avatar_uri(&none), None, "{none}");
         }
+    }
+
+    #[test]
+    fn hostile_server_length_is_refused_not_a_panic() {
+        assert!(safe_mxc(&format!("mxc://{}/x", "a".repeat(249))));
+        assert!(!safe_mxc(&format!("mxc://{}/x", "a".repeat(250))));
+        assert!(!safe_mxc("mxc://noslash"));
     }
 
     #[test]
