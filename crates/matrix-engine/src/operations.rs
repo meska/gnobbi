@@ -1912,10 +1912,14 @@ pub(crate) async fn load_member_rights(
         let (mut rights, redact) = member_rights(&pl, me, &target, joined);
         if joined && me != target {
             let timeline = timelines.get(&room).await.map_err(|_| OperationError::Unavailable)?;
-            if let Some((id, _)) = timeline.latest_user_read_receipt(&target).await
-                && timeline.item_by_event_id(&id).await.is_some()
-            {
-                rights.read_receipt = Some(id.to_string());
+            // A jump onto an event the history has not loaded pages it in; but a receipt on a non-message row (the user's join event is their only
+            // receipt when the server sent none for an older message) draws nothing to land on, so no «Last read» then.
+            if let Some((id, _)) = timeline.latest_user_read_receipt(&target).await {
+                let landable = match timeline.item_by_event_id(&id).await {
+                    Some(item) => matches!(item.content(), TimelineItemContent::MsgLike(_)),
+                    None => true,
+                };
+                rights.read_receipt = landable.then(|| id.to_string());
             }
             if redact {
                 // shortcut: only messages the timeline has loaded count as «recent»; upgrade by paginating if wanted.

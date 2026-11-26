@@ -345,6 +345,8 @@ pub struct Session {
     search_sent: String,
     pub search: matrix_engine::operations::MessageSearchState,
     pub search_jump: Option<(EventId, bool)>,
+    /// Pages of history loaded since the current jump began (see `jump_gave_up`).
+    jump_pages: u8,
     /// Messages of every room that match the room list's search field, and the term already sent for them.
     pub all_search: matrix_engine::operations::MessageSearchState,
     all_sent: String,
@@ -543,6 +545,7 @@ impl Session {
             search_sent: String::new(),
             search: matrix_engine::operations::MessageSearchState::Idle,
             search_jump: None,
+            jump_pages: 0,
             all_search: matrix_engine::operations::MessageSearchState::Idle,
             all_sent: String::new(),
             jump_after_open: None,
@@ -1081,7 +1084,7 @@ impl Session {
                 if live { messages.refresh_server(events); } else { messages.prepend_server(events); }
                 changed = true;
             }
-            if !live { self.heights.restore_wait.0 = self.heights.restore_wait.0.saturating_add(1); }
+            if !live { self.heights.restore_wait.0 = self.heights.restore_wait.0.saturating_add(1); self.jump_pages = self.jump_pages.saturating_add(1); }
         }
         if !self.unread_pending() && let (Some((id, _)), Some(messages)) = (&self.heights.restore, &self.messages) {
             let found = messages.events().iter().any(|e| e.id.id == TimelineId::Server(id.clone()));
@@ -1094,7 +1097,8 @@ impl Session {
         if self.pending.is_none() {
             self.pending = self.history.refresh();
         }
-        if self.search_jump.is_some() && matches!(self.history.status(), matrix_desktop::HistoryStatus::Start | matrix_desktop::HistoryStatus::Failed) {
+        if self.search_jump.is_none() { self.jump_pages = 0; }
+        if self.search_jump.is_some() && jump_gave_up(self.history.status(), self.jump_pages) {
             let found = self.search_jump.as_ref().is_some_and(|(id, _)| self.messages.as_ref().is_some_and(|m| m.events().iter().any(|e| e.id.id == TimelineId::Server(id.clone()))));
             if !found {
                 self.search_jump = None;
@@ -2832,6 +2836,12 @@ mod unread;
 #[cfg(test)]
 mod thread_tests;
 
+/// A jump to a message that is not in memory pages the history in (same path for search, quotes and «Last read»); it ends at the start of the history, on a failed page, or after this many pages.
+const JUMP_MAX_PAGES: u8 = 40;
+fn jump_gave_up(status: matrix_desktop::HistoryStatus, pages: u8) -> bool {
+    matches!(status, matrix_desktop::HistoryStatus::Start | matrix_desktop::HistoryStatus::Failed) || pages >= JUMP_MAX_PAGES
+}
+
 /// A saved position whose row is not loaded: wait for the saved page and the full one (both can come after the first), page back up to a cap, give up when history ends or fails.
 fn restore_gave_up(status: matrix_desktop::HistoryStatus, pages: u8, waited: std::time::Duration) -> bool {
     use matrix_desktop::HistoryStatus::*;
@@ -2847,6 +2857,15 @@ fn restore_over(want: &str, now: Option<&str>, user_picked: bool, waited: std::t
 #[cfg(test)]
 mod stale_tests {
     use super::*;
+
+    #[test]
+    fn a_jump_pages_until_the_start_a_failure_or_the_page_limit() {
+        use matrix_desktop::HistoryStatus::*;
+        assert!(!jump_gave_up(More, 0), "event not in memory: keep paging");
+        assert!(!jump_gave_up(Loading, JUMP_MAX_PAGES - 1));
+        assert!(jump_gave_up(More, JUMP_MAX_PAGES), "limit reached: the one-line error");
+        assert!(jump_gave_up(Start, 1) && jump_gave_up(Failed, 1));
+    }
     use matrix_engine::operations::SearchState as S;
 
     #[test]
