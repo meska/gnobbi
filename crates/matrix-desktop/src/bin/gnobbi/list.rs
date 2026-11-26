@@ -210,6 +210,53 @@ fn paint_row(ui: &mut egui::Ui, rect: egui::Rect, resp: &egui::Response, room: &
     }
 }
 
+/// A row whose «Esci» waits for the server: faded, with a spinner, until the answer removes it or brings the error.
+fn dim_leaving(ui: &mut egui::Ui, rect: egui::Rect, leaving: bool, t: &DesignTokens) {
+    if !leaving { return; }
+    ui.painter().rect_filled(rect, 0., crate::list_fill(t).gamma_multiply(0.6));
+    let at = crate::dir::flip_pos(rect, egui::pos2(rect.right() - 24., rect.center().y));
+    ui.put(egui::Rect::from_center_size(at, Vec2::splat(18.)), egui::Spinner::new().size(18.));
+}
+
+/// The one confirmation modal: a question, what `body` adds, «Annulla» and a red button, both at button height (44 pt on touch).
+/// `Some(true)` = confirmed, `Some(false)` = cancelled (button, Esc or a click outside). Shape of the log-out confirmation.
+pub fn confirm_modal(ctx: &egui::Context, id: egui::Id, question: &str, go: &str, body: impl FnOnce(&mut egui::Ui)) -> Option<bool> {
+    let mut step = None;
+    let modal = egui::Modal::new(id).show(ctx, |ui| crate::dir::scope(ui, |ui| {
+        ui.set_max_width(crate::dir::fit(ui, 320.));
+        ui.add(egui::Label::new(egui::RichText::new(question).heading()));
+        body(ui);
+        let tall = egui::vec2(0., crate::metrics::button());
+        ui.horizontal_wrapped(|ui| {
+            if ui.add(egui::Button::new(i18n::t("Cancel")).min_size(tall)).clicked() { step = Some(false); }
+            // Text is the surface colour: tests/mention_contrast.rs holds surface-on-error at >=4.5:1 in every theme.
+            let go = egui::Button::new(egui::RichText::new(go).color(ui.visuals().window_fill)).fill(ui.visuals().error_fg_color).min_size(tall);
+            if ui.add(go).clicked() { step = Some(true); }
+        });
+    }));
+    step.or_else(|| modal.should_close().then_some(false))
+}
+
+/// The question of the confirmation for a room or space: «Uscire da <nome>?».
+pub fn leave_question(name: &str) -> String {
+    i18n::t("Leave {name}?").replace("{name}", &clean_single_line(name))
+}
+
+/// «Esci» of the room menus asks here; drawn every frame for every session (a parked account asks too).
+pub fn leave_modal(ctx: &egui::Context, session: &mut crate::session::Session) {
+    let Some(scope) = session.leave_ask.clone() else { return };
+    // Left or removed meanwhile: nothing to confirm.
+    let Some(room) = session.sidebar.rooms().iter().find(|r| r.scope == scope) else {
+        session.leave_ask = None;
+        return;
+    };
+    let question = leave_question(&room.name);
+    if let Some(go) = confirm_modal(ctx, egui::Id::new(("leave-room", &scope)), &question, i18n::t("Leave"), |_| {}) {
+        session.leave_ask = None;
+        if go { session.leave_room(scope); }
+    }
+}
+
 /// The account a row of the merged list belongs to: its picture and initial, and its name for screen readers.
 struct AccountMark {
     avatar: crate::avatar::Avatar,
@@ -341,12 +388,13 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             let spoken = format!("{}, {}", room.name, mark.name);
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &spoken));
             paint_row(ui, rect, &resp, room, egui::Id::new(("row-mark", slot, i)), &owner.avatars, slot == 0 && shown.as_ref() == Some(&room.scope), matrix_desktop::shows_account_mark(slot).then_some(&mark), t);
+            dim_leaving(ui, rect, owner.sidebar.is_leaving(&room.scope), t);
             let long = pressed_here(ui, rect, press);
             if crate::touch_list::tapped(&resp) && !swallow {
                 *pick = Some((slot, room.scope.clone()));
             }
             // Another account's room: no space entries (the space window belongs to the shown account), the rest works on its own session.
-            if !room.info.invited && let Some(choice) = room_menu(row_popup(&resp, long, &room.scope), room, &owner.space_choices, &mut owner.confirm_leave, &mut owner.space_pick, t) {
+            if !room.info.invited && let Some(choice) = room_menu(row_popup(&resp, long, &room.scope), room, &owner.space_choices, &mut owner.space_pick, t) {
                 *menu_pick = Some((slot, room.scope.clone(), choice));
             }
         };
@@ -391,12 +439,12 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
             let resp = crate::metrics::clickable(resp);
             paint_row(ui, rect, &resp, room, egui::Id::new(("row-mark", index)), &session.avatars, selected.as_ref() == Some(&room.scope), None, t);
+            dim_leaving(ui, rect, sidebar.is_leaving(&room.scope), t);
             let long = pressed_here(ui, rect, press);
             if crate::touch_list::tapped(&resp) && !swallow {
                 pick = Some(room.scope.clone());
             }
             if (resp.secondary_clicked() && !crate::touch_list::stopped(ui.ctx())) || long {
-                session.confirm_leave = None;
                 action = Some((room.scope.clone(), crate::session::RoomAction::Spaces));
             }
             if !room.info.invited {
@@ -411,7 +459,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                     // No pointer in a headless run: the menu is pinned to the row instead.
                     if view == "room-menu" { menu = menu.open(true).at_position(rect.center()); }
                 }
-                if let Some(choice) = room_menu(menu, room, &session.space_choices, &mut session.confirm_leave, &mut session.space_pick, t) { action = Some((room.scope.clone(), choice)); }
+                if let Some(choice) = room_menu(menu, room, &session.space_choices, &mut session.space_pick, t) { action = Some((room.scope.clone(), choice)); }
             }
     };
     // Messages of every room under the matching chats: the list is short then (a term filters it), so no virtual rows.
@@ -481,7 +529,7 @@ fn row_popup(resp: &egui::Response, long: bool, room: &matrix_domain::RoomScope)
 }
 
 /// The room menu on `menu` (a context menu or a pinned one); what the user picked. Shared by the single list and the multi-account list.
-fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>, confirm: &mut Option<matrix_domain::RoomScope>, pick: &mut Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>, t: &DesignTokens) -> Option<crate::session::RoomAction> {
+fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>, pick: &mut Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>, t: &DesignTokens) -> Option<crate::session::RoomAction> {
     let mut action = None;
     // The area is kept inside the screen: the transparent margin leaves 8 pt to the edge, like the message menu.
     let frame = egui::Frame::popup(&menu.ctx().global_style()).outer_margin(8);
@@ -509,8 +557,7 @@ fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Op
         menu_divider(ui, Some((if current == matrix_domain::notifications::RoomNotifyMode::Mute { Icon::BellSlash } else { Icon::Bell }, i18n::t("Notifications"))), t);
         if let Some(mode) = notify_modes(ui, current, t) { action = Some(RoomAction::Mode(mode)); ui.close(); }
         menu_divider(ui, None, t);
-        let label = if confirm.as_ref() == Some(&room.scope) { i18n::t("Leave?") } else { i18n::t("Leave") };
-        if menu_item(ui, Icon::SignOut, label, Some(rgb(t.error)), t).clicked() && confirm_leave(confirm, &room.scope) {
+        if menu_item(ui, Icon::SignOut, i18n::t("Leave"), Some(rgb(t.error)), t).clicked() {
             action = Some(RoomAction::Leave);
             ui.close();
         }
@@ -522,17 +569,16 @@ fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Op
 pub fn header_menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &DesignTokens) {
     let Some(room) = session.sidebar.selected().filter(|r| !r.info.invited) else { return };
     let scope = room.scope.clone();
-    let (opened, choice) = header_button(ui, room, &session.space_choices, &mut session.confirm_leave, &mut session.space_pick, t);
+    let (opened, choice) = header_button(ui, room, &session.space_choices, &mut session.space_pick, t);
     // Opening asks which spaces take the room, as the list does.
     let action = choice.or(opened.then_some(crate::session::RoomAction::Spaces));
     if let Some(action) = action { session.room_action(scope, action); }
 }
 
 /// The «⋮» button and its menu: whether it was clicked, and what was picked.
-fn header_button(ui: &mut egui::Ui, room: &matrix_desktop::SidebarRoom, choices: &Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>, confirm: &mut Option<matrix_domain::RoomScope>, pick: &mut Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>, t: &DesignTokens) -> (bool, Option<crate::session::RoomAction>) {
+fn header_button(ui: &mut egui::Ui, room: &matrix_desktop::SidebarRoom, choices: &Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>, pick: &mut Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>, t: &DesignTokens) -> (bool, Option<crate::session::RoomAction>) {
     let resp = crate::icons::button(ui, Icon::DotsThreeVertical, false, i18n::t("More"));
-    if resp.clicked() { *confirm = None; }
-    (resp.clicked(), room_menu(egui::Popup::menu(&resp), room, choices, confirm, pick, t))
+    (resp.clicked(), room_menu(egui::Popup::menu(&resp), room, choices, pick, t))
 }
 
 /// The three notification modes as indented entries, the `current` one checked; the mode tapped. Used by the room menu.
@@ -599,14 +645,14 @@ mod tests {
         use matrix_domain::{AccountId, RoomId, RoomScope};
         let room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
         let ctx = crate::icons::test_context();
-        let (mut confirm, mut pick) = (None, None);
+        let mut pick = None;
         let at = egui::pos2(50., 30.);
         let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() };
         for events in [vec![egui::Event::PointerMoved(at)], vec![button(true)], vec![button(false)], vec![]] {
             let input = eframe::egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 400.))), events, ..Default::default() };
             let mut out = ctx.run_ui(input, |ui| {
                 let (_, resp) = ui.allocate_exact_size(egui::vec2(300., 52.), egui::Sense::click());
-                room_menu(egui::Popup::context_menu(&resp), &room, &None, &mut confirm, &mut pick, &matrix_desktop::DARK);
+                room_menu(egui::Popup::context_menu(&resp), &room, &None, &mut pick, &matrix_desktop::DARK);
             });
             out.textures_delta.clear();
         }
@@ -620,7 +666,7 @@ mod tests {
         crate::mobile::FORCE_TOUCH.set(true);
         let room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
         let ctx = crate::icons::test_context();
-        let (mut confirm, mut pick, mut opened, mut swallowed, mut open_after_each_frame) = (None, None, false, false, Vec::new());
+        let (mut pick, mut opened, mut swallowed, mut open_after_each_frame) = (None, false, false, Vec::new());
         let at = egui::pos2(50., 30.);
         let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
         // (time, events): down, still, held past the threshold, lifted.
@@ -634,7 +680,7 @@ mod tests {
                 swallowed |= swallow;
                 let long = pressed_here(ui, rect, press);
                 opened |= resp.clicked() && !swallow;
-                room_menu(row_popup(&resp, long, &room.scope), &room, &None, &mut confirm, &mut pick, &matrix_desktop::DARK);
+                room_menu(row_popup(&resp, long, &room.scope), &room, &None, &mut pick, &matrix_desktop::DARK);
             });
             out.textures_delta.clear();
             open_after_each_frame.push(egui::Popup::is_any_open(&ctx));
@@ -649,7 +695,7 @@ mod tests {
     fn chat_pad() -> crate::touch_list::pad::Pad {
         use matrix_domain::{AccountId, RoomId, RoomScope};
         let mut room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
-        let (mut confirm, mut pick) = (None, None);
+        let mut pick = None;
         crate::touch_list::pad::Pad::new(move |ui, range, seen| {
             let (press, swallow) = (crate::touch_menu::long_press(ui.ctx()), released_after_press(ui.ctx()));
             for i in range {
@@ -657,7 +703,7 @@ mod tests {
                 let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), crate::touch_list::pad::ROW_H), egui::Sense::click());
                 let long = pressed_here(ui, rect, press);
                 seen.tapped.set(seen.tapped.get() | (crate::touch_list::tapped(&resp) && !swallow));
-                room_menu(row_popup(&resp, long, &room.scope), &room, &None, &mut confirm, &mut pick, &matrix_desktop::DARK);
+                room_menu(row_popup(&resp, long, &room.scope), &room, &None, &mut pick, &matrix_desktop::DARK);
             }
             seen.menu.set(egui::Popup::is_any_open(ui.ctx()));
         })
@@ -688,7 +734,7 @@ mod tests {
     fn chat_row_tap_that_closes_the_menu_opens_no_other_chat() {
         use matrix_domain::{AccountId, RoomId, RoomScope};
         let mut room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
-        let (mut confirm, mut pick) = (None, None);
+        let mut pick = None;
         let first = std::cell::Cell::new(true);
         // The menu of the first row is open, the finger of its long press already lifted.
         let mut pad = crate::touch_list::pad::Pad::new(move |ui, range, seen| {
@@ -697,7 +743,7 @@ mod tests {
                 room.scope.room_id = RoomId::new(format!("!{i}:x"));
                 let (_, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), crate::touch_list::pad::ROW_H), egui::Sense::click());
                 seen.tapped.set(seen.tapped.get() | (crate::touch_list::tapped(&resp) && !swallow));
-                room_menu(row_popup(&resp, i == 0 && first.replace(false), &room.scope), &room, &None, &mut confirm, &mut pick, &matrix_desktop::DARK);
+                room_menu(row_popup(&resp, i == 0 && first.replace(false), &room.scope), &room, &None, &mut pick, &matrix_desktop::DARK);
             }
             seen.menu.set(egui::Popup::is_any_open(ui.ctx()));
         });
@@ -741,7 +787,7 @@ mod tests {
         crate::mobile::FORCE_TOUCH.set(true);
         let room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
         let ctx = crate::icons::test_context();
-        let (mut confirm, mut pick, mut opened_second) = (None, None, false);
+        let (mut pick, mut opened_second) = (None, false);
         let (first, second) = (egui::pos2(50., 30.), egui::pos2(50., 90.));
         let button = |at, pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
         // down on the first row, held past the threshold, lifted; then a full tap on the second row.
@@ -754,7 +800,7 @@ mod tests {
                 let (press, swallow) = (crate::touch_menu::long_press(ui.ctx()), released_after_press(ui.ctx()));
                 let long = pressed_here(ui, r1, press);
                 if time > 0.7 { opened_second |= resp2.clicked() && !swallow; }
-                room_menu(row_popup(&resp1, long, &room.scope), &room, &None, &mut confirm, &mut pick, &matrix_desktop::DARK);
+                room_menu(row_popup(&resp1, long, &room.scope), &room, &None, &mut pick, &matrix_desktop::DARK);
             });
             out.textures_delta.clear();
         }
@@ -769,10 +815,10 @@ mod tests {
         crate::mobile::FORCE_TOUCH.set(true);
         let room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
         let ctx = crate::icons::test_context();
-        let (mut confirm, mut pick, mut size) = (None, None, egui::Vec2::ZERO);
+        let (mut pick, mut size) = (None, egui::Vec2::ZERO);
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 400.))), ..Default::default() };
         let mut out = ctx.run_ui(input, |ui| {
-            header_button(ui, &room, &None, &mut confirm, &mut pick, &matrix_desktop::DARK);
+            header_button(ui, &room, &None, &mut pick, &matrix_desktop::DARK);
             size = ui.min_rect().size();
         });
         out.textures_delta.clear();
@@ -838,20 +884,4 @@ mod tests {
         let (add, remove) = super::space_entries(&choices);
         assert!(!add && remove.is_empty());
     }
-
-    #[test]
-    fn leaving_requires_two_clicks_on_the_same_room() {
-        use matrix_domain::{AccountId, RoomId, RoomScope};
-        let room = |id: &str| RoomScope { account_id: AccountId::new(1), room_id: RoomId::new(id) };
-        let (a, b) = (room("!a:x"), room("!b:x"));
-        let mut confirm = None;
-        assert!(!super::confirm_leave(&mut confirm, &a));
-        assert!(!super::confirm_leave(&mut confirm, &b));
-        assert!(super::confirm_leave(&mut confirm, &b));
-        assert!(!super::confirm_leave(&mut confirm, &b));
-    }
-}
-
-fn confirm_leave(confirm: &mut Option<matrix_domain::RoomScope>, scope: &matrix_domain::RoomScope) -> bool {
-    if confirm.as_ref() == Some(scope) { *confirm = None; true } else { *confirm = Some(scope.clone()); false }
 }

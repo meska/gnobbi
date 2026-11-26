@@ -1407,6 +1407,10 @@ impl App {
             if std::mem::take(&mut s.opened) {
                 self.list_open = false;
             }
+            // The open chat was left: back to the list, not into another chat.
+            if std::mem::take(&mut s.left_open) {
+                self.list_open = true;
+            }
             // Started as one column (a phone): the list comes first, the room reopened from the last run stays behind it.
             if single && ui.data(|d| d.get_temp::<bool>(started)).is_none() {
                 self.list_open = true;
@@ -1558,6 +1562,9 @@ impl App {
                 });
             });
         }));
+        if single && let Some(error) = self.session.as_ref().and_then(|s| s.room_error.as_deref()) {
+            egui::Panel::top("room-error").show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| { ui.colored_label(rgb(t.error), error); }));
+        }
         }
     }
 
@@ -1925,8 +1932,12 @@ impl App {
             list::space_picker(ui.ctx(), s);
             space::window(ui.ctx(), s, t);
             space::exit_window(ui.ctx(), s, t);
+            list::leave_modal(ui.ctx(), s);
             space::delete_window(ui.ctx(), s, t);
             members::windows(ui.ctx(), s, t);
+        }
+        for p in &mut self.parked {
+            list::leave_modal(ui.ctx(), &mut p.session);
         }
         secret_clip::tick(ui.ctx());
         let account = self.session.as_ref().and_then(|s| s.account);

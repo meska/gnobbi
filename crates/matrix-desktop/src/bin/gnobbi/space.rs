@@ -61,7 +61,7 @@ pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &Design
             session.open_promote(scope.clone());
             ui.close();
         }
-        if ui.add_enabled(block == Some(None) && !session.sidebar.space_leaving(), egui::Button::new(i18n::t("Leave space"))).clicked() {
+        if ui.add_enabled(block == Some(None) && !session.sidebar.is_leaving(&scope), egui::Button::new(i18n::t("Leave space"))).clicked() {
             session.space_exit = Some((scope.clone(), false));
             ui.close();
         }
@@ -83,21 +83,11 @@ pub fn exit_window(ctx: &egui::Context, session: &mut crate::session::Session, t
         session.space_exit = None;
         return;
     };
-    let (mut leave, mut cancel) = (false, false);
-    egui::Window::new(i18n::t("Leave space")).id(egui::Id::new("space-exit")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| crate::dir::scope(ui, |ui| {
-        ui.set_width(crate::dir::fit(ui, 340.));
-        ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&space.name)).strong()).truncate());
-        ui.add_space(4.);
-        crate::settings::switch(ui, i18n::t("Forget"), forget, t);
-        ui.add_space(8.);
-        ui.horizontal(|ui| {
-            leave = ui.button(RichText::new(i18n::t("Leave")).color(rgb(t.error))).clicked();
-            cancel = ui.button(i18n::t("Cancel")).clicked();
-        });
-    }));
-    if leave || cancel {
+    let question = crate::list::leave_question(&space.name);
+    let step = crate::list::confirm_modal(ctx, egui::Id::new("space-exit"), &question, i18n::t("Leave"), |ui| { crate::settings::switch(ui, i18n::t("Forget"), forget, t); });
+    if let Some(go) = step {
         let (scope, forget) = session.space_exit.take().expect("checked above");
-        if leave {
+        if go {
             session.leave_space(scope, forget);
         }
     }

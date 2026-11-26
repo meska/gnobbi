@@ -119,7 +119,10 @@ pub struct Session {
     /// A notification click waiting for its room: when it came and how many rooms the user had opened by then.
     pending_click: Option<(std::time::Instant, u64)>,
     pub sidebar: matrix_desktop::Sidebar,
-    pub confirm_leave: Option<matrix_domain::RoomScope>,
+    /// The room «Esci» was picked for: the confirmation modal is open on it.
+    pub leave_ask: Option<matrix_domain::RoomScope>,
+    /// The open chat was just left: the shell goes back to the list (one column), then clears it.
+    pub left_open: bool,
     pub room_error: Option<String>,
     pub stickers: crate::stickers::Panel,
     /// The message whose picture is being fetched for the sticker editor.
@@ -471,7 +474,8 @@ impl Session {
             first_visible: usize::MAX,
             sidebar: matrix_desktop::Sidebar::connected(matrix_domain::AccountId::new(0)),
             query: String::new(),
-            confirm_leave: None,
+            leave_ask: None,
+            left_open: false,
             room_error: None,
             stickers: crate::stickers::Panel::load(sticker_file),
             sticker_from: None,
@@ -1194,7 +1198,7 @@ impl Session {
         match result {
             OperationResult::TagsEdited { result } => { self.sidebar.tag_done(result.clone()); self.room_error = self.sidebar.tag_error().map(str::to_owned); return Some(true); }
             OperationResult::NotificationModeSet { result, .. } => { self.sidebar.mode_done(result.clone()); self.room_error = self.sidebar.mode_error().map(str::to_owned); return Some(true); }
-            OperationResult::RoomLeft { scope, result } => { self.sidebar.room_left(scope, result.clone()); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); return Some(true); }
+            OperationResult::RoomLeft { scope, result } => { self.left_open |= self.sidebar.room_left(scope, result.clone()); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); return Some(true); }
             OperationResult::SpaceLeft { scope, result, .. } => { self.sidebar.space_left(scope, result.clone().map(drop)); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); return Some(true); }
             OperationResult::SpaceDeleted { scope, result } => {
                 let name = self.sidebar.spaces().find(|r| &r.scope == scope).map_or_else(String::new, |r| r.name.clone());
@@ -1561,7 +1565,7 @@ impl Session {
             RoomAction::Mark(read) => Some(OperationCommand::MarkRoom { scope, read, public: self.reading.2, main_only: false }),
             RoomAction::Tag(tag) => self.sidebar.toggle_tag(&scope, tag).map(OperationCommand::EditTags),
             RoomAction::Mode(mode) => self.sidebar.set_mode(&scope, mode).then_some(OperationCommand::SetNotificationMode { scope, mode }),
-            RoomAction::Leave => Some(OperationCommand::LeaveRoom { scope }),
+            RoomAction::Leave => { self.leave_ask = Some(scope); None }
             RoomAction::Spaces => { self.space_choices = Some((scope.clone(), None)); Some(OperationCommand::SpaceChoices { scope }) }
             RoomAction::AddTo(space) => Some(OperationCommand::AddToSpace { scope, space }),
             RoomAction::RemoveFrom(space) => Some(OperationCommand::RemoveFromSpace { scope, space }),
@@ -1715,10 +1719,16 @@ impl Session {
         self.space_facts = Some((scope, known));
     }
 
+    /// «Esci» of the room confirmation: the row waits for the server, the removal comes with its answer (`RoomLeft`).
+    pub fn leave_room(&mut self, scope: matrix_domain::RoomScope) {
+        self.room_error = None;
+        if self.sidebar.begin_leave(scope.clone()) { self.op_queue.push(OperationCommand::LeaveRoom { scope }); }
+    }
+
     /// «Esci» of the confirmation window; one leave at a time.
     pub fn leave_space(&mut self, scope: matrix_domain::RoomScope, forget: bool) {
         self.room_error = None;
-        if self.sidebar.begin_space_leave(scope.clone()) { self.op_queue.push(crate::space::leave_command(scope, forget)); }
+        if self.sidebar.begin_leave(scope.clone()) { self.op_queue.push(crate::space::leave_command(scope, forget)); }
     }
 
     /// Opens the space window on its rooms or on its members and asks the engine for that list.

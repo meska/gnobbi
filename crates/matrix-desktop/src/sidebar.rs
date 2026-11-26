@@ -112,8 +112,8 @@ pub struct Sidebar {
     leave_error: Option<(RoomScope, &'static str)>,
     /// The tag toggle in flight: the room and ALL its tags and pin order before the optimistic flip.
     tag: Option<(RoomScope, Vec<String>, Option<u64>)>,
-    /// The space whose «Esci dallo spazio» request is in flight (disables the control, nothing else).
-    space_leaving: Option<RoomScope>,
+    /// Rooms and spaces whose leave request is in flight: the row is dimmed and no second request goes out.
+    leaving: std::collections::HashSet<RoomScope>,
     /// One-line reason of the last failed toggle, until the next one.
     tag_error: Option<&'static str>,
     /// A notification-mode write in flight: the room and the mode it had before.
@@ -168,7 +168,7 @@ impl Sidebar {
             failed: Default::default(),
             reject_armed: None,
             leave_error: None,
-            space_leaving: None,
+            leaving: Default::default(),
             tag: None,
             tag_error: None,
             mode: None,
@@ -302,7 +302,7 @@ impl Sidebar {
             failed: Default::default(),
             reject_armed: None,
             leave_error: None,
-            space_leaving: None,
+            leaving: Default::default(),
             tag: None,
             tag_error: None,
             mode: None,
@@ -407,12 +407,15 @@ impl Sidebar {
 
     /// Outcome of «Esci». The engine confirmed the leave with the server (or the SDK no longer has the room joined:
     /// the sync projection has dropped it), so the row goes now and the selection moves like a sync `Remove`.
-    pub fn room_left(&mut self, scope: &RoomScope, result: Result<(), matrix_engine::operations::OperationError>) {
+    /// True when the removed row was the open chat: the caller returns to the list.
+    pub fn room_left(&mut self, scope: &RoomScope, result: Result<(), matrix_engine::operations::OperationError>) -> bool {
         use matrix_engine::operations::OperationError::{Forbidden, Unavailable};
+        self.leaving.remove(scope);
         if matches!(result, Ok(()) | Err(Unavailable)) && !self.rooms.iter().any(|r| r.scope == *scope && r.info.invited) {
             self.leave_error = None;
+            let was_open = self.selected().is_some_and(|r| r.scope == *scope);
             self.apply_diff(RoomListDiff::Remove(scope.clone()));
-            return;
+            return was_open;
         }
         self.leave_error = result.err().map(|e| {
             let text = match e {
@@ -422,23 +425,23 @@ impl Sidebar {
             };
             (scope.clone(), text)
         });
+        false
     }
 
-    /// Marks the leave of `scope` as in flight; false (do not send) when one already is.
-    pub fn begin_space_leave(&mut self, scope: RoomScope) -> bool {
+    /// Marks the leave of `scope` (room or space) as in flight; false (do not send) when one already is.
+    pub fn begin_leave(&mut self, scope: RoomScope) -> bool {
         self.leave_error = None;
-        self.space_leaving.replace(scope).is_none()
+        self.leaving.insert(scope)
     }
 
-    /// True only while the request runs: the control stays disabled exactly that long.
-    pub fn space_leaving(&self) -> bool {
-        self.space_leaving.is_some()
+    /// True only while the request runs: the row is dimmed and the controls stay disabled exactly that long.
+    pub fn is_leaving(&self, scope: &RoomScope) -> bool {
+        self.leaving.contains(scope)
     }
 
-    /// Outcome of «Esci dallo spazio», any result frees the control. Success drops the space from the rail and,
-    /// when it was selected, returns the list to «Tutte» (as `room_left`); failure leaves the one-line error.
+    /// Outcome of «Esci dallo spazio»: as `room_left`. Success drops the space from the rail and, when it was
+    /// selected, returns the list to «Tutte»; failure leaves the one-line error.
     pub fn space_left(&mut self, scope: &RoomScope, result: Result<(), matrix_engine::operations::OperationError>) {
-        self.space_leaving = None;
         self.room_left(scope, result);
     }
 
@@ -1094,14 +1097,14 @@ mod tests {
         })));
         let bots = scope(&account, "bots");
         assert!(sidebar.set_space(Some(bots.clone())));
-        assert!(sidebar.begin_space_leave(bots.clone()) && sidebar.space_leaving());
-        assert!(!sidebar.begin_space_leave(bots.clone()), "no second request while one runs");
+        assert!(sidebar.begin_leave(bots.clone()) && sidebar.is_leaving(&bots));
+        assert!(!sidebar.begin_leave(bots.clone()), "no second request while one runs");
         sidebar.space_left(&bots, Err(Forbidden));
-        assert!(!sidebar.space_leaving() && sidebar.leave_error(&bots) == Some("Not allowed by the server"));
+        assert!(!sidebar.is_leaving(&bots) && sidebar.leave_error(&bots) == Some("Not allowed by the server"));
         assert_eq!(sidebar.active_space(), Some(&bots));
-        assert!(sidebar.begin_space_leave(bots.clone()));
+        assert!(sidebar.begin_leave(bots.clone()));
         sidebar.space_left(&bots, Ok(()));
-        assert!(!sidebar.space_leaving() && sidebar.leave_error(&bots).is_none());
+        assert!(!sidebar.is_leaving(&bots) && sidebar.leave_error(&bots).is_none());
         assert_eq!((sidebar.active_space(), sidebar.spaces().count()), (None, 0));
     }
 
@@ -1555,6 +1558,25 @@ mod invite_tests {
         sidebar.room_left(&room, Ok(()));
         assert!(sidebar.rooms().iter().all(|r| r.scope != room));
         assert!(sidebar.selected().is_none());
+    }
+
+    #[test]
+    fn a_leave_in_flight_keeps_the_row_until_the_server_answers_and_reports_the_open_chat() {
+        use matrix_engine::operations::OperationError::Transport;
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let (a, b) = (scope(account, "!a:t.invalid"), scope(account, "!b:t.invalid"));
+        upsert(&mut sidebar, account, "!a:t.invalid", "a", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
+        upsert(&mut sidebar, account, "!b:t.invalid", "b", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
+        assert!(sidebar.select(&a));
+        assert!(sidebar.begin_leave(a.clone()) && sidebar.is_leaving(&a) && !sidebar.is_leaving(&b));
+        assert!(!sidebar.begin_leave(a.clone()), "no second request while one runs");
+        assert!(sidebar.rooms().iter().any(|r| r.scope == a), "nothing is removed before the answer");
+        assert!(!sidebar.room_left(&a, Err(Transport)) && !sidebar.is_leaving(&a));
+        assert!(sidebar.rooms().iter().any(|r| r.scope == a) && sidebar.leave_error(&a).is_some());
+        assert!(sidebar.begin_leave(a.clone()));
+        assert!(sidebar.room_left(&a, Ok(())), "the open chat was left");
+        assert!(sidebar.rooms().iter().all(|r| r.scope != a) && !sidebar.is_leaving(&a));
     }
 
     #[test]
