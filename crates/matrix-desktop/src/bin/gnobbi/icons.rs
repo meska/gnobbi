@@ -147,11 +147,16 @@ pub fn paint(p: &egui::Painter, c: Pos2, icon: Icon, fill: bool, size: f32, colo
 
 /// An icon button in `rect`: hover fill like the other buttons, `label` is its screen-reader name. `alpha` cross-fades, `active` false = inert.
 pub fn button_at(ui: &mut Ui, rect: Rect, id: egui::Id, icon: Icon, fill: bool, size: f32, label: &str, color: Option<Color32>, active: bool, alpha: f32) -> egui::Response {
+    button_ink(ui, rect, id, icon, fill, size, label, color, false, active, alpha)
+}
+
+/// `button_at`, with `keep_color`: the given colour also holds under hover/focus (the hover fill stays).
+pub fn button_ink(ui: &mut Ui, rect: Rect, id: egui::Id, icon: Icon, fill: bool, size: f32, label: &str, color: Option<Color32>, keep_color: bool, active: bool, alpha: f32) -> egui::Response {
     let resp = ui.interact(rect, id, if active { egui::Sense::click() } else { egui::Sense::hover() });
     let v = ui.visuals();
     let hot = active && (resp.hovered() || resp.has_focus());
     let base = color.unwrap_or(v.widgets.inactive.fg_stroke.color);
-    let ink = if hot { v.strong_text_color() } else { base }.gamma_multiply(alpha);
+    let ink = if hot && !(keep_color && color.is_some()) { v.strong_text_color() } else { base }.gamma_multiply(alpha);
     if hot {
         ui.painter().rect_filled(rect, 6., v.widgets.hovered.weak_bg_fill.gamma_multiply(alpha));
     }

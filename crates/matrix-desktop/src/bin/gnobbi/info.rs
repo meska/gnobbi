@@ -568,7 +568,7 @@ pub fn copy_button_with(ui: &mut egui::Ui, id: &str, label: &str, copy: impl FnO
     let icon = copy_icon_at(click, now);
     let done = icon == crate::icons::Icon::Check;
     let accent = done.then(|| ui.visuals().hyperlink_color);
-    let resp = crate::icons::button_at(ui, rect, id, icon, false, crate::metrics::get().icon, if done { i18n::t("Copied") } else { label }, accent, true, 1.);
+    let resp = crate::icons::button_ink(ui, rect, id, icon, false, crate::metrics::get().icon, if done { i18n::t("Copied") } else { label }, accent, true, true, 1.);
     if resp.clicked() {
         copy(&ctx);
         crate::mobile::haptic_tick();
@@ -703,6 +703,8 @@ mod copy_button_tests {
         names: HashMap<egui::accesskit::NodeId, String>,
         copies: Cell<[u32; 2]>,
         glyphs: String,
+        /// Ink of each painted glyph, in layout order.
+        inks: Vec<egui::Color32>,
         /// How soon the last frame asked to be painted again (`ZERO` = at once).
         repaint_in: std::time::Duration,
     }
@@ -711,7 +713,7 @@ mod copy_button_tests {
         fn new() -> Self {
             let ctx = crate::icons::test_context();
             ctx.enable_accesskit();
-            let mut rig = Rig { ctx, time: 100., rects: Vec::new(), names: HashMap::new(), copies: Cell::new([0; 2]), glyphs: String::new(), repaint_in: std::time::Duration::MAX };
+            let mut rig = Rig { ctx, time: 100., rects: Vec::new(), names: HashMap::new(), copies: Cell::new([0; 2]), glyphs: String::new(), inks: Vec::new(), repaint_in: std::time::Duration::MAX };
             rig.frame(vec![]);
             rig.frame(vec![]);
             rig
@@ -732,6 +734,7 @@ mod copy_button_tests {
             out.textures_delta.clear();
             self.repaint_in = out.viewport_output.values().map(|v| v.repaint_delay).min().unwrap_or(std::time::Duration::MAX);
             self.glyphs = out.shapes.iter().filter_map(|s| match &s.shape { egui::Shape::Text(t) => Some(t.galley.text().to_owned()), _ => None }).collect();
+            self.inks = out.shapes.iter().filter_map(|s| match &s.shape { egui::Shape::Text(t) => Some(t.galley.job.sections[0].format.color).map(|c| if c == egui::Color32::PLACEHOLDER { t.fallback_color } else { c }), _ => None }).collect();
             for (id, node) in out.platform_output.accesskit_update.into_iter().flat_map(|u| u.nodes) {
                 self.names.insert(id, node.label().unwrap_or_default().to_owned());
             }
@@ -767,7 +770,9 @@ mod copy_button_tests {
 
     #[test]
     fn idle_buttons_show_copy() {
-        let rig = Rig::new();
+        let mut rig = Rig::new();
+        rig.advance(5.);
+        assert!(rig.repaint_in > std::time::Duration::from_secs(1), "an idle copy button must not ask for repaints: {:?}", rig.repaint_in);
         assert_eq!((rig.icon(0), rig.icon(1)), (Icon::Copy, Icon::Copy));
         assert_eq!(rig.copies.get(), [0, 0]);
     }
@@ -788,7 +793,20 @@ mod copy_button_tests {
         assert_eq!(rig.icon(0), Icon::Check, "still inside the feedback window");
         rig.advance(0.6);
         assert_eq!(rig.icon(0), Icon::Copy, "1.6 s after the click");
+        assert!(rig.repaint_in > std::time::Duration::from_secs(1), "no repaint requested once the check is gone: {:?}", rig.repaint_in);
         assert_eq!(rig.copies.get(), [1, 0], "waiting must not copy again");
+    }
+
+    #[test]
+    fn check_is_accent_even_with_the_pointer_still_on_the_button() {
+        let mut rig = Rig::new();
+        let accent = rig.ctx.global_style().visuals.hyperlink_color;
+        rig.click(0); // the pointer stays on button 0
+        assert_eq!(rig.icon(0), Icon::Check);
+        assert_eq!(rig.inks[0], accent, "check under the pointer");
+        assert_ne!(rig.inks[1], accent, "the other button is not accent");
+        rig.advance(1.6);
+        assert_ne!(rig.inks[0], accent, "back to the copy icon: hover colour again");
     }
 
     #[test]
@@ -828,15 +846,17 @@ mod copy_button_tests {
         assert_eq!((rig.name(0), rig.name(1)), ("Copy", "Copy"));
     }
 
-    /// Every copy button goes through `copy_button`/`copy_button_with`: no direct `Icon::Copy` or `copy_text(` in the app binary
-    /// outside the helper and these places, which are not copy buttons (checked by hand, see the notes):
+    /// Every copy button goes through `copy_button`/`copy_button_with`: outside the helper, `Icon::Copy` and `.copy_text(`
+    /// appear only the expected number of times (checked by hand, see the notes):
+    /// - info.rs: the helper itself (1 + 1);
     /// - secret_clip.rs: the clipboard write with the timed wipe, called by the helper's closure (recovery key);
-    /// - touch_menu.rs: the long-press menu entry «Copy», which closes the menu;
-    /// - main.rs: the text button «Copy link» of a modal that closes.
+    /// - touch_menu.rs: the long-press menu entry «Copy», which closes the menu (1 + 1);
+    /// - main.rs: the text button «Copy link» of a modal that closes (0 + 1).
     #[test]
     fn no_copy_button_bypasses_the_helper() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bin/gnobbi");
-        let allowed = ["info.rs", "secret_clip.rs", "touch_menu.rs", "main.rs"];
+        // file -> (Icon::Copy, .copy_text() occurrences)
+        let expected: HashMap<&str, (usize, usize)> = HashMap::from([("info.rs", (1, 1)), ("secret_clip.rs", (0, 3)), ("touch_menu.rs", (1, 1)), ("main.rs", (0, 1))]);
         let mut stack = vec![dir.clone()];
         let mut seen = 0;
         let mut offenders = Vec::new();
@@ -848,13 +868,15 @@ mod copy_button_tests {
                     seen += 1;
                     let name = e.strip_prefix(&dir).unwrap().to_string_lossy().into_owned();
                     let text = std::fs::read_to_string(&e).unwrap();
-                    // The old helper must be gone everywhere, info.rs included (this file's own test text is cut off).
+                    // This file's own test text is cut off.
                     let text = text.split("mod copy_button_tests").next().unwrap();
                     if text.contains("copy_icon(") {
                         offenders.push(format!("{name}: copy_icon"));
                     }
-                    if !allowed.contains(&name.as_str()) && (text.contains("Icon::Copy") || text.contains(".copy_text(")) {
-                        offenders.push(format!("{name}: Icon::Copy / copy_text"));
+                    let found = (text.matches("Icon::Copy").count(), text.matches(".copy_text(").count());
+                    let want = expected.get(name.as_str()).copied().unwrap_or((0, 0));
+                    if found != want {
+                        offenders.push(format!("{name}: Icon::Copy / copy_text {found:?}, expected {want:?}"));
                     }
                 }
             }

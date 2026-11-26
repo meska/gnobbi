@@ -373,7 +373,8 @@ pub fn key_view(ui: &mut egui::Ui, key: &str, kept: &mut bool) {
     use matrix_desktop::key_export::*;
     ui.horizontal_wrapped(|ui| {
         ui.add(egui::Label::new(RichText::new(key).monospace().size(15.)).selectable(true));
-        if crate::info::copy_button_with(ui, "recovery-key", i18n::t("Copy recovery key"), |ctx| crate::secret_clip::copy(ctx, key)).on_hover_text(i18n::t("Copy recovery key")).clicked() {
+        let copy = |ctx: &egui::Context| crate::secret_clip::copy(ctx, key);
+        if crate::info::copy_button_with(ui, "recovery-key", i18n::t("Copy recovery key"), copy).on_hover_text(i18n::t("Copy recovery key")).clicked() {
             *kept = true;
         }
     });
