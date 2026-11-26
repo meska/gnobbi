@@ -191,11 +191,11 @@ pub(crate) async fn send_scoped(
         // Same path as the room's attachments: the thread-focused `Timeline` adds `m.thread` (and the fallback) to media too.
         // shortcut: an attachment is a plain thread message, `reply_to` is not carried; pass `in_reply_to` in the config if replies with files are wanted.
         let request = crate::sending::SendRequest { scope: scope.clone(), transaction_id: crate::sending::fresh_transaction_id(), body: body.to_owned(), attachment: None, poll: None, mentions: Vec::new() };
-        return crate::sending::send_attachment(client, &room, &timeline, &request, file).await.map_err(|e| match e {
+        return crate::sending::send_attachment(client, &room, &timeline, &request, file, None).await.map_err(|e| match e {
             crate::sending::SendError::WrongScope => E::WrongScope,
             crate::sending::SendError::InvalidInput | crate::sending::SendError::TooLarge => E::InvalidInput,
             crate::sending::SendError::Unavailable | crate::sending::SendError::Encryption => E::Unavailable,
-            crate::sending::SendError::Transport => E::Transport,
+            crate::sending::SendError::Transport | crate::sending::SendError::Cancelled => E::Transport,
         });
     }
     let content = crate::sending::markdown_content(body, &[]);

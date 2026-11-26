@@ -65,6 +65,13 @@ pub enum MediaEvent {
         event: EventId,
         result: Result<(), MediaError>,
     },
+    /// Bytes received so far by a save or a video open; `total` is the size the sender declared.
+    Progress {
+        tag: crate::RequestTag,
+        event: EventId,
+        received: u64,
+        total: Option<u64>,
+    },
 }
 
 /// Decoded mono audio for the in-app player, plus the waveform of those same samples:

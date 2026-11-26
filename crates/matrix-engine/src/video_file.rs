@@ -41,6 +41,18 @@ fn extension(mime: Option<&str>) -> &'static str {
         Some("audio/mp4" | "audio/aac") => "m4a",
         Some("audio/wav" | "audio/x-wav") => "wav",
         Some("audio/flac") => "flac",
+        // Files opened from a chat card: the system opener picks the program by the extension.
+        Some("application/pdf") => "pdf",
+        Some("application/zip") => "zip",
+        Some("text/plain") => "txt",
+        Some("image/png") => "png",
+        Some("image/jpeg") => "jpg",
+        Some("image/gif") => "gif",
+        Some("image/webp") => "webp",
+        Some("application/msword") => "doc",
+        Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document") => "docx",
+        Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") => "xlsx",
+        Some(m) if !m.starts_with("video/") => "bin",
         _ => "mp4",
     }
 }
@@ -220,7 +232,7 @@ fn attachment_content<T>(raw: &matrix_sdk::ruma::serde::Raw<T>, any: bool) -> Re
     })
 }
 
-/// Download the original of an exact scoped `m.video` or `m.audio` event into a private temp file
+/// Download the original of an exact scoped attachment (video, audio, file or picture) into a private temp file
 /// under `profile`. Over `max_bytes` (declared or received) is `TooLarge`.
 pub async fn download_video(
     client: &matrix_sdk::Client,
@@ -231,7 +243,7 @@ pub async fn download_video(
     max_bytes: usize,
     progress: impl FnMut(usize),
 ) -> Result<VideoFile, MediaError> {
-    let (source, size, mime) = attachment(client, account, tag, event, false).await?;
+    let (source, size, mime) = attachment(client, account, tag, event, true).await?;
     if size.is_some_and(|size| size > max_bytes as u64) {
         return Err(MediaError::TooLarge);
     }
@@ -292,11 +304,24 @@ pub async fn save_attachment(
     dest: &Path,
     max_bytes: usize,
 ) -> Result<(), MediaError> {
+    save_attachment_with_progress(client, account, tag, event, dest, max_bytes, |_, _| ()).await
+}
+
+/// [`save_attachment`] reporting `(bytes received, declared size)` while the body arrives.
+pub async fn save_attachment_with_progress(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    tag: &RequestTag,
+    event: &EventId,
+    dest: &Path,
+    max_bytes: usize,
+    mut progress: impl FnMut(u64, Option<u64>),
+) -> Result<(), MediaError> {
     let (source, size, _) = attachment(client, account, tag, event, true).await?;
     if size.is_some_and(|size| size > max_bytes as u64) {
         return Err(MediaError::TooLarge);
     }
-    save_source(client, source, dest, max_bytes, tag).await
+    save_source(client, source, dest, max_bytes, tag, |n| progress(n as u64, size)).await
 }
 
 async fn save_source(
@@ -305,8 +330,9 @@ async fn save_source(
     dest: &Path,
     max_bytes: usize,
     tag: &RequestTag,
+    progress: impl FnMut(usize),
 ) -> Result<(), MediaError> {
-    let bytes = fetch_bytes(client, source, max_bytes, tag, |_| ()).await?;
+    let bytes = fetch_bytes(client, source, max_bytes, tag, progress).await?;
     // Straight into the chosen file: the macOS sandbox grants no sibling files.
     let dest = dest.to_owned();
     tokio::task::spawn_blocking(move || {
@@ -575,7 +601,7 @@ mod tests {
         runtime().block_on(async {
             let (client, (_views, tag), profile) = (body_client(vec![9; 3000]).await, tag(), temp_profile());
             let dest = profile.join("scelto.pdf");
-            save_source(&client, source(), &dest, 3000, &tag).await.unwrap();
+            save_source(&client, source(), &dest, 3000, &tag, |_| ()).await.unwrap();
             assert_eq!(std::fs::read(&dest).unwrap(), vec![9; 3000]);
             assert_eq!(names(&profile), ["scelto.pdf"], "no .part, no video-tmp");
             std::fs::remove_dir_all(profile).unwrap();
@@ -587,7 +613,7 @@ mod tests {
         runtime().block_on(async {
             let (client, (_views, tag), profile) = (body_client(vec![9; 3000]).await, tag(), temp_profile());
             let dest = profile.join("scelto.pdf");
-            let result = save_source(&client, source(), &dest, 2999, &tag).await;
+            let result = save_source(&client, source(), &dest, 2999, &tag, |_| ()).await;
             assert!(matches!(result, Err(MediaError::TooLarge)), "{result:?}");
             assert!(names(&profile).is_empty());
             std::fs::remove_dir_all(profile).unwrap();
@@ -599,7 +625,7 @@ mod tests {
         runtime().block_on(async {
             let (client, (mut views, tag), profile) = (body_client(vec![9; 3000]).await, tag(), temp_profile());
             views.cancel();
-            let result = save_source(&client, source(), &profile.join("x"), 3000, &tag).await;
+            let result = save_source(&client, source(), &profile.join("x"), 3000, &tag, |_| ()).await;
             assert!(matches!(result, Err(MediaError::Cancelled)), "{result:?}");
             assert!(names(&profile).is_empty());
             std::fs::remove_dir_all(profile).unwrap();
@@ -624,7 +650,7 @@ mod tests {
             let (client, (_views, tag), profile) = (body_client(ciphertext.clone()).await, tag(), temp_profile());
             let dest = profile.join("riservato.txt");
             let source = MediaSource::Encrypted(Box::new(file));
-            save_source(&client, source, &dest, ciphertext.len(), &tag).await.unwrap();
+            save_source(&client, source, &dest, ciphertext.len(), &tag, |_| ()).await.unwrap();
             assert_eq!(std::fs::read(&dest).unwrap(), plaintext);
             assert_eq!(names(&profile), ["riservato.txt"]);
             std::fs::remove_dir_all(profile).unwrap();

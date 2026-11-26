@@ -54,6 +54,10 @@ pub struct Media {
     pub label: String,
     /// A picture whose format can move (GIF, WebP, APNG): «Add to my stickers» keeps the original.
     pub animated: bool,
+    /// Pixel size the sender declared for a picture or video, to lay it out before it is loaded.
+    pub dims: Option<(u32, u32)>,
+    /// Set when the sender's client marked this event as one item of an album (see `docs/decisioni.md`).
+    pub album: Option<crate::sending::Album>,
 }
 
 /// Formats that can be animated; a WebP may still be a still one, the original is kept either way.
@@ -339,7 +343,7 @@ mod quote_tests {
         assert_eq!(quote_preview("\n  ciao\naltro", None, 10), "ciao");
         assert_eq!(quote_preview("abcdefghij", None, 5), "abcde…");
         assert_eq!(quote_preview("àèìòùàèìòù", None, 3), "àèì…");
-        let m = |kind| Media { kind, label: "x".into(), animated: false };
+        let m = |kind| Media { kind, label: "x".into(), animated: false, dims: None, album: None };
         assert_eq!(quote_preview("", Some(&m(MediaKind::Image)), 40), "Photo");
         assert_eq!(quote_preview("didascalia", Some(&m(MediaKind::Image)), 40), "didascalia");
         assert_eq!(quote_preview("", None, 40), "");

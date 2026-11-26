@@ -331,7 +331,9 @@ impl RoomListWorker {
                                             &event,
                                             profile,
                                             crate::video_file::MAX_VIDEO_BYTES,
-                                            |_| (),
+                                            |received| {
+                                                let _ = saved_tx.send(MediaEvent::Progress { tag: tag.clone(), event: event.clone(), received: received as u64, total: None });
+                                            },
                                         )
                                         .await
                                     };
@@ -1820,13 +1822,16 @@ fn spawn_save(
 ) {
     let (client, stop, done) = (client.clone(), stop.clone(), done.clone());
     tokio::spawn(async move {
-        let save = crate::video_file::save_attachment(
+        let save = crate::video_file::save_attachment_with_progress(
             &client,
             account,
             &tag,
             &event,
             &path,
             crate::media::MAX_SAVE_BYTES,
+            |received, total| {
+                let _ = done.send(crate::media::MediaEvent::Progress { tag: tag.clone(), event: event.clone(), received, total });
+            },
         );
         if let Some(result) = until_stopped(&stop, save).await {
             let _ = done.send(crate::media::MediaEvent::Saved { tag, event, result });
@@ -2088,7 +2093,10 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
                     _ => None,
                 };
                 let at_room = message.mentions().is_some_and(|m| m.room);
-                media = media_of(msgtype);
+                media = media_of(msgtype).map(|mut m| {
+                    m.album = event.original_json().and_then(|raw| raw.get_field::<serde_json::Value>("content").ok().flatten()).and_then(|c| crate::sending::Album::from_content(&c));
+                    m
+                });
                 let (body, spans, pills) = if media.is_some() {
                     caption_rich(room, msgtype, at_room).await
                 } else {
@@ -2100,7 +2108,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
             // Shown as an inline image; the alt text stays in the accessible label, never as caption.
             MsgLikeKind::Sticker(sticker) => {
                 let animated = crate::history::can_animate(sticker.content().info.mimetype.as_deref());
-                media = Some(crate::history::Media { kind: crate::history::MediaKind::Image, label: "Sticker".into(), animated });
+                media = Some(crate::history::Media { kind: crate::history::MediaKind::Image, label: "Sticker".into(), animated, dims: None, album: None });
                 String::new()
             }
             MsgLikeKind::Poll(state) => {
@@ -2711,7 +2719,12 @@ fn media_of(msgtype: &MessageType) -> Option<crate::history::Media> {
         _ => return None,
     };
     let animated = matches!(msgtype, MessageType::Image(i) if crate::history::can_animate(i.info.as_ref().and_then(|i| i.mimetype.as_deref())));
-    Some(Media { kind, label: message_label(msgtype), animated })
+    let dims = match msgtype {
+        MessageType::Image(i) => i.info.as_deref().and_then(|i| Some((u32::try_from(u64::from(i.width?)).ok()?, u32::try_from(u64::from(i.height?)).ok()?))),
+        MessageType::Video(v) => v.info.as_deref().and_then(|i| Some((u32::try_from(u64::from(i.width?)).ok()?, u32::try_from(u64::from(i.height?)).ok()?))),
+        _ => None,
+    };
+    Some(Media { kind, label: message_label(msgtype), animated, dims, album: None })
 }
 
 /// Caption of an attachment, from the SDK only (`caption()` is None when the body is the file name):

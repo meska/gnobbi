@@ -119,6 +119,18 @@ pub struct Album {
     pub count: u8,
 }
 
+#[cfg(feature = "sdk")]
+impl Album {
+    /// The album mark of an event's `content`; a missing, malformed or inconsistent one is no album.
+    pub fn from_content(content: &serde_json::Value) -> Option<Self> {
+        let mark = content.get(ALBUM_KEY)?;
+        let id = mark.get("id")?.as_str()?.to_owned();
+        let number = |key| mark.get(key)?.as_u64()?.try_into().ok();
+        let (index, count): (u8, u8) = (number("index")?, number("count")?);
+        (!id.is_empty() && id.len() <= 64 && index < count && count <= 10).then_some(Self { id, index, count })
+    }
+}
+
 #[derive(Clone)]
 pub struct Voice {
     pub duration_ms: u64,
@@ -136,7 +148,13 @@ pub enum SendError {
     /// The server refused the upload as too large (M_TOO_LARGE); trying again cannot work.
     TooLarge,
     Transport,
+    /// The user withdrew it before it went out.
+    Cancelled,
 }
+
+/// Upload progress of the attachments being sent, by transaction ID: `(bytes sent, bytes in all)`.
+/// Written by the send path, read by the window while it draws the upload card.
+pub type Uploads = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, (usize, usize)>>>;
 
 pub struct SendResult {
     pub scope: RoomScope,
@@ -180,10 +198,34 @@ pub trait SendControl: Send + Sync {
     fn retry(&self, transaction_id: &TransactionId) -> bool;
     fn cancel(&self, transaction_id: &TransactionId) -> bool;
     fn edit(&self, transaction_id: &TransactionId, body: &str, mentions: &[Mention]) -> bool;
+    /// `(transaction ID, bytes sent, bytes in all)` of each attachment on its way out.
+    fn uploads(&self) -> Vec<(TransactionId, u64, u64)> {
+        Vec::new()
+    }
 }
 
 /// Filled by the worker once its session is up, emptied when it ends (the window never keeps a client).
 pub type ControlSlot = std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<dyn SendControl>>>>;
+
+#[cfg(all(test, feature = "sdk"))]
+mod album_mark_tests {
+    use super::Album;
+    #[test]
+    fn reads_a_valid_mark_and_refuses_the_rest() {
+        let ok = serde_json::json!({"chat.gnobbi.album": {"id": "a1", "index": 1, "count": 3}});
+        assert_eq!(Album::from_content(&ok), Some(Album { id: "a1".into(), index: 1, count: 3 }));
+        for bad in [
+            serde_json::json!({}),
+            serde_json::json!({"chat.gnobbi.album": {"id": "a1", "index": 3, "count": 3}}),
+            serde_json::json!({"chat.gnobbi.album": {"id": "", "index": 0, "count": 3}}),
+            serde_json::json!({"chat.gnobbi.album": {"id": "a1", "index": 0, "count": 11}}),
+            serde_json::json!({"chat.gnobbi.album": {"id": "a1", "index": -1, "count": 3}}),
+            serde_json::json!({"chat.gnobbi.album": "x"}),
+        ] {
+            assert_eq!(Album::from_content(&bad), None, "{bad}");
+        }
+    }
+}
 
 #[cfg(all(test, feature = "sdk"))]
 pub(crate) mod tests {
@@ -616,7 +658,7 @@ pub async fn send_text(
         return send_text_waiting(client, &room, &timeline, request).await;
     };
     let timeline = room.timeline().await.map_err(|_| SendError::Unavailable)?;
-    send_attachment(client, &room, &timeline, request, file).await
+    send_attachment(client, &room, &timeline, request, file, None).await
 }
 
 #[cfg(feature = "sdk")]
@@ -626,6 +668,7 @@ pub(crate) async fn send_attachment(
     timeline: &matrix_sdk_ui::timeline::Timeline,
     request: &SendRequest,
     file: &Attachment,
+    uploads: Option<&Uploads>,
 ) -> Result<EventId, SendError> {
     use matrix_sdk::{
         attachment::{AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo},
@@ -686,7 +729,7 @@ pub(crate) async fn send_attachment(
             serde_json::json!({ "id": album.id, "index": album.index, "count": album.count }),
         )]));
     }
-    queue_attachment_waiting(client, room, timeline, (file.filename.clone(), data.into_owned()), mime, config).await
+    queue_attachment_waiting(client, room, timeline, (file.filename.clone(), data.into_owned()), mime, config, uploads).await
 }
 
 /// The picture downscaled to `COMPRESSED_SIDE` (same format, metadata gone); `None` when it is small enough, not a
@@ -727,43 +770,60 @@ pub(crate) async fn queue_attachment_waiting(
     (filename, bytes): (String, Vec<u8>),
     mime: mime_guess::mime::Mime,
     mut config: matrix_sdk_ui::timeline::AttachmentConfig,
+    uploads: Option<&Uploads>,
 ) -> Result<EventId, SendError> {
     use matrix_sdk::{
         ruma::OwnedTransactionId,
-        send_queue::{LocalEchoContent, RoomSendQueueUpdate::{SendError as Failed, SentEvent}},
+        send_queue::{LocalEchoContent, RoomSendQueueUpdate::{CancelledLocalEvent, MediaUpload, SendError as Failed, SentEvent}},
     };
     use tokio::sync::broadcast::error::RecvError;
     let txn: OwnedTransactionId = config.txn_id.get_or_insert_with(matrix_sdk::ruma::TransactionId::new).clone();
-    let mut updates = client.send_queue().subscribe();
-    timeline
+    // The room's own feed carries the upload progress (asking for it switches the reports on); the same updates as the global one otherwise.
+    let (_, mut updates) = room.send_queue().subscribe().await.map_err(|_| SendError::Transport)?;
+    if let Some(u) = uploads {
+        u.lock().unwrap().insert(txn.to_string(), (0, 0));
+    }
+    let queued = timeline
         .send_attachment(matrix_sdk_ui::timeline::AttachmentSource::Data { bytes, filename }, mime, config)
         .use_send_queue()
         .await
-        .map_err(|_| SendError::Transport)?;
-    let outcome = tokio::time::timeout(std::time::Duration::from_secs(300), async {
+        .map_err(|_| SendError::Transport);
+    let outcome = match queued {
+        Err(error) => Err(error),
+        Ok(_) => tokio::time::timeout(std::time::Duration::from_secs(300), async {
         loop {
             let update = match updates.recv().await {
                 Ok(update) => update,
                 Err(RecvError::Lagged(_)) => continue,
                 Err(RecvError::Closed) => return Err(SendError::Transport),
             };
-            if update.room_id != room.room_id() {
-                continue;
-            }
-            match update.update {
+            match update {
+                MediaUpload { related_to, progress, .. } if related_to == txn => {
+                    if let Some(u) = uploads {
+                        u.lock().unwrap().insert(txn.to_string(), (progress.current, progress.total));
+                    }
+                }
                 SentEvent { transaction_id, event_id } if transaction_id == txn => {
                     return Ok(EventId::new(event_id.as_str()));
                 }
                 Failed { transaction_id, error, .. } if transaction_id == txn => {
                     return Err(map_error(&error));
                 }
+                CancelledLocalEvent { transaction_id } if transaction_id == txn => {
+                    return Err(SendError::Cancelled);
+                }
                 _ => {}
             }
         }
-    })
-    .await
-    .unwrap_or(Err(SendError::Transport));
+        })
+        .await
+        .unwrap_or(Err(SendError::Transport)),
+    };
+    if let Some(u) = uploads {
+        u.lock().unwrap().remove(txn.as_str());
+    }
     if outcome.is_err()
+        && outcome != Err(SendError::Cancelled)
         && let Ok(echoes) = client.send_queue().local_echoes().await
         && let Some(echo) = echoes.into_values().flatten().find(|e| e.transaction_id == txn)
         && let LocalEchoContent::Event { send_handle, .. } = echo.content

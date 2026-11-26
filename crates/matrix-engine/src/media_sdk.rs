@@ -359,7 +359,7 @@ pub(crate) async fn send_png(
         let timeline = matrix_sdk_ui::timeline::RoomExt::timeline(&room)
             .await
             .map_err(|_| MediaError::Failed)?;
-        crate::sending::queue_attachment_waiting(client, &room, &timeline, ("image.png".into(), data), mime, config)
+        crate::sending::queue_attachment_waiting(client, &room, &timeline, ("image.png".into(), data), mime, config, None)
             .await
             .map_err(|_| MediaError::Failed)
     })

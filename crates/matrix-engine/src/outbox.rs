@@ -33,6 +33,10 @@ pub(crate) struct Outbox {
     account: AccountId,
     runtime: tokio::runtime::Handle,
     entries: Arc<Mutex<HashMap<OwnedTransactionId, Entry>>>,
+    /// Attachments uploading now, with their progress.
+    uploads: crate::sending::Uploads,
+    /// Attachments withdrawn before their turn came: they are never sent.
+    withdrawn: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 fn notice(scope: RoomScope, transaction_id: TransactionId, notice: SendNotice) -> SendEvent {
@@ -41,7 +45,7 @@ fn notice(scope: RoomScope, transaction_id: TransactionId, notice: SendNotice) -
 
 impl Outbox {
     pub(crate) fn new(client: Client, account: AccountId, runtime: tokio::runtime::Handle) -> Self {
-        Self { client, account, runtime, entries: Default::default() }
+        Self { client, account, runtime, entries: Default::default(), uploads: Default::default(), withdrawn: Default::default() }
     }
 
     fn scope(&self, room: &OwnedRoomId) -> RoomScope {
@@ -68,8 +72,11 @@ impl Outbox {
         let outcome = async {
             let room = room_for(&self.client, self.account, request)?;
             if let Some(file) = &request.attachment {
+                if self.withdrawn.lock().unwrap().remove(request.transaction_id.as_str()) {
+                    return Err(SendError::Cancelled);
+                }
                 let timeline = timelines.get(&room).await.map_err(|_| SendError::Unavailable)?;
-                return crate::sending::send_attachment(&self.client, &room, &timeline, request, file)
+                return crate::sending::send_attachment(&self.client, &room, &timeline, request, file, Some(&self.uploads))
                     .await
                     .map(Some);
             }
@@ -207,12 +214,33 @@ impl SendControl for Outbox {
 
     fn cancel(&self, id: &TransactionId) -> bool {
         let Some((_, handle)) = self.find(id) else {
-            return false;
+            // An attachment: uploading now (abort its queued event) or still waiting for its turn (never start it).
+            if self.uploads.lock().unwrap().contains_key(id.as_str()) {
+                let client = self.client.clone();
+                let txn = id.as_str().to_owned();
+                self.runtime.spawn(async move {
+                    use matrix_sdk::send_queue::LocalEchoContent;
+                    let Ok(echoes) = client.send_queue().local_echoes().await else { return };
+                    if let Some(echo) = echoes.into_values().flatten().find(|e| e.transaction_id.as_str() == txn)
+                        && let LocalEchoContent::Event { send_handle, .. } = echo.content
+                    {
+                        let _ = send_handle.abort().await;
+                    }
+                });
+            } else {
+                self.withdrawn.lock().unwrap().insert(id.as_str().to_owned());
+            }
+            return true;
         };
         self.runtime.spawn(async move {
             let _ = handle.abort().await;
         });
         true
+    }
+
+    fn uploads(&self) -> Vec<(TransactionId, u64, u64)> {
+        let uploads = self.uploads.lock().unwrap();
+        uploads.iter().map(|(id, (sent, all))| (TransactionId::new(id.as_str()), *sent as u64, *all as u64)).collect()
     }
 
     fn edit(&self, id: &TransactionId, body: &str, mentions: &[Mention]) -> bool {
