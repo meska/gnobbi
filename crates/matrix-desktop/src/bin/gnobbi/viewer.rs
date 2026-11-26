@@ -120,7 +120,7 @@ impl Viewer {
         let screen = ctx.content_rect();
         let phone = crate::mobile::touch();
         // The whole window (on a phone the safe area), above everything, on the panel colour.
-        let fill = ctx.style().visuals.panel_fill;
+        let fill = ctx.global_style().visuals.panel_fill;
         egui::Area::new(egui::Id::new("viewer-full")).order(egui::Order::Foreground).fixed_pos(screen.min).constrain(false)
             .show(ctx, |ui| {
                 egui::Frame::NONE.fill(fill).show(ui, |ui| {
