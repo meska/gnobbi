@@ -3,7 +3,7 @@ use super::*;
 use matrix_desktop::read_track::{self, Anchor, ReadRow, ReadTracker};
 
 /// Delay between pagination chunks and retries, to avoid a tight offline loop.
-const RETRY: std::time::Duration = std::time::Duration::from_secs(2);
+pub(super) const RETRY: std::time::Duration = std::time::Duration::from_secs(2);
 /// Longest the saved rows stay hidden while the first unread is looked for: past it the room shows them at the bottom (the same as a missing marker).
 const HIDE_MAX: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -182,11 +182,21 @@ mod tests {
 
     const ROWS: usize = 6;
 
+    /// Removes a test's scratch dir when its thread ends.
+    struct Rm(std::path::PathBuf);
+    impl Drop for Rm {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    thread_local!(static CLEAN: std::cell::RefCell<Vec<Rm>> = const { std::cell::RefCell::new(Vec::new()) });
+
     /// An offline session with the room `!r` of account `account` open and `unread` rows after the read id (read id = the row before them).
     /// Focused, newest row in view, receipts public: the state of a room open on the screen.
     fn open_room(name: &str, account: u64, unread: usize) -> (Session, matrix_domain::RoomScope) {
         let root = std::env::temp_dir().join(format!("gnobbi-receipt-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
+        CLEAN.with(|c| c.borrow_mut().push(Rm(root.clone())));
         let dirs = AppDirs { config: root.join("c"), data: root.join("d"), cache: root.join("k") };
         let mut s = Session::start(&dirs, root.join("s"), None).expect("offline session");
         let acc = matrix_domain::AccountId::new(account);
@@ -205,10 +215,10 @@ mod tests {
         (s, scope)
     }
 
-    /// What the app does on `TimelineActivity` for the open room.
+    /// A new event in the open room, through the handler's own method.
     fn new_event(s: &mut Session) {
-        s.read_dirty = true;
-        s.read_after = Some(Instant::now() + READ_DEBOUNCE);
+        let scope = s.sidebar.selected().unwrap().scope.clone();
+        s.room_activity(&scope);
     }
 
     /// The debounce is over (time travel instead of sleeping).
@@ -287,7 +297,7 @@ mod tests {
             receipts += sent(&mut s).is_some() as u32;
         }
         assert_eq!(receipts, 0, "events 500 ms apart or closer keep pushing the receipt back");
-        assert!(s.heights.watching, "the next frame is asked for, or the receipt would wait for input");
+        assert!(s.read_dirty && s.read_after.is_some(), "the receipt stays owed; poll asks for the wake-up at its due time");
         quiet(&mut s);
         s.queue_read_marker();
         receipts += sent(&mut s).is_some() as u32;
@@ -332,5 +342,59 @@ mod tests {
         s.queue_read_marker();
         assert!(matches!(sent(&mut s), Some(OperationCommand::ReadMarkers { .. })), "an operation in flight is not replaced");
         assert!(s.read_dirty, "the receipt waits for the slot");
+    }
+
+    #[test]
+    fn activity_of_another_room_leaves_the_receipt_alone() {
+        let (mut s, scope) = open_room("other", 0, 1);
+        let other = matrix_domain::RoomScope { account_id: scope.account_id, room_id: matrix_domain::RoomId::new("!x:t.invalid") };
+        s.room_activity(&other);
+        assert!(!s.read_dirty && s.read_after.is_none());
+    }
+
+    #[test]
+    fn no_repaint_is_asked_for_after_the_receipt() {
+        let (mut s, _) = open_room("w1", 0, 1);
+        s.unread_open = None;
+        new_event(&mut s);
+        s.drive_unread();
+        s.queue_read_marker();
+        quiet(&mut s);
+        s.drive_unread();
+        s.queue_read_marker();
+        assert!(sent(&mut s).is_some());
+        for _ in 0..3 {
+            s.drive_unread();
+            s.queue_read_marker();
+        }
+        assert!(!s.heights.watching);
+    }
+
+    #[test]
+    fn no_repaint_is_asked_for_when_focus_is_lost_in_the_debounce() {
+        let (mut s, _) = open_room("w2", 0, 1);
+        s.unread_open = None;
+        new_event(&mut s);
+        s.queue_read_marker();
+        s.reading.0 = false;
+        for _ in 0..3 {
+            s.drive_unread();
+            s.queue_read_marker();
+        }
+        assert!(!s.heights.watching);
+    }
+
+    #[test]
+    fn failed_receipt_is_owed_again_after_the_retry_delay() {
+        let (mut s, scope) = open_room("fail", 0, 2);
+        new_event(&mut s);
+        quiet(&mut s);
+        s.queue_read_marker();
+        assert!(sent(&mut s).is_some());
+        assert!(!s.read_dirty);
+        let failed = OperationResult::RoomMarked { scope, result: Err(matrix_engine::operations::OperationError::Transport) };
+        assert_eq!(s.result_room_and_space(&failed), Some(true));
+        assert!(s.read_dirty);
+        assert!(s.read_after.is_some_and(|at| at > Instant::now() + RETRY - Duration::from_millis(500)));
     }
 }

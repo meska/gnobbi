@@ -571,10 +571,7 @@ impl Session {
                     if let Some(th) = &mut self.thread {
                         th.next_read = std::time::Instant::now();
                     }
-                    if self.sidebar.selected().is_some_and(|r| r.scope == scope) {
-                        self.read_dirty = true;
-                        self.read_after = Some(std::time::Instant::now() + READ_DEBOUNCE);
-                    }
+                    self.room_activity(&scope);
                     if self.roles_stale.as_ref() == Some(&scope) {
                         self.roles_stale = None;
                         self.members_requested = None;
@@ -640,6 +637,10 @@ impl Session {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         changed |= self.drive_history();
+        // The debounced receipt wakes the app once when it falls due (no frame is otherwise asked for).
+        if self.read_dirty && let Some(left) = self.read_after.and_then(|at| at.checked_duration_since(std::time::Instant::now())) {
+            ctx.request_repaint_after(left);
+        }
         if let Some(thread) = self.mic_pending && matrix_desktop::voice_recorder::permission_granted() {
             self.mic_pending = None;
             self.start_recording(thread, ctx);
@@ -872,6 +873,7 @@ impl Session {
         if let Some(request) = self.history.select(scope.clone()) {
             self.remember_scroll();
             self.read_dirty = true;
+            self.read_after = None;
             self.messages = Some(DemoHistory::new(request.tag.scope().clone(), 0));
             self.media.clear();
             self.viewer = None;
@@ -1059,6 +1061,15 @@ impl Session {
         changed
     }
 
+    /// A new event in `scope`: when it is the room on screen, its receipt is owed again after the debounce.
+    /// shortcut: trailing debounce only, a message every <500 ms without a pause never sends the receipt; upgrade with a maximum wait if that room shows up.
+    fn room_activity(&mut self, scope: &matrix_domain::RoomScope) {
+        if self.sidebar.selected().is_some_and(|r| &r.scope == scope) {
+            self.read_dirty = true;
+            self.read_after = Some(std::time::Instant::now() + READ_DEBOUNCE);
+        }
+    }
+
     /// Queues the read marker for the room on screen once it is read.
     fn queue_read_marker(&mut self) {
         let (focused, at_bottom, public) = self.reading;
@@ -1073,7 +1084,6 @@ impl Session {
         {
             // A burst of messages sends one receipt: wait until it has been quiet for the debounce (the next frame is asked for).
             if self.read_after.is_some_and(|at| std::time::Instant::now() < at) {
-                self.heights.watching = true;
                 return;
             }
             self.read_dirty = false;
@@ -1242,7 +1252,15 @@ impl Session {
                 if let Err(e) = result { self.room_error = Some(i18n::t(matrix_engine::operations::space_error_line(*e)).into()); }
                 return Some(true);
             }
-            OperationResult::RoomMarked { result: Err(_), .. } => { self.room_error = Some(i18n::t("Operation failed").into()); return Some(true); }
+            OperationResult::RoomMarked { scope, result: Err(_) } => {
+                // The receipt did not get through: owed again, or the badge stays off here while the room is unread elsewhere.
+                if self.sidebar.selected().is_some_and(|r| &r.scope == scope) {
+                    self.read_dirty = true;
+                    self.read_after = Some(std::time::Instant::now() + unread::RETRY);
+                }
+                self.room_error = Some(i18n::t("Operation failed").into());
+                return Some(true);
+            }
             _ => {}
         }
         None
