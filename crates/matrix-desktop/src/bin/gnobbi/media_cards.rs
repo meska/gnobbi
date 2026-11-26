@@ -275,6 +275,31 @@ pub fn fraction(received: u64, total: Option<u64>) -> Option<f32> {
     total.filter(|t| *t > 0).map(|t| (received as f32 / t as f32).clamp(0., 1.))
 }
 
+/// Fraction of an upload; none (indeterminate) until the first byte is reported or while the total is unknown.
+pub fn upload_fraction(sent: u64, total: Option<u64>) -> Option<f32> {
+    if sent == 0 { None } else { fraction(sent, total) }
+}
+
+/// The part of the bar `(from, to)`, as fractions of its width, that the indeterminate segment covers at `time` seconds:
+/// a segment of 30 % running to and fro, one trip every 1.6 s.
+pub fn indeterminate_span(time: f64) -> (f32, f32) {
+    const WIDTH: f32 = 0.3;
+    const PERIOD: f64 = 1.6;
+    let phase = (time.rem_euclid(PERIOD) / PERIOD) as f32;
+    let from = (1. - (2. * phase - 1.).abs()) * (1. - WIDTH);
+    (from, from + WIDTH)
+}
+
+fn indeterminate_bar(ui: &mut egui::Ui, fill: egui::Color32) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.), egui::Sense::hover());
+    let (from, to) = indeterminate_span(ui.input(|i| i.time));
+    let radius = CornerRadius::same(3);
+    ui.painter().rect_filled(rect, radius, ui.visuals().extreme_bg_color);
+    let at = |f: f32| rect.left() + rect.width() * f;
+    ui.painter().rect_filled(Rect::from_min_max(pos2(at(from), rect.top()), pos2(at(to), rect.bottom())), radius, fill);
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+}
+
 /// What the file card asked for this frame.
 #[derive(Default)]
 pub struct CardOut {
@@ -341,8 +366,17 @@ pub fn upload_card(ui: &mut egui::Ui, name: &str, sent: u64, total: u64, t: &Des
                 ui.spacing_mut().item_spacing.y = 2.;
                 ui.add(egui::Label::new(crate::list::clean_single_line(name)).truncate());
                 let total = (total > 0).then_some(total);
-                ui.add(egui::ProgressBar::new(fraction(sent, total).unwrap_or(0.)).desired_height(6.).animate(total.is_none()).fill(rgb(t.accent)));
-                ui.label(RichText::new(progress_text(sent, total)).size(11.).color(rgb(t.secondary)));
+                // No byte reported yet: the file is being stored (and encrypted, in a room that is) before it goes out, so the card says it is busy, not «0 B».
+                match upload_fraction(sent, total) {
+                    Some(f) => {
+                        ui.add(egui::ProgressBar::new(f).desired_height(6.).fill(rgb(t.accent)));
+                        ui.label(RichText::new(progress_text(sent, total)).size(11.).color(rgb(t.secondary)));
+                    }
+                    None => {
+                        indeterminate_bar(ui, rgb(t.accent));
+                        ui.label(RichText::new(total.map_or_else(String::new, human_size)).size(11.).color(rgb(t.secondary)));
+                    }
+                }
             });
             cancel = crate::icons::button(ui, crate::icons::Icon::X, false, i18n::t("Cancel")).clicked();
         });
@@ -449,6 +483,42 @@ mod tests {
         assert!((before.x / before.y - after.x / after.y).abs() < 1e-3, "{before:?} {after:?}");
         assert_eq!(single_size(None, Some(vec2(320., 240.)), 200., 320.), vec2(200., 150.));
         assert_eq!(single_size(None, Some(vec2(100., 50.)), 320., 320.), vec2(100., 50.));
+    }
+
+    #[test]
+    fn an_upload_with_no_byte_yet_is_indeterminate_then_it_fills() {
+        assert_eq!(upload_fraction(0, Some(30 << 20)), None, "«0 B» must not be shown as a bar at rest");
+        assert_eq!(upload_fraction(0, None), None);
+        assert_eq!(upload_fraction(3 << 20, Some(30 << 20)), Some(0.1));
+        assert_eq!(upload_fraction(5, None), None, "no total: nothing to divide by");
+        assert_eq!(upload_fraction(30 << 20, Some(30 << 20)), Some(1.));
+    }
+
+    #[test]
+    fn the_indeterminate_segment_moves_and_stays_inside_the_bar() {
+        let spans: Vec<_> = (0..200).map(|i| indeterminate_span(i as f64 * 0.05)).collect();
+        assert!(spans.iter().all(|(a, b)| *a >= 0. && *b <= 1.0001 && (b - a - 0.3).abs() < 1e-5), "{spans:?}");
+        assert!(spans.windows(2).any(|w| w[0].0 != w[1].0), "it must move");
+        let (first, mid) = (indeterminate_span(0.), indeterminate_span(0.8));
+        assert!(first.0.abs() < 1e-6 && (mid.1 - 1.).abs() < 1e-5, "it runs from one end to the other: {first:?} {mid:?}");
+    }
+
+    #[test]
+    fn the_upload_card_keeps_repainting_while_it_prepares() {
+        let tokens = matrix_desktop::Theme::Dark.tokens();
+        let frame = |sent: u64| {
+            let ctx = egui::Context::default();
+            let mut out = None;
+            for _ in 0..2 {
+                let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(pos2(0., 0.), vec2(400., 200.))), ..Default::default() };
+                let mut frame = ctx.run_ui(raw, |ui| { upload_card(ui, "grande.bin", sent, 30 << 20, &tokens); });
+                frame.textures_delta.clear();
+                out = Some(frame);
+            }
+            out.unwrap().viewport_output.values().next().map(|v| v.repaint_delay).unwrap()
+        };
+        assert!(frame(0) <= std::time::Duration::from_millis(33), "the card keeps repainting while it prepares");
+        frame(1 << 20); // the determinate bar draws too
     }
 
     #[test]
