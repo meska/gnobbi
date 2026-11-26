@@ -778,7 +778,8 @@ pub(crate) async fn queue_attachment_waiting(
     };
     use tokio::sync::broadcast::error::RecvError;
     let txn: OwnedTransactionId = config.txn_id.get_or_insert_with(matrix_sdk::ruma::TransactionId::new).clone();
-    // The room's own feed carries the upload progress (asking for it switches the reports on); the same updates as the global one otherwise.
+    // The room's own feed carries the upload progress, once the client reports it (off by default: the queue then only says «1 of 1» at the end).
+    client.send_queue().enable_upload_progress(true);
     let (_, mut updates) = room.send_queue().subscribe().await.map_err(|_| SendError::Transport)?;
     if let Some(u) = uploads {
         u.lock().unwrap().insert(txn.to_string(), (0, 0));

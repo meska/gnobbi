@@ -176,6 +176,8 @@ struct App {
     alias_input: String,
     hook_keys: bool,
     hook_menu_at: Option<std::time::Instant>,
+    /// Test hook «viewer»: when the viewer was opened, and whether the step was made.
+    hook_viewer: Option<(std::time::Instant, bool)>,
     /// Why the backend could not start, shown instead of the form.
     start_error: Option<String>,
     startup: Option<std::collections::VecDeque<std::path::PathBuf>>,
@@ -235,7 +237,7 @@ impl App {
             }
         }
         App { prefs, dirs: dirs.cloned(), list_open: false, nav: mobile::Nav::from_env(), rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, merged: Default::default(), merged_open: None, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: matrix_desktop::hooks::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: matrix_desktop::hooks::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, hook_hit: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
+            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: matrix_desktop::hooks::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, hook_hit: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None, hook_viewer: None,
             auto_login: matrix_desktop::hooks::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false, startup, startup_notice: None, account_notice: None, reopening: None, remembered_root: None, signing_in_again: false, recovery_switch: false, add_from: None, discarding: Vec::new() }
     }
 
@@ -1048,6 +1050,19 @@ impl App {
                 s.send(text);
                 self.hook_sent = true;
                 self.hook_menu_at = Some(std::time::Instant::now());
+            }
+            // View «viewer»: the viewer on the room's first picture once it is loaded; GNOBBI_EGUI_VIEWER_STEP=<n> then steps n pictures on, 4 s later.
+            // GNOBBI_EGUI_UPLOAD_FIXTURE=1: one upload card at 40 %.
+            if view == "viewer" && s.viewer.is_none() && self.hook_viewer.is_none() && let Some(item) = s.viewer_start() {
+                s.open_viewer(item.id, item.video, item.name);
+                self.hook_viewer = Some((std::time::Instant::now(), false));
+            }
+            if let Some((at, false)) = self.hook_viewer && at.elapsed().as_secs() >= 4 && let Some(n) = matrix_desktop::hooks::var("GNOBBI_EGUI_VIEWER_STEP").ok().and_then(|n| n.parse().ok()) {
+                s.step_viewer(n);
+                self.hook_viewer = Some((at, true));
+            }
+            if matrix_desktop::hooks::var_os("GNOBBI_EGUI_UPLOAD_FIXTURE").is_some() && s.uploads.is_empty() {
+                s.uploads.push(session::Upload { id: matrix_engine::sending::fresh_transaction_id(), name: "vacanze-2026.mov".into(), sent: 12 << 20, total: 30 << 20 });
             }
             // View «thread»: the drawer of the room's first thread; GNOBBI_EGUI_THREAD_TYPE=<text> is typed into its composer.
             if view == "thread"

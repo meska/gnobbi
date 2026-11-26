@@ -204,6 +204,27 @@ fn attachment_view_plain_and_encrypted() {
             assert_eq!(got.last().copied(), Some(PDF_BYTES), "{got:?}");
             drop(file);
 
+            // Upload progress: the bytes sent are reported while it goes out, never more than the total, and it ends well.
+            let outbox = TestOutbox::new(a.clone(), acc());
+            let sample = request(&scope, "", "progresso.bin", vec![9u8; 12 << 20], None);
+            let id = sample.transaction_id.clone();
+            let (result, samples) = tokio::join!(outbox.send(&sample), async {
+                let mut samples = Vec::new();
+                while samples.len() < 2 || samples.last().is_some_and(|s: &(u64, u64)| s.0 < s.1) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                    if let Some((_, got, all)) = outbox.control().uploads().into_iter().find(|(i, ..)| *i == id) {
+                        samples.push((got, all));
+                    } else if !samples.is_empty() {
+                        break;
+                    }
+                }
+                samples
+            });
+            assert!(matches!(result, Some(SendEvent::Result(ref r)) if r.result.is_ok()), "the upload ends well");
+            assert!(samples.iter().all(|(got, all)| got <= all) && samples.iter().any(|(_, all)| *all >= 12 << 20), "encrypted={encrypted}: {samples:?}");
+            assert!(samples.windows(2).all(|w| w[0].0 <= w[1].0), "progress only grows: {samples:?}");
+            assert!(outbox.control().uploads().is_empty());
+
             // Upload cancel: the first (big) one is stopped while it uploads, the second never starts.
             let outbox = TestOutbox::new(a.clone(), acc());
             let big = request(&scope, "", "grande.bin", vec![7u8; 23 << 20], None);

@@ -1957,6 +1957,24 @@ impl Session {
         self.viewer.as_ref().is_some_and(|v| v.near_start(&self.viewer_items()))
     }
 
+    /// Test hook: the first picture of the loaded chat.
+    pub fn viewer_start(&self) -> Option<crate::viewer::Item> {
+        self.viewer_items().into_iter().next()
+    }
+
+    /// Test hook: the open viewer goes `by` pictures on (or back).
+    pub fn step_viewer(&mut self, by: isize) {
+        let items = self.viewer_items();
+        let Some(at) = self.viewer.as_ref().and_then(|v| items.iter().position(|i| i.id == v.id)) else { return };
+        if let Some(item) = at.checked_add_signed(by).and_then(|to| items.get(to)) { self.viewer_go(item); }
+    }
+
+    fn viewer_go(&mut self, item: &crate::viewer::Item) {
+        self.media.cancel_original();
+        if let Some(viewer) = &mut self.viewer { viewer.go(item); }
+        if !item.video && let Some(scope) = self.draft_scope.clone() { self.media.request_original(scope, item.id.clone()); }
+    }
+
     pub fn show_viewer(&mut self, ctx: &egui::Context) {
         if self.viewer.is_none() { return; }
         let items = self.viewer_items();
@@ -1964,11 +1982,7 @@ impl Session {
         let Some(viewer) = &mut self.viewer else { return };
         let action = viewer.show(ctx, self.pictures.get(&viewer.id), &items, transfer);
         match action {
-            crate::viewer::Action::Go(item) => {
-                self.media.cancel_original();
-                viewer.go(&item);
-                if !item.video && let Some(scope) = self.draft_scope.clone() { self.media.request_original(scope, item.id); }
-            }
+            crate::viewer::Action::Go(item) => self.viewer_go(&item),
             crate::viewer::Action::Close => { self.media.cancel_original(); self.avatar_full = None; self.viewer = None; }
             crate::viewer::Action::Save(path) => {
                 if path.exists() {
@@ -2205,6 +2219,14 @@ impl Session {
 
     /// The download of a file now running, `(file, bytes received, declared size)`.
     pub fn transfer(&self) -> Option<(EventId, u64, Option<u64>)> {
+        // Test hook: the first file of the chat 44 % downloaded.
+        if matrix_desktop::hooks::var_os("GNOBBI_EGUI_TRANSFER_FIXTURE").is_some() {
+            let file = self.messages.as_ref()?.events().iter().find_map(|e| match (&e.media, &e.id.id) {
+                (Some(m), TimelineId::Server(id)) if m.kind == MediaKind::File => Some(id.clone()),
+                _ => None,
+            });
+            return file.map(|id| (id, 2_306_867, Some(5_242_880)));
+        }
         self.media.transfer().cloned()
     }
 
