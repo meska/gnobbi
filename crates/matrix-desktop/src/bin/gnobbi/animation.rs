@@ -95,7 +95,7 @@ mod tests {
     use super::*;
 
     fn two_frames() -> Frames {
-        Frames { width: 1, height: 1, rgba: vec![vec![255, 0, 0, 255], vec![0, 255, 0, 255]], delays_ms: vec![20, 20] }
+        Frames { width: 1, height: 1, rgba: vec![vec![255, 0, 0, 255], vec![0, 255, 0, 255]], delays_ms: vec![20, 20], scaled: false }
     }
 
     #[test]

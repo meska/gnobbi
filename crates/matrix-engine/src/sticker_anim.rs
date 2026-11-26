@@ -4,12 +4,11 @@
 use crate::anim::{self, NoAnim};
 
 /// Animated files within these limits are uploaded as they are. 512 px is the sticker side the editor
-/// already uses; 1 MiB keeps the upload and the decoding on phones cheap (most stickers are far smaller).
+/// already uses; 1 MiB is the sticker size limit (`stickers::MAX_BYTES`).
 pub const KEEP_MAX_SIDE: u32 = anim::MAX_SIDE;
-pub const KEEP_MAX_BYTES: usize = 1024 * 1024;
-/// Crop and «fill the square» are NOT applied to animations (only fit-in-square): the UI hides them
-/// when the picked file is animated.
-pub const ANIMATED_CROP_AVAILABLE: bool = false;
+pub const KEEP_MAX_BYTES: usize = crate::stickers::MAX_BYTES;
+/// Crop and «fill the square» are NOT applied to animations (only fit-in-square): the UI hides them.
+pub const TOO_LARGE: &str = "Animation too large: saved as a still image";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnimatedSticker {
@@ -31,49 +30,57 @@ pub enum StickerPrep {
     Animated(AnimatedSticker),
 }
 
+/// Never returns an `Animated` bigger than [`KEEP_MAX_BYTES`] or with a side over [`KEEP_MAX_SIDE`].
 pub fn prepare(data: &[u8]) -> StickerPrep {
-    // Decodes up to 4x the sticker side, so a big GIF is shrunk instead of losing its animation.
-    let frames = match anim::decode_up_to(data, anim::MAX_SIDE * 4) {
+    // Decodes up to 4x the sticker side, shrinking each frame on the spot: a big GIF keeps its animation.
+    let frames = match anim::decode_up_to(data, anim::MAX_SIDE * 4, KEEP_MAX_SIDE) {
         Ok(f) => f,
         Err(NoAnim::NotAnimated | NoAnim::Broken) => return StickerPrep::Static { warning: None },
-        Err(NoAnim::OverLimit) => return still("Animation too large: saved as a still image"),
+        Err(NoAnim::OverLimit) => return StickerPrep::Static { warning: Some(TOO_LARGE) },
     };
-    let (width, height) = (frames.width, frames.height);
-    if width.max(height) <= KEEP_MAX_SIDE && data.len() <= KEEP_MAX_BYTES {
+    if !frames.scaled && data.len() <= KEEP_MAX_BYTES {
         let mimetype = match image::guess_format(data) {
             Ok(image::ImageFormat::Gif) => "image/gif",
             Ok(image::ImageFormat::WebP) => "image/webp",
             _ => "image/png",
         };
-        return StickerPrep::Animated(AnimatedSticker { bytes: data.to_vec(), mimetype, width, height, reencoded: false });
+        return StickerPrep::Animated(AnimatedSticker { bytes: data.to_vec(), mimetype, width: frames.width, height: frames.height, reencoded: false });
     }
-    match reencode(&frames) {
-        Some(s) => StickerPrep::Animated(s),
-        None => still("Animation cannot be resized: saved as a still image"),
-    }
+    reencode(&frames).map_or(StickerPrep::Static { warning: Some(TOO_LARGE) }, StickerPrep::Animated)
 }
 
-fn still(msg: &'static str) -> StickerPrep {
-    StickerPrep::Static { warning: Some(msg) }
-}
-
-/// Every frame scaled to fit the square (aspect kept), re-encoded as an endless GIF with the same delays.
+/// Frames re-encoded as an endless GIF with the same delays (to the GIF's 10 ms), never enlarged; over
+/// `KEEP_MAX_BYTES` it retries on smaller sides as `stickers::prepare` does. `None` when even 128 px is too big.
 fn reencode(f: &anim::Frames) -> Option<AnimatedSticker> {
     use image::{Delay, Frame, RgbaImage, codecs::gif, imageops};
-    let scale = f64::from(KEEP_MAX_SIDE) / f64::from(f.width.max(f.height)).max(1.0);
-    let (w, h) = (((f64::from(f.width) * scale).round() as u32).clamp(1, KEEP_MAX_SIDE), ((f64::from(f.height) * scale).round() as u32).clamp(1, KEEP_MAX_SIDE));
-    let mut bytes = Vec::new();
-    {
-        // Speed 10 = fastest palette search: fine for stickers, keeps a 120-frame file quick.
-        let mut enc = gif::GifEncoder::new_with_speed(&mut bytes, 10);
-        enc.set_repeat(gif::Repeat::Infinite).ok()?;
-        for (px, ms) in f.rgba.iter().zip(&f.delays_ms) {
-            let src = RgbaImage::from_raw(f.width, f.height, px.clone())?;
-            let small = imageops::resize(&src, w, h, imageops::FilterType::Lanczos3);
-            enc.encode_frame(Frame::from_parts(small, 0, 0, Delay::from_numer_denom_ms(*ms, 1))).ok()?;
+    let top = f.width.max(f.height);
+    let mut last = 0;
+    for side in [KEEP_MAX_SIDE, 384, 256, 192, 128] {
+        let side = side.min(top);
+        if side == last {
+            continue;
+        }
+        last = side;
+        let scale = f64::from(side) / f64::from(top);
+        let (w, h) = (((f64::from(f.width) * scale).round() as u32).clamp(1, side), ((f64::from(f.height) * scale).round() as u32).clamp(1, side));
+        let mut bytes = Vec::new();
+        {
+            // Speed 10 = fastest palette search: fine for stickers, keeps a 120-frame file quick.
+            let mut enc = gif::GifEncoder::new_with_speed(&mut bytes, 10);
+            enc.set_repeat(gif::Repeat::Infinite).ok()?;
+            for (px, ms) in f.rgba.iter().zip(&f.delays_ms) {
+                let mut img = RgbaImage::from_raw(f.width, f.height, px.clone())?;
+                if (w, h) != (f.width, f.height) {
+                    img = imageops::resize(&img, w, h, imageops::FilterType::Lanczos3);
+                }
+                enc.encode_frame(Frame::from_parts(img, 0, 0, Delay::from_numer_denom_ms((*ms + 5) / 10 * 10, 1))).ok()?;
+            }
+        }
+        if bytes.len() <= KEEP_MAX_BYTES {
+            return Some(AnimatedSticker { bytes, mimetype: "image/gif", width: w, height: h, reencoded: true });
         }
     }
-    Some(AnimatedSticker { bytes, mimetype: "image/gif", width: w, height: h, reencoded: true })
+    None
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ pub const MAX_FRAMES: usize = 120;
 /// Longest side of a frame, in pixels.
 pub const MAX_SIDE: u32 = 512;
 /// All decoded frames together (they live in memory as RGBA).
-pub const MAX_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_BYTES: usize = 64 * 1024 * 1024;
 /// Shortest delay played: browsers do the same with the 0-10 ms files that are common in the wild.
 pub const MIN_DELAY_MS: u32 = 20;
 
@@ -15,6 +15,8 @@ pub struct Frames {
     pub height: u32,
     pub rgba: Vec<Vec<u8>>,
     pub delays_ms: Vec<u32>,
+    /// The frames were scaled down while decoding (`width`/`height` are the scaled ones).
+    pub scaled: bool,
 }
 
 impl Frames {
@@ -51,12 +53,13 @@ pub enum NoAnim {
 /// All frames of an animated GIF, WebP or APNG; `None` when it is not animated, is over a limit or is broken.
 #[cfg(feature = "sdk")]
 pub fn decode(data: &[u8]) -> Option<Frames> {
-    decode_up_to(data, MAX_SIDE).ok()
+    decode_up_to(data, MAX_SIDE, MAX_SIDE).ok()
 }
 
-/// Like [`decode`] but accepts frames up to `max_side` (frame count and memory limits stay), and tells why it gave up.
+/// Like [`decode`] but accepts frames up to `max_side` and shrinks each one, as soon as it is decoded, to fit `fit` px
+/// (aspect kept, never enlarged). The frame count and memory limits count the shrunk frames. Tells why it gave up.
 #[cfg(feature = "sdk")]
-pub fn decode_up_to(data: &[u8], max_side: u32) -> Result<Frames, NoAnim> {
+pub fn decode_up_to(data: &[u8], max_side: u32, fit: u32) -> Result<Frames, NoAnim> {
     use image::{AnimationDecoder, ImageDecoder, ImageFormat, codecs};
     let cursor = std::io::Cursor::new(data);
     let broken = |_| NoAnim::Broken;
@@ -86,26 +89,38 @@ pub fn decode_up_to(data: &[u8], max_side: u32) -> Result<Frames, NoAnim> {
         return Err(NoAnim::Broken);
     }
     // One frame over the memory limit is refused before any frame is decoded.
-    if width > max_side || height > max_side || width as usize * height as usize * 4 > MAX_BYTES {
+    if width as usize * height as usize * 4 > MAX_BYTES {
         return Err(NoAnim::OverLimit);
     }
+    // A single big picture is not an animation: only a second frame makes the side limit a real over-limit.
+    let mut frames = frames;
+    if width > max_side || height > max_side {
+        let two = frames.next().is_some() && frames.next().is_some();
+        return Err(if two { NoAnim::OverLimit } else { NoAnim::NotAnimated });
+    }
+    let scale = (f64::from(fit) / f64::from(width.max(height))).min(1.0);
+    let (w, h) = (((f64::from(width) * scale).round() as u32).clamp(1, width), ((f64::from(height) * scale).round() as u32).clamp(1, height));
+    let scaled = (w, h) != (width, height);
     let (mut rgba, mut delays_ms, mut bytes) = (Vec::new(), Vec::new(), 0usize);
     for frame in frames {
         let frame = frame.map_err(broken)?;
         let (n, d) = frame.delay().numer_denom_ms();
-        let buffer = frame.into_buffer();
+        let mut buffer = frame.into_buffer();
+        if buffer.dimensions() != (width, height) {
+            return Err(NoAnim::Broken);
+        }
+        if scaled {
+            buffer = image::imageops::resize(&buffer, w, h, image::imageops::FilterType::Lanczos3);
+        }
         bytes += buffer.as_raw().len();
         // Stops while decoding: a hostile file never gets to fill memory.
         if rgba.len() >= MAX_FRAMES || bytes > MAX_BYTES {
             return Err(NoAnim::OverLimit);
         }
-        if buffer.dimensions() != (width, height) {
-            return Err(NoAnim::Broken);
-        }
         delays_ms.push((n / d.max(1)).max(MIN_DELAY_MS));
         rgba.push(buffer.into_raw());
     }
-    if rgba.len() > 1 { Ok(Frames { width, height, rgba, delays_ms }) } else { Err(NoAnim::NotAnimated) }
+    if rgba.len() > 1 { Ok(Frames { width: w, height: h, rgba, delays_ms, scaled }) } else { Err(NoAnim::NotAnimated) }
 }
 
 #[cfg(all(test, feature = "sdk"))]

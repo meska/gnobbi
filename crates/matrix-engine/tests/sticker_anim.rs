@@ -3,6 +3,7 @@
 use image::{Delay, Frame, ImageEncoder, Rgba, RgbaImage, codecs::gif::GifEncoder};
 use matrix_engine::anim::{self, MAX_FRAMES, MAX_SIDE, MIN_DELAY_MS};
 use matrix_engine::sticker_anim::{KEEP_MAX_BYTES, StickerPrep, prepare};
+use matrix_engine::stickers::MAX_BYTES;
 
 fn colour(i: usize) -> Rgba<u8> {
     Rgba([(i * 80 % 256) as u8, 255 - (i * 80 % 256) as u8, (i * 37 % 256) as u8, 255])
@@ -77,8 +78,75 @@ fn gif_over_the_byte_limit_but_within_side_is_reencoded() {
     }
     assert!(out.len() > KEEP_MAX_BYTES, "fixture too small: {}", out.len());
     let a = kept(prepare(&out));
-    assert!(a.reencoded && a.mimetype == "image/gif" && a.width.max(a.height) <= MAX_SIDE);
+    assert!(a.reencoded && a.mimetype == "image/gif");
+    // Never enlarged, never over the sticker byte limit.
+    assert!(a.width <= 400 && a.height <= 400, "{}x{}", a.width, a.height);
+    assert!(a.bytes.len() <= MAX_BYTES, "{} bytes", a.bytes.len());
     assert_eq!(anim::decode(&a.bytes).unwrap().delays_ms, [40; 12]);
+}
+
+fn noisy(w: u32, h: u32, n: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut e = GifEncoder::new(&mut out);
+        for i in 0..n {
+            let img = RgbaImage::from_fn(w, h, |x, y| {
+                let v = x.wrapping_mul(2654435761).wrapping_add(y.wrapping_mul(40503)).wrapping_add(i * 977);
+                Rgba([(v >> 3) as u8, (v >> 11) as u8, (v >> 19) as u8, 255])
+            });
+            e.encode_frame(Frame::from_parts(img, 0, 0, Delay::from_numer_denom_ms(40, 1))).unwrap();
+        }
+    }
+    out
+}
+
+#[test]
+fn small_heavy_gif_is_never_enlarged_and_fits_the_byte_limit_or_stays_still() {
+    // 200x200 x 40 noisy frames is over 1 MiB: it used to come out 512x512 and 11 MB.
+    let g = noisy(200, 200, 40);
+    assert!(g.len() > KEEP_MAX_BYTES, "fixture too small: {}", g.len());
+    match prepare(&g) {
+        StickerPrep::Animated(a) => assert!(a.width <= 200 && a.height <= 200 && a.bytes.len() <= MAX_BYTES, "{}x{} {}", a.width, a.height, a.bytes.len()),
+        StickerPrep::Static { warning } => assert!(warning.is_some()),
+    }
+}
+
+#[test]
+fn heavy_gif_retries_smaller_sides_before_giving_up() {
+    // 400x400 x 14 noisy frames is over 1 MiB at full size and fits only on a smaller side.
+    let g = noisy(400, 400, 14);
+    assert!(g.len() > KEEP_MAX_BYTES);
+    let StickerPrep::Animated(a) = prepare(&g) else { panic!("expected a smaller animation") };
+    assert!(a.bytes.len() <= MAX_BYTES && a.width.max(a.height) < 400, "{}x{} {}", a.width, a.height, a.bytes.len());
+}
+
+// ---- B2: the memory limit counts the shrunk frames ----
+#[test]
+fn big_gif_with_many_frames_stays_animated_after_shrinking() {
+    // 800x600 x 30 = 55 MiB at full size (over the old 16 MiB), 23 MiB once shrunk to 512x384.
+    let a = kept(prepare(&gif(800, 600, &[40; 30])));
+    assert_eq!((a.reencoded, a.width, a.height), (true, 512, 384));
+    assert_eq!(anim::decode(&a.bytes).unwrap().rgba.len(), 30);
+}
+
+#[test]
+fn memory_limit_still_stops_a_hostile_frame_count_after_shrinking() {
+    // One 2048x2048 frame is 16 MiB: five of them are over 64 MiB at full size but 1.3 MiB each once shrunk, so they stay.
+    assert!(matches!(prepare(&gif(2048, 2048, &[40; 5])), StickerPrep::Animated(_)));
+}
+
+// ---- I1: a big still GIF is not an animation, so no warning ----
+#[test]
+fn big_static_gif_has_no_warning() {
+    assert_eq!(prepare(&gif(2100, 2100, &[40])), StickerPrep::Static { warning: None });
+    assert_eq!(prepare(&gif(3000, 200, &[40])), StickerPrep::Static { warning: None });
+}
+
+#[test]
+fn delays_are_rounded_to_the_gif_tick_not_truncated() {
+    // WebP keeps the exact milliseconds (a GIF source is already in 10 ms ticks).
+    let a = kept(prepare(&webp_anim(1000, 600, &[25, 35, 105])));
+    assert_eq!(anim::decode(&a.bytes).unwrap().delays_ms, [30, 40, 110]);
 }
 
 #[test]
