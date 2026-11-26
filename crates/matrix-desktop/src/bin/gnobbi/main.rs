@@ -2047,42 +2047,32 @@ impl App {
         let mut retry = false;
         let mut again = false;
         let mut switch = None;
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline)).inner_margin(16.)).show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.set_max_width(ui.available_width().min(400.)); // never wider than the window (a phone is under 400 pt)
-                ui.heading(i18n::t("Account unavailable"));
-                if let Some(e) = &entry {
-                    ui.label(&e.label);
-                    if let Some(id) = &e.user_id { ui.label(id); }
+        let line = self.session.as_ref().and_then(|s| s.status().error_message()).unwrap_or(i18n::t("Could not open this account."));
+        let who = entry.as_ref().map(|e| (e.label.as_str(), e.user_id.as_deref()));
+        let (r, a, out) = recovery_screen(ui, t, who, line, |ui, size| {
+            if let Some(d) = &self.dirs {
+                let c = matrix_desktop::AccountCatalog::load(d);
+                let others: Vec<_> = c.accounts().iter().filter_map(|e| {
+                    let path = c.data_dir(d, e.id)?;
+                    (path != self.root && self.parked.iter().any(|p| p.root == path && p.session.account.is_some()))
+                        .then(|| (path, e.label.clone(), e.user_id.clone().unwrap_or_default()))
+                }).collect();
+                if ui.add_enabled(!others.is_empty(), egui::Button::new(i18n::t("Switch account")).min_size(size)).clicked() {
+                    self.recovery_switch = !self.recovery_switch;
                 }
-                let line = self.session.as_ref().and_then(|s| s.status().error_message()).unwrap_or(i18n::t("Could not open this account."));
-                ui.add(egui::Label::new(RichText::new(line).color(rgb(t.error))).wrap());
-                let size = egui::vec2(ui.available_width(), metrics::button() + 4.);
-                retry = ui.add_sized(size, egui::Button::new(i18n::t("Retry"))).clicked();
-                if let Some(d) = &self.dirs {
-                    let c = matrix_desktop::AccountCatalog::load(d);
-                    let others: Vec<_> = c.accounts().iter().filter_map(|e| {
-                        let path = c.data_dir(d, e.id)?;
-                        (path != self.root && self.parked.iter().any(|p| p.root == path && p.session.account.is_some()))
-                            .then(|| (path, e.label.clone(), e.user_id.clone().unwrap_or_default()))
-                    }).collect();
-                    if ui.add_enabled(!others.is_empty(), egui::Button::new(i18n::t("Switch account")).min_size(size)).clicked() {
-                        self.recovery_switch = !self.recovery_switch;
-                    }
-                    if self.recovery_switch {
-                        for (path, name, id) in others {
-                            if accounts::switch_row(ui, &name, &id, &avatar::Avatar::Missing, false, 0, t).clicked() { switch = Some(path); }
-                        }
+                if self.recovery_switch {
+                    for (path, name, id) in others {
+                        if accounts::switch_row(ui, &name, &id, &avatar::Avatar::Missing, false, 0, t).clicked() { switch = Some(path); }
                     }
                 }
-                again = ui.add_enabled(entry.is_some(), egui::Button::new(i18n::t("Sign in again")).min_size(size)).clicked();
-                if ui.add_sized(size, egui::Button::new(i18n::t("Sign out of this account"))).clicked() {
-                    let name = entry.as_ref().map_or("", |e| e.label.as_str());
-                    let id = entry.as_ref().and_then(|e| e.user_id.as_deref()).unwrap_or("");
-                    self.sign_out = Some(accounts::SignOut::new(self.root.clone(), name, id));
-                }
-            });
+            }
         });
+        (retry, again) = (r, a);
+        if out {
+            let name = entry.as_ref().map_or("", |e| e.label.as_str());
+            let id = entry.as_ref().and_then(|e| e.user_id.as_deref()).unwrap_or("");
+            self.sign_out = Some(accounts::SignOut::new(self.root.clone(), name, id));
+        }
         if let Some(path) = switch {
             self.startup = None;
             self.open_account(path);
@@ -3002,9 +2992,80 @@ fn account_switch_effect(pick: Option<std::path::PathBuf>, active: &std::path::P
     (pick.filter(|path| path != active), narrow)
 }
 
+/// The «Account unavailable» column: never wider than the window (a phone is under 400 pt), symmetric margins, wrapping error.
+/// Returns (retry, sign in again, sign out) clicks; `middle` draws the account switcher between Retry and Sign in again.
+fn recovery_screen(ui: &mut egui::Ui, t: &DesignTokens, who: Option<(&str, Option<&str>)>, line: &str, middle: impl FnOnce(&mut egui::Ui, egui::Vec2)) -> (bool, bool, bool) {
+    let (mut retry, mut again, mut out) = (false, false, false);
+    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline)).inner_margin(16.)).show(ui, |ui| {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.set_max_width(ui.available_width().min(400.));
+            ui.heading(i18n::t("Account unavailable"));
+            if let Some((label, id)) = who {
+                ui.label(label);
+                if let Some(id) = id { ui.label(id); }
+            }
+            ui.add(egui::Label::new(RichText::new(line).color(rgb(t.error))).wrap());
+            let size = egui::vec2(ui.available_width(), metrics::button() + 4.);
+            retry = ui.add_sized(size, egui::Button::new(i18n::t("Retry"))).clicked();
+            middle(ui, size);
+            again = ui.add_enabled(who.is_some(), egui::Button::new(i18n::t("Sign in again")).min_size(size)).clicked();
+            out = ui.add_sized(size, egui::Button::new(i18n::t("Sign out of this account"))).clicked();
+        });
+    });
+    (retry, again, out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Rectangles (text, buttons, frames) the «Account unavailable» screen paints at `width`, except the full-window background.
+    fn recovery_rects(width: f32, who: Option<(&str, Option<&str>)>, line: &str) -> Vec<egui::Rect> {
+        let ctx = crate::icons::test_context();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 700.));
+        let mut rects = Vec::new();
+        for _ in 0..3 { // a few passes: egui sizes text and areas from the previous pass
+            let input = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| { recovery_screen(ui, &matrix_desktop::DARK, who, line, |_, _| {}); });
+            out.textures_delta.clear();
+            rects = out.shapes.iter().map(|s| s.shape.visual_bounding_rect()).filter(|r| r.is_positive() && r.width() < width).collect();
+        }
+        rects
+    }
+
+    const LONG_ERROR: &str = "Impossibile aprire questo account perche il profilo locale non e disponibile su questo telefono e il portachiavi ha rifiutato la richiesta, riprova piu tardi o accedi di nuovo con la tua password";
+
+    /// Phone widths: nothing the screen paints crosses the right edge, and the left and right margins are the same.
+    #[test]
+    fn account_unavailable_stays_inside_a_phone_with_a_long_error() {
+        for width in [320., 436.] {
+            for line in [LONG_ERROR, &"x".repeat(200), "/private/var/mobile/Containers/Data/Application/0000-1111-2222-3333/Library/Application Support/Gnobbi/profile"] {
+                let rects = recovery_rects(width, Some(("Account di prova con un nome molto molto lungo", Some("@un.utente.con.un.id.lunghissimo:server.example.org"))), line);
+                assert!(rects.len() > 6, "{width}: only {} shapes", rects.len());
+                let (left, right) = rects.iter().fold((f32::MAX, f32::MIN), |(l, r), x| (l.min(x.min.x), r.max(x.max.x)));
+                assert!(right <= width - 16. + 1., "{width}: something reaches x={right} (limit {})", width - 16.);
+                assert!(left >= 16. - 1., "{width}: something starts at x={left}");
+                // Above 432 the 400 pt cap leaves the extra room on the right (436: 16 left, 20 right).
+                assert!(width > 432. || (left - (width - right)).abs() <= 1., "{width}: margins {left} left, {} right", width - right);
+            }
+        }
+    }
+
+    /// Wider windows: the column keeps its 400 pt maximum and stays inside the window.
+    #[test]
+    fn account_unavailable_is_capped_at_400_on_a_wide_window() {
+        let rects = recovery_rects(600., None, LONG_ERROR);
+        let right = rects.iter().fold(f32::MIN, |r, x| r.max(x.max.x));
+        assert!((right - 416.).abs() <= 0.5, "right edge at {right}, expected 16 + 400");
+    }
+
+    /// Narrower than any phone (a stretched-out Mac window): still no crossing the edge.
+    #[test]
+    fn account_unavailable_fits_a_very_narrow_window() {
+        let rects = recovery_rects(240., None, LONG_ERROR);
+        let right = rects.iter().fold(f32::MIN, |r, x| r.max(x.max.x));
+        assert!(right <= 240. - 16. + 1., "right edge at {right}");
+    }
 
     #[test]
     fn keep_in_view_moves_only_when_the_field_leaves_the_view() {
