@@ -94,6 +94,7 @@ fn roundtrip_keeps_values() {
         list_width: Some(412),
         thread_width: Some(500),
         emoji_dock: true,
+        emoji_sticker_tab: true,
         count_preview_accounts: Default::default(),
         language: matrix_desktop::i18n::Preference::Fixed("it"),
         text_size: matrix_desktop::TextSize::Large,

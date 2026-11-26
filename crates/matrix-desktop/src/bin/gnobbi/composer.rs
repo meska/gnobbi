@@ -804,7 +804,8 @@ mod tests {
             let mut out = self.ctx.run_ui(input, |ui| {
                 super::panel(egui::Frame::NONE).show(ui, |ui| {
                     let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (String::new(), false, false, false, None, None, None);
-                    super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
+                    let (mut panel, avatars) = (crate::stickers::Panel::default(), crate::avatar::Avatars::new());
+                    super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), Some((&mut panel, &avatars)), &matrix_desktop::LIGHT);
                 });
             });
             out.textures_delta.clear();
@@ -860,6 +861,17 @@ mod tests {
         bar.click("composer-emoji-button");
         bar.click("composer-emoji-button");
         assert!(bar.drawer() && !bar.menu(), "opening the drawer closes the menu");
+    }
+
+    #[test]
+    fn the_drawer_reopens_on_the_sticker_tab() {
+        let bar = Bar::new(900.);
+        let tab = eframe::egui::Id::new(crate::stickers::TAB_ID);
+        bar.ctx.data_mut(|d| d.insert_temp(tab, true));
+        for _ in 0..2 { bar.click("composer-emoji-button"); } // open, close
+        assert!(!bar.drawer());
+        bar.click("composer-emoji-button");
+        assert!(bar.drawer() && bar.ctx.data(|d| d.get_temp::<bool>(tab)) == Some(true));
     }
 
     #[test]

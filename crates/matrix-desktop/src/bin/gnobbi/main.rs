@@ -1726,7 +1726,10 @@ impl App {
         // The drawer's open flag lives in the context while drawing and is saved to the preferences when it changes.
         let dock_id = egui::Id::new(composer::DOCK_ID);
         let dock = ui.data(|d| d.get_temp::<bool>(dock_id)).unwrap_or(self.prefs.emoji_dock);
-        ui.data_mut(|d| d.insert_temp(dock_id, dock));
+        // Same for the drawer's tab (shared with the narrow popup): seeded from the preferences once, saved when it changes.
+        let tab_id = egui::Id::new(stickers::TAB_ID);
+        let tab = ui.data(|d| d.get_temp::<bool>(tab_id)).unwrap_or(self.prefs.emoji_sticker_tab);
+        ui.data_mut(|d| { d.insert_temp(dock_id, dock); d.insert_temp(tab_id, tab); });
         composer::panel(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
             if let Some(s) = &mut self.session
                 && s.messages.is_some()
@@ -1788,6 +1791,11 @@ impl App {
             self.prefs.emoji_dock = now;
             if let Err(e) = Preferences::update(dirs, |p| p.emoji_dock = now) { eprintln!("emoji drawer state not saved: {e}"); }
             ui.ctx().request_repaint();
+        }
+        let tab_now = ui.data(|d| d.get_temp::<bool>(tab_id)).unwrap_or(tab);
+        if tab_now != self.prefs.emoji_sticker_tab && let Some(dirs) = &self.dirs {
+            self.prefs.emoji_sticker_tab = tab_now;
+            if let Err(e) = Preferences::update(dirs, |p| p.emoji_sticker_tab = tab_now) { eprintln!("emoji drawer tab not saved: {e}"); }
         }
         if let (Some(body), Some(s)) = (to_send, &mut self.session) {
             s.submit_draft(body);
