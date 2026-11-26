@@ -1,6 +1,7 @@
 // Thin shell of the notification service extension: reads the push payload, the account's Keychain secret and the App Group
 // data dir, calls the Rust core (crates/gnobbi-nse) once, and fills the notification. Never logs text or keys.
 import Foundation
+import Intents
 import Security
 import UserNotifications
 import os
@@ -27,8 +28,8 @@ final class NotificationService: UNNotificationServiceExtension {
             return finish(nil) // not ours / not a Matrix push: the server's generic text stays
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let reply = Self.fetch(tag: tag, room: room, event: event)
-            self.finish { Self.apply(reply, tag: tag, room: room, to: $0) }
+            let (reply, avatar) = Self.fetch(tag: tag, room: room, event: event)
+            self.finish { Self.apply(reply, avatar: avatar, tag: tag, room: room, to: $0) }
         }
     }
 
@@ -47,16 +48,20 @@ final class NotificationService: UNNotificationServiceExtension {
     }
 
     /// nil = failure of any kind (no store, signed out, offline...): the generic text stays.
-    static func fetch(tag: String, room: String, event: String) -> [String: Any]? {
+    /// The sender's picture (PNG/JPEG, a small thumbnail) comes along when the sender has one.
+    static func fetch(tag: String, room: String, event: String) -> ([String: Any]?, Data?) {
         let parts = tag.split(separator: ":", maxSplits: 2).map(String.init)
         guard parts.count == 3,
               let secret = secret(account: "profile-id:\(parts[2]):account-\(parts[1])") ?? secret(account: "account-id:\(parts[1])"),
               let base = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)?
-                .appendingPathComponent("Library/Application Support/Gnobbi").path else { return nil }
+                .appendingPathComponent("Library/Application Support/Gnobbi").path else { return (nil, nil) }
         var out: UnsafeMutablePointer<CChar>?
-        guard gnobbi_nse_fetch(base, tag, secret, room, event, &out) == 0, let out else { return nil }
-        defer { gnobbi_nse_free(out) }
-        return (try? JSONSerialization.jsonObject(with: Data(String(cString: out).utf8))) as? [String: Any]
+        var picture: UnsafeMutablePointer<UInt8>?
+        var pictureLen = 0
+        guard gnobbi_nse_fetch(base, tag, secret, room, event, &out, &picture, &pictureLen) == 0, let out else { return (nil, nil) }
+        defer { gnobbi_nse_free(out); gnobbi_nse_free_bytes(picture, pictureLen) }
+        let avatar = picture.map { Data(bytes: $0, count: pictureLen) }
+        return ((try? JSONSerialization.jsonObject(with: Data(String(cString: out).utf8))) as? [String: Any], avatar)
     }
 
     /// The store passphrase: the app's Keychain item, shared through the keychain access group (no group named: the
@@ -69,7 +74,7 @@ final class NotificationService: UNNotificationServiceExtension {
         return String(data: data, encoding: .utf8)
     }
 
-    static func apply(_ reply: [String: Any]?, tag: String, room: String, to content: UNMutableNotificationContent) -> UNNotificationContent {
+    static func apply(_ reply: [String: Any]?, avatar: Data?, tag: String, room: String, to content: UNMutableNotificationContent) -> UNNotificationContent {
         guard let reply, let kind = reply["kind"] as? String else { return content }
         switch kind {
         case "suppress":
@@ -92,6 +97,26 @@ final class NotificationService: UNNotificationServiceExtension {
         var user = content.userInfo
         user["gnobbi"] = "\(ids[0]):\(ids[1]):\(room)"
         content.userInfo = user
-        return content
+        // Communication Notification: the sender's picture instead of the app icon. Only with a picture; without one, or if
+        // the system refuses the intent, the notification stays exactly as built above.
+        guard kind != "encrypted", let avatar, !avatar.isEmpty else { return content }
+        return communication(reply, avatar: avatar, room: room, content: content) ?? content
+    }
+
+    private static func communication(_ reply: [String: Any], avatar: Data, room: String, content: UNMutableNotificationContent) -> UNNotificationContent? {
+        guard let title = reply["title"] as? String, !title.isEmpty else { return nil }
+        let senderId = (reply["sender_id"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? title
+        let sender = INPerson(personHandle: INPersonHandle(value: senderId, type: .unknown), nameComponents: nil, displayName: title,
+                              image: INImage(imageData: avatar), contactIdentifier: nil, customIdentifier: senderId)
+        let group = (reply["group"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: nil,
+                                         speakableGroupName: group.map { INSpeakableString(spokenPhrase: $0) },
+                                         conversationIdentifier: group == nil ? nil : room, serviceName: nil, sender: sender, attachments: nil)
+        // In a group iOS shows the group name itself: the body goes without the room-name prefix.
+        if group != nil, let text = reply["text"] as? String { content.body = text }
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.direction = .incoming
+        interaction.donate(completion: nil) // best effort; the notification does not wait for it
+        return try? content.updating(from: intent)
     }
 }

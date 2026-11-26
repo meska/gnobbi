@@ -9,10 +9,11 @@ use matrix_sdk::{
     ruma::{
         EventId, RoomId,
         api::client::{
-            profile::get_display_name, room::get_room_event, state::get_state_event_for_key,
+            profile::{get_avatar_url, get_display_name}, room::get_room_event, state::get_state_event_for_key,
         },
         events::StateEventType,
     },
+    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use serde_json::{Value, json};
@@ -26,6 +27,11 @@ use std::{
 const HOLDER: &str = "gnobbi-nse";
 /// The system gives the extension about 30 s; the shell falls back to the generic text earlier on its own.
 const BUDGET: Duration = Duration::from_secs(20);
+/// Extra time for the sender's picture, after the text is ready: 20 + 5 stays under the system's 30 s.
+const AVATAR_BUDGET: Duration = Duration::from_secs(5);
+/// Sender picture: a square thumbnail this big, and at most this many bytes accepted while receiving (media rule: capped before buffering).
+const AVATAR_PX: u32 = 96;
+pub const AVATAR_MAX_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -184,7 +190,7 @@ pub fn shown(sender: &str, sender_id: &str, room: Option<&str>, body: &str) -> S
     }
 }
 
-async fn fetch(dir: &Path, pass: &str, room_id: &str, event_id: &str) -> Result<Outcome, Fail> {
+async fn fetch(dir: &Path, pass: &str, room_id: &str, event_id: &str, avatar: bool) -> Result<(Outcome, Option<Vec<u8>>), Fail> {
     // Refused before any IO.
     <&RoomId>::try_from(room_id).map_err(|_| Fail::BadInput)?;
     <&EventId>::try_from(event_id).map_err(|_| Fail::BadInput)?;
@@ -212,7 +218,61 @@ async fn fetch(dir: &Path, pass: &str, room_id: &str, event_id: &str) -> Result<
         .restore_session(session)
         .await
         .map_err(|_| Fail::Store)?;
-    read_event(&client, room_id, event_id, true).await
+    let outcome = read_event(&client, room_id, event_id, true).await?;
+    let picture = match &outcome {
+        Outcome::Message { sender_id, .. } | Outcome::Other { sender_id, .. } if avatar => {
+            // Any failure or timeout: no picture, the notification stays as it is.
+            tokio::time::timeout(AVATAR_BUDGET, sender_avatar(&client, room_id, sender_id)).await.ok().flatten()
+        }
+        _ => None,
+    };
+    Ok((outcome, picture))
+}
+
+/// The `mxc://` URI in a member event's content or a profile answer; blank or missing = none.
+fn avatar_uri(v: &Value) -> Option<String> {
+    v["avatar_url"].as_str().or(v["content"]["avatar_url"].as_str()).filter(|u| u.starts_with("mxc://")).map(str::to_owned)
+}
+
+/// The sender's picture as a small thumbnail (the per-room one first, then the profile's), or None on any failure.
+#[allow(deprecated)] // the profile-field endpoint is newer than many homeservers
+async fn sender_avatar(client: &Client, room_id: &str, sender_id: &str) -> Option<Vec<u8>> {
+    let rid = <&RoomId>::try_from(room_id).ok()?;
+    let user = <&matrix_sdk::ruma::UserId>::try_from(sender_id).ok()?.to_owned();
+    let member = client
+        .send(get_state_event_for_key::v3::Request::new(rid.to_owned(), StateEventType::RoomMember, user.to_string()))
+        .await
+        .ok()
+        .and_then(|r| serde_json::to_value(&r.event_or_content).ok())
+        .and_then(|v| avatar_uri(&v));
+    let uri = match member {
+        Some(u) => u,
+        None => client.send(get_avatar_url::v3::Request::new(user)).await.ok()?.avatar_url?.to_string(),
+    };
+    download_avatar(client, &uri, AVATAR_MAX_BYTES).await
+}
+
+/// Thumbnail of `mxc`, refused as soon as more than `max_bytes` arrive (SDK `max_response_size`); only plausible pictures pass.
+async fn download_avatar(client: &Client, mxc: &str, max_bytes: usize) -> Option<Vec<u8>> {
+    let uri = <&matrix_sdk::ruma::MxcUri>::from(mxc);
+    uri.validate().ok()?;
+    let request = MediaRequestParameters {
+        source: matrix_sdk::ruma::events::room::MediaSource::Plain(uri.to_owned()),
+        format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
+            matrix_sdk::ruma::api::client::media::get_content_thumbnail::v3::Method::Crop,
+            AVATAR_PX.into(),
+            AVATAR_PX.into(),
+        )),
+    };
+    let config = client.request_config().timeout(Some(AVATAR_BUDGET)).max_response_size(Some(max_bytes));
+    let bytes = matrix_sdk::media::DefaultMediaFetcher.fetch_media_content_with_request_config(client, &request, config).await.ok()?;
+    plausible_picture(bytes, max_bytes)
+}
+
+/// PNG or JPEG magic and within the cap (INImage reads those); the server may return anything.
+fn plausible_picture(bytes: Vec<u8>, max_bytes: usize) -> Option<Vec<u8>> {
+    let known = bytes.starts_with(&[0x89, b'P', b'N', b'G']) || bytes.starts_with(&[0xFF, 0xD8, 0xFF]);
+    (known && bytes.len() <= max_bytes).then_some(bytes)
 }
 
 /// Fetches, decrypts and classifies one pushed event with an already logged-in `client`. `sync_keys`: when the key is missing, run one
@@ -313,6 +373,17 @@ pub fn run(
     run_for(BUDGET, data_dir, tag, pass, room_id, event_id)
 }
 
+/// [`run`] plus the sender's picture (PNG/JPEG, at most [`AVATAR_MAX_BYTES`]) when there is one: iOS Communication Notifications.
+pub fn run_with_avatar(
+    data_dir: &Path,
+    tag: &str,
+    pass: &str,
+    room_id: &str,
+    event_id: &str,
+) -> Result<(Outcome, Option<Vec<u8>>), Fail> {
+    run_inner(BUDGET + AVATAR_BUDGET, data_dir, tag, pass, room_id, event_id, true)
+}
+
 /// [`run`] with another time budget (Android: onMessageReceived has about 10 s).
 pub fn run_for(
     budget: Duration,
@@ -322,31 +393,53 @@ pub fn run_for(
     room_id: &str,
     event_id: &str,
 ) -> Result<Outcome, Fail> {
+    run_inner(budget, data_dir, tag, pass, room_id, event_id, false).map(|(o, _)| o)
+}
+
+fn run_inner(
+    budget: Duration,
+    data_dir: &Path,
+    tag: &str,
+    pass: &str,
+    room_id: &str,
+    event_id: &str,
+    avatar: bool,
+) -> Result<(Outcome, Option<Vec<u8>>), Fail> {
     let dir = data_dir.join(store_path(tag).ok_or(Fail::BadInput)?);
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|_| Fail::Net)?
         .block_on(async {
-            tokio::time::timeout(budget, fetch(&dir, pass, room_id, event_id))
+            tokio::time::timeout(budget, fetch(&dir, pass, room_id, event_id, avatar))
                 .await
                 .unwrap_or(Err(Fail::Net))
         })
+}
+
+/// The room name when the room is a group: any name that is not the sender's own (same rule as the body prefix in [`shown`]).
+fn group_name<'a>(sender: &str, room: Option<&'a str>) -> Option<&'a str> {
+    room.filter(|r| !r.trim().is_empty() && *r != sender)
 }
 
 fn to_json(o: &Outcome) -> Value {
     match o {
         Outcome::Message { sender, sender_id, body, room } => {
             let s = shown(sender, sender_id, room.as_deref(), body);
-            json!({"kind": "message", "title": s.title, "subtitle": s.subtitle, "body": s.body})
+            // `text`: the body without the room prefix, for the group intent (iOS shows the group name itself).
+            json!({"kind": "message", "title": s.title, "subtitle": s.subtitle, "body": s.body, "text": trim_body(body),
+                   "sender_id": sender_id, "group": group_name(sender, room.as_deref())})
         }
-        Outcome::Other { sender, .. } => json!({"kind": "other", "title": sender}),
+        Outcome::Other { sender, sender_id, room } => {
+            json!({"kind": "other", "title": sender, "sender_id": sender_id, "group": group_name(sender, room.as_deref())})
+        }
         Outcome::Encrypted => json!({"kind": "encrypted"}),
         Outcome::Suppress => json!({"kind": "suppress"}),
     }
 }
 
-/// C ABI. Returns 0 and a malloc'd JSON `{kind, title?, subtitle?, body?}` in `*out`, or 1 with `*out` NULL (the shell then shows
+/// C ABI. Returns 0 and a malloc'd JSON `{kind, title?, subtitle?, body?, text?, sender_id?, group?}` in `*out` (and, when the sender
+/// has a picture, its bytes in `*avatar`/`*avatar_len`, freed with [`gnobbi_nse_free_bytes`]), or 1 with `*out` NULL (the shell then shows
 /// the generic text). Free with [`gnobbi_nse_free`]. `data_dir` is the App Group data dir (`.../Library/Application Support/Gnobbi`).
 ///
 /// # Safety
@@ -359,20 +452,42 @@ pub unsafe extern "C" fn gnobbi_nse_fetch(
     room: *const c_char,
     event: *const c_char,
     out: *mut *mut c_char,
+    avatar: *mut *mut u8,
+    avatar_len: *mut usize,
 ) -> i32 {
-    unsafe { *out = std::ptr::null_mut() };
+    unsafe {
+        *out = std::ptr::null_mut();
+        *avatar = std::ptr::null_mut();
+        *avatar_len = 0;
+    }
     let s = |p: *const c_char| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
     let (dir, tag, pass, room, event) = (s(data_dir), s(tag), s(pass), s(room), s(event));
-    match std::panic::catch_unwind(|| run(Path::new(&dir), &tag, &pass, &room, &event)) {
-        Ok(Ok(o)) => {
+    match std::panic::catch_unwind(|| run_with_avatar(Path::new(&dir), &tag, &pass, &room, &event)) {
+        Ok(Ok((o, picture))) => {
             unsafe {
                 *out = CString::new(to_json(&o).to_string())
                     .unwrap_or_default()
                     .into_raw()
             };
+            if let Some(bytes) = picture {
+                let boxed = bytes.into_boxed_slice();
+                unsafe {
+                    *avatar_len = boxed.len();
+                    *avatar = Box::into_raw(boxed) as *mut u8;
+                }
+            }
             0
         }
         _ => 1,
+    }
+}
+
+/// # Safety
+/// `p`/`len` come from the `avatar` out parameters of [`gnobbi_nse_fetch`] (or `p` is NULL).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gnobbi_nse_free_bytes(p: *mut u8, len: usize) {
+    if !p.is_null() {
+        drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, len)) })
     }
 }
 
@@ -554,7 +669,13 @@ mod tests {
         assert_eq!((s.title.as_str(), s.subtitle.as_deref()), ("Mario Rossi 🇮🇹", Some(id.as_str())));
         // JSON handed to the Swift shell
         let j = to_json(&Outcome::Message { sender: "Ann".into(), sender_id: "@a:h".into(), body: "\n\nhi\n\n\nyo".into(), room: Some("Team".into()) });
-        assert_eq!(j, json!({"kind": "message", "title": "Ann", "subtitle": "@a:h", "body": "Team: hi\nyo"}));
+        assert_eq!(
+            j,
+            json!({"kind": "message", "title": "Ann", "subtitle": "@a:h", "body": "Team: hi\nyo", "text": "hi\nyo", "sender_id": "@a:h", "group": "Team"})
+        );
+        // DM (room named like the sender) or no room: not a group
+        let dm = to_json(&Outcome::Other { sender: "Ann".into(), sender_id: "@a:h".into(), room: Some("Ann".into()) });
+        assert_eq!(dm, json!({"kind": "other", "title": "Ann", "sender_id": "@a:h", "group": null}));
     }
 
     #[test]
@@ -577,5 +698,44 @@ mod tests {
             ),
             Err(Fail::BadInput)
         );
+    }
+
+    #[test]
+    fn avatar_uri_from_member_or_profile() {
+        assert_eq!(avatar_uri(&json!({"content": {"avatar_url": "mxc://h/abc"}})).as_deref(), Some("mxc://h/abc"));
+        assert_eq!(avatar_uri(&json!({"avatar_url": "mxc://h/abc"})).as_deref(), Some("mxc://h/abc"));
+        for none in [json!({}), json!({"avatar_url": ""}), json!({"avatar_url": "https://h/x.png"}), json!({"avatar_url": null})] {
+            assert_eq!(avatar_uri(&none), None, "{none}");
+        }
+    }
+
+    #[test]
+    fn picture_must_be_png_or_jpeg_within_the_cap() {
+        let png = [&[0x89u8, b'P', b'N', b'G'][..], &[0; 10]].concat();
+        let jpg = [&[0xFFu8, 0xD8, 0xFF][..], &[0; 10]].concat();
+        assert_eq!(plausible_picture(png.clone(), 100), Some(png.clone()));
+        assert_eq!(plausible_picture(jpg.clone(), 100), Some(jpg));
+        assert_eq!(plausible_picture(png.clone(), png.len() - 1), None); // over the cap
+        assert_eq!(plausible_picture(b"<html>not found".to_vec(), 100), None); // junk
+        assert_eq!(plausible_picture(vec![], 100), None);
+    }
+
+    #[test]
+    fn failure_leaves_both_abi_outputs_empty() {
+        // no store: failure (generic text), the avatar out parameters stay empty
+        let c = |s: &str| CString::new(s).unwrap();
+        let (dir, tag, pass, room, ev) = (c("/nonexistent"), c("9:9:profile"), c("p"), c("!r:h"), c("$e"));
+        let (mut out, mut av, mut len) = (std::ptr::null_mut(), std::ptr::null_mut(), 7usize);
+        let rc = unsafe { gnobbi_nse_fetch(dir.as_ptr(), tag.as_ptr(), pass.as_ptr(), room.as_ptr(), ev.as_ptr(), &mut out, &mut av, &mut len) };
+        assert_eq!((rc, out.is_null(), av.is_null(), len), (1, true, true, 0));
+    }
+
+    #[test]
+    fn avatar_bytes_are_freed_with_their_length() {
+        let b = vec![1u8, 2, 3].into_boxed_slice();
+        let len = b.len();
+        let p = Box::into_raw(b) as *mut u8;
+        unsafe { gnobbi_nse_free_bytes(p, len) };
+        unsafe { gnobbi_nse_free_bytes(std::ptr::null_mut(), 0) };
     }
 }
