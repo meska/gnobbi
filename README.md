@@ -19,7 +19,13 @@ Caratteristiche principali:
 - crittografia end-to-end tramite il [Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk) ufficiale;
 - interfaccia nativa Wayland (e X11) su Linux; build per macOS e Windows.
 
-**Stato: sviluppo iniziale.** Non ci sono ancora release o binari pubblici: il progetto si compila dai sorgenti e l'interfaccia è in continua evoluzione.
+**Stato: beta.** L'interfaccia è in continua evoluzione.
+
+## Provalo
+
+- **iPhone e iPad:** beta pubblica su [TestFlight](https://testflight.apple.com/join/ZGYennpy).
+- **macOS, Windows, Linux:** binari nelle [release](https://github.com/meska/gnobbi/releases).
+- Oppure compila dai sorgenti (vedi sotto).
 
 ## Traduzioni
 
