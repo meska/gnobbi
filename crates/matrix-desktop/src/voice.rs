@@ -46,6 +46,7 @@ pub fn voice_attachment(samples: &[i16], sample_rate: u32, upload_limit: u64) ->
             duration_ms: samples.len() as u64 * 1000 / u64::from(sample_rate),
             waveform,
         }),
+        ..Default::default()
     })
 }
 

@@ -85,12 +85,38 @@ pub fn markdown_content(
 }
 
 /// File or image sent with the request body as caption.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Attachment {
     pub filename: String,
     pub data: Vec<u8>,
     /// Set for a recorded voice note: sent with the voice markers, duration and waveform.
     pub voice: Option<Voice>,
+    pub delivery: Delivery,
+    /// Set on each item of an album (see docs: N consecutive media events sharing one id).
+    pub album: Option<Album>,
+}
+
+/// How a picture or video leaves: as picked, downscaled to `COMPRESSED_SIDE`, or as a plain `m.file`.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum Delivery {
+    #[default]
+    Original,
+    Compressed,
+    File,
+}
+
+/// Longest side of a compressed picture, in pixels.
+pub const COMPRESSED_SIDE: u32 = 2560;
+
+/// Key of the namespaced field every album item carries; other clients ignore unknown content keys.
+pub const ALBUM_KEY: &str = "chat.gnobbi.album";
+
+/// Position of an item in an album: all items share `id`; `index` counts from 0 and `count` is the album size.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Album {
+    pub id: String,
+    pub index: u8,
+    pub count: u8,
 }
 
 #[derive(Clone)]
@@ -169,6 +195,24 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(super::image_size(&png), Some((5, 3)));
         assert_eq!(super::image_size(b"not an image"), None);
+    }
+
+    #[test]
+    fn downscale_shrinks_only_big_jpeg_and_png() {
+        let encode = |w, h, format| {
+            let mut out = Vec::new();
+            image::DynamicImage::new_rgb8(w, h).write_to(&mut std::io::Cursor::new(&mut out), format).unwrap();
+            out
+        };
+        let big = encode(3000, 40, image::ImageFormat::Png);
+        let small = super::downscale(&big).unwrap();
+        assert_eq!(super::image_size(&small), Some((super::COMPRESSED_SIDE, 34)));
+        assert!(small.len() < big.len());
+        let jpeg = encode(2000, 3000, image::ImageFormat::Jpeg);
+        assert_eq!(super::image_size(&super::downscale(&jpeg).unwrap()), Some((1707, super::COMPRESSED_SIDE)));
+        assert!(super::downscale(&encode(100, 100, image::ImageFormat::Png)).is_none(), "small: untouched");
+        assert!(super::downscale(&two_frame_gif(3000, 10)).is_none(), "GIF keeps its frames");
+        assert!(super::downscale(b"not an image").is_none());
     }
 
     /// A two-frame GIF, red then blue.
@@ -585,30 +629,39 @@ pub(crate) async fn send_attachment(
 ) -> Result<EventId, SendError> {
     use matrix_sdk::{
         attachment::{AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo},
-        ruma::events::room::message::TextMessageEventContent,
     };
     use matrix_sdk_ui::timeline::AttachmentConfig;
     let transaction: matrix_sdk::ruma::OwnedTransactionId = request.transaction_id.as_str().into();
     // shortcut: no total-upload progress, add when the timeline shows uploads; only a GIF gets a client thumbnail
-    let mime = mime_guess::from_path(&file.filename).first_or_octet_stream();
+    let mut mime = mime_guess::from_path(&file.filename).first_or_octet_stream();
+    let mut data = std::borrow::Cow::Borrowed(file.data.as_slice());
+    if file.delivery == Delivery::Compressed
+        && let Some(smaller) = compress_picture(&file.data).await
+    {
+        data = smaller.into();
+    }
+    // The SDK picks the message type from the content type alone; a generic one makes a picture or video a plain m.file.
+    if file.delivery == Delivery::File && matches!(mime.type_().as_str(), "image" | "video" | "audio") {
+        mime = mime_guess::mime::APPLICATION_OCTET_STREAM;
+    }
     let mut config = AttachmentConfig { txn_id: Some(transaction), ..Default::default() };
+    let size = u32::try_from(data.len()).ok().map(Into::into);
     if let Some(voice) = &file.voice {
         config.info = Some(AttachmentInfo::Voice(BaseAudioInfo {
             duration: Some(std::time::Duration::from_millis(voice.duration_ms)),
             waveform: Some(voice.waveform.clone()),
-            size: u32::try_from(file.data.len()).ok().map(Into::into),
+            size,
         }));
     } else if mime.type_().as_str() == "image"
-        && let Some((w, h)) = image_size(&file.data)
+        && let Some((w, h)) = image_size(&data)
     {
         config.info = Some(AttachmentInfo::Image(BaseImageInfo {
             width: Some(w.into()),
             height: Some(h.into()),
-            size: u32::try_from(file.data.len()).ok().map(Into::into),
+            size,
             ..Default::default()
         }));
     } else {
-        let size = u32::try_from(file.data.len()).ok().map(Into::into);
         // An image whose header does not parse is still an m.image, whose info is image info.
         config.info = Some(if mime.type_().as_str() == "image" {
             AttachmentInfo::Image(BaseImageInfo { size, ..Default::default() })
@@ -617,12 +670,49 @@ pub(crate) async fn send_attachment(
         });
     }
     if mime == mime_guess::mime::IMAGE_GIF {
-        config.thumbnail = gif_thumbnail(&file.data);
+        config.thumbnail = gif_thumbnail(&data);
     }
     if !request.body.trim().is_empty() {
-        config.caption = Some(TextMessageEventContent::plain(&request.body));
+        // The caption is the composer text: markdown and mentions like a text message.
+        let caption = markdown_content(&request.body, &request.mentions);
+        config.mentions = caption.mentions;
+        if let matrix_sdk::ruma::events::room::message::MessageType::Text(text) = caption.msgtype {
+            config.caption = Some(text);
+        }
     }
-    queue_attachment_waiting(client, room, timeline, (file.filename.clone(), file.data.clone()), mime, config).await
+    if let Some(album) = &file.album {
+        config.extra_content = Some(serde_json::Map::from_iter([(
+            ALBUM_KEY.to_owned(),
+            serde_json::json!({ "id": album.id, "index": album.index, "count": album.count }),
+        )]));
+    }
+    queue_attachment_waiting(client, room, timeline, (file.filename.clone(), data.into_owned()), mime, config).await
+}
+
+/// The picture downscaled to `COMPRESSED_SIDE` (same format, metadata gone); `None` when it is small enough, not a
+/// JPEG or PNG, or unreadable: those go out as they are. Decoding runs off the async threads.
+#[cfg(feature = "sdk")]
+async fn compress_picture(data: &[u8]) -> Option<Vec<u8>> {
+    let data = data.to_vec();
+    tokio::task::spawn_blocking(move || downscale(&data)).await.ok()?
+}
+
+#[cfg(feature = "sdk")]
+fn downscale(data: &[u8]) -> Option<Vec<u8>> {
+    use image::ImageFormat::{Jpeg, Png};
+    let format = image::guess_format(data).ok().filter(|f| matches!(f, Jpeg | Png))?;
+    let (w, h) = image_size(data)?;
+    if w.max(h) <= COMPRESSED_SIDE {
+        return None;
+    }
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(data), format);
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(512 << 20);
+    reader.limits(limits);
+    let small = reader.decode().ok()?.resize(COMPRESSED_SIDE, COMPRESSED_SIDE, image::imageops::FilterType::Triangle);
+    let mut out = Vec::new();
+    small.write_to(&mut std::io::Cursor::new(&mut out), format).ok()?;
+    (out.len() < data.len()).then_some(out)
 }
 
 /// An attachment through the room's SDK send queue (local echo, upload and event in the queue; the

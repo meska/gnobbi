@@ -185,7 +185,7 @@ fn disposable_gif_goes_out_animated_and_joins_the_stickers_with_its_mxc() {
         crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
         let scope = RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(&room) };
         let gif = two_frame_gif(400, 300);
-        let request = SendRequest { scope: scope.clone(), transaction_id: fresh_transaction_id(), body: String::new(), attachment: Some(Attachment { filename: "gatto felice.gif".into(), data: gif.clone(), voice: None }), poll: None, mentions: Vec::new() };
+        let request = SendRequest { scope: scope.clone(), transaction_id: fresh_transaction_id(), body: String::new(), attachment: Some(Attachment { filename: "gatto felice.gif".into(), data: gif.clone(), voice: None, ..Default::default() }), poll: None, mentions: Vec::new() };
         let sent = send_text(&client, account, &request).await.expect("gif sent");
         let event = |id: String| { let (config, room) = (config.clone(), room.clone()); async move { room_request(&config, "alice", reqwest::Method::GET, &format!("rooms/{room}/event/{id}"), serde_json::json!({})).await } };
         let raw = event(sent.as_str().to_owned()).await;

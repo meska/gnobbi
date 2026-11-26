@@ -23,7 +23,7 @@ use matrix_engine::{
         sliding_sync::VersionBuilder,
     },
     sdk_ui::sync_service::SyncService,
-    sending::{Attachment, SendRequest, Voice, fresh_transaction_id, send_text},
+    sending::{Album, Attachment, Delivery, SendRequest, Voice, fresh_transaction_id, send_text},
 };
 use std::time::{Duration, Instant};
 
@@ -73,6 +73,17 @@ async fn send(
     data: &[u8],
     voice: Option<Voice>,
 ) {
+    send_as(client, room, body, name, data, Attachment { voice, ..Default::default() }).await
+}
+
+async fn send_as(
+    client: &Client,
+    room: &matrix_engine::sdk::Room,
+    body: &str,
+    name: &str,
+    data: &[u8],
+    extra: Attachment,
+) {
     let request = SendRequest {
         scope: RoomScope {
             account_id: AccountId::new(1),
@@ -83,7 +94,7 @@ async fn send(
         attachment: Some(Attachment {
             filename: name.to_owned(),
             data: data.to_vec(),
-            voice,
+            ..extra
         }),
         poll: None,
         mentions: Vec::new(),
@@ -185,6 +196,56 @@ fn app_sends_image_file_and_voice_note_plain_and_encrypted() {
             let wav = b"RIFF....WAVEfmt synthetic".to_vec();
             let voice = Voice { duration_ms: 2500, waveform: vec![0.0, 0.5, 1.0] };
             send(&a, &room_a, "", "nota-vocale.wav", &wav, Some(voice)).await;
+
+            // Album: three pictures, the caption on the last, each a valid m.image carrying the album marker.
+            for index in 0..3u8 {
+                let caption = if index == 2 { "didascalia album" } else { "" };
+                let album = Some(Album { id: "album-1".into(), index, count: 3 });
+                send_as(&a, &room_a, caption, &format!("album-{index}.png"), &image, Attachment { album, ..Default::default() }).await;
+            }
+            // One picture «as file»: an m.file with the original bytes.
+            send_as(&a, &room_a, "", "originale.png", &image, Attachment { delivery: Delivery::File, ..Default::default() }).await;
+            let wait_name = |name: &'static str| {
+                let events = events.clone();
+                let sender = alice.to_string();
+                async move {
+                    let start = Instant::now();
+                    loop {
+                        if let Ok(list) = events.events().await {
+                            for event in list {
+                                let v: serde_json::Value = serde_json::from_str(event.raw().json().get()).unwrap();
+                                let c = &v["content"];
+                                if v["sender"] == sender.as_str() && (c["filename"] == name || c["body"] == name) {
+                                    return c.clone();
+                                }
+                            }
+                        }
+                        assert!(start.elapsed() < Duration::from_secs(90), "timeout: {name}");
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
+                }
+            };
+            let mut ids = Vec::new();
+            for index in 0..3u8 {
+                let item = wait_name(["album-0.png", "album-1.png", "album-2.png"][index as usize]).await;
+                assert_eq!(item["msgtype"], "m.image", "{item}");
+                assert_eq!(item["info"]["mimetype"], "image/png");
+                assert_eq!(item.get("file").is_some(), encrypted);
+                assert_eq!(item["chat.gnobbi.album"], serde_json::json!({ "id": "album-1", "index": index, "count": 3 }), "{item}");
+                let expected = if index == 2 { "didascalia album".to_owned() } else { format!("album-{index}.png") };
+                assert_eq!(item["body"], expected.as_str());
+                let source: MediaSource = serde_json::from_value(item).unwrap();
+                let bytes = b.media().get_media_content(&MediaRequestParameters { source, format: MediaFormat::File }, false).await.unwrap();
+                assert_eq!(bytes, image);
+                ids.push(index);
+            }
+            assert_eq!(ids, [0, 1, 2]);
+            let plain = wait_name("originale.png").await;
+            assert_eq!(plain["msgtype"], "m.file", "{plain}");
+            assert!(plain.get("chat.gnobbi.album").is_none());
+            let source: MediaSource = serde_json::from_value(plain).unwrap();
+            let bytes = b.media().get_media_content(&MediaRequestParameters { source, format: MediaFormat::File }, false).await.unwrap();
+            assert_eq!(bytes, image, "the file is not recompressed");
 
             let img = wait_message(&events, alice.as_str(), "m.image").await["content"].clone();
             assert_eq!(img["body"], "didascalia immagine");

@@ -89,7 +89,7 @@ fn request(room: &Room, tx: &str, name: &str, data: &[u8]) -> SendRequest {
         scope: RoomScope { account_id: account(), room_id: RoomId::new(room.room_id().as_str()) },
         transaction_id: TransactionId::new(tx),
         body: String::new(),
-        attachment: Some(Attachment { filename: name.into(), data: data.to_vec(), voice: None }),
+        attachment: Some(Attachment { filename: name.into(), data: data.to_vec(), voice: None, ..Default::default() }),
         poll: None,
         mentions: Vec::new(),
     }

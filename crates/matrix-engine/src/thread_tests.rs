@@ -169,7 +169,7 @@ fn disposable_thread_composer_sends_into_the_thread() {
         let plain = sync.send_in_thread(&scope, &root_id, None, "plain in thread", None).await.unwrap();
         let answer = sync.send_in_thread(&scope, &root_id, Some(&first_id), "answer to one", None).await.unwrap();
         // A voice note takes the attachment path: still an event of the thread.
-        let note = crate::sending::Attachment { filename: "note.ogg".into(), data: b"OggS not really audio".to_vec(), voice: Some(crate::sending::Voice { duration_ms: 1200, waveform: vec![0.1, 0.9] }) };
+        let note = crate::sending::Attachment { filename: "note.ogg".into(), data: b"OggS not really audio".to_vec(), voice: Some(crate::sending::Voice { duration_ms: 1200, waveform: vec![0.1, 0.9] }), ..Default::default() };
         let voice = sync.send_in_thread(&scope, &root_id, None, "", Some(&note)).await.unwrap();
         // The other account reads what the server holds.
         let seen = |id: matrix_domain::EventId| {

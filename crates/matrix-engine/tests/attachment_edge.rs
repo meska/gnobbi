@@ -79,6 +79,7 @@ fn request(
             filename: name.to_owned(),
             data,
             voice,
+            ..Default::default()
         }),
         poll: None,
         mentions: Vec::new(),

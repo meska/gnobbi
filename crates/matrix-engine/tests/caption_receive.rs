@@ -191,7 +191,7 @@ fn caption_received_plain_and_encrypted() {
                 async move {
                     let request = SendRequest {
                         scope, transaction_id: fresh_transaction_id(), body: body.into(),
-                        attachment: Some(Attachment { filename: name.into(), data, voice: None }), poll: None, mentions: Vec::new(),
+                        attachment: Some(Attachment { filename: name.into(), data, voice: None, ..Default::default() }), poll: None, mentions: Vec::new(),
                     };
                     let start = Instant::now();
                     loop {

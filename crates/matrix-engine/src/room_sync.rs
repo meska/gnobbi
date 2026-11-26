@@ -92,7 +92,7 @@ impl RoomListWorker {
             crate::bounded(std::num::NonZeroUsize::new(8).unwrap());
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (send_commands, mut sends) =
-            crate::bounded::<crate::sending::SendRequest>(std::num::NonZeroUsize::new(8).unwrap());
+            crate::bounded::<crate::sending::SendRequest>(std::num::NonZeroUsize::new(16).unwrap()); // room for a ten-file album
         let (mut send_results, send_events) =
             crate::bounded(std::num::NonZeroUsize::new(8).unwrap());
         let (operation_commands, mut operations) =
