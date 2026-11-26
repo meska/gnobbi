@@ -102,6 +102,12 @@ pub enum RoomAction {
     RemoveFrom(matrix_domain::RoomScope),
 }
 
+/// Files read from disk: `(for the thread's composer, [(name, bytes or None when unreadable / too big)])`.
+type FileBatch = (bool, Vec<(Option<String>, Option<Vec<u8>>)>);
+
+/// Pages of older history one viewer opening (or step) may load by itself: it must not walk a whole chat for one picture.
+const VIEWER_PAGES: u8 = 2;
+
 /// An attachment on its way out.
 pub struct Upload {
     pub id: matrix_domain::TransactionId,
@@ -173,6 +179,13 @@ pub struct Session {
     audio_wave: Vec<f32>,
     /// Attachments going out, shown as cards with their progress until the server has them (or the user cancels).
     pub uploads: Vec<Upload>,
+    /// Requests the send route had no room for yet: they go out in order as it frees up.
+    outgoing: std::collections::VecDeque<matrix_engine::sending::SendRequest>,
+    /// Files being read off the UI thread: batches (`thread`, files) arrive here; `reads` counts the batches on their way.
+    files_in: (std::sync::mpsc::Sender<FileBatch>, std::sync::mpsc::Receiver<FileBatch>),
+    reads: usize,
+    /// Pages of older history the open viewer already asked for (it stops asking after `VIEWER_PAGES`).
+    viewer_pages: u8,
     /// Cancel and progress of the sends, filled once the worker's session is up.
     send_control: matrix_engine::sending::ControlSlot,
     /// The file a card asked to open: its download ends in the system opener, with no viewer in between.
@@ -387,6 +400,10 @@ impl Session {
             audio: None,
             audio_wave: Vec::new(),
             uploads: Vec::new(),
+            outgoing: Default::default(),
+            files_in: std::sync::mpsc::channel(),
+            reads: 0,
+            viewer_pages: 0,
             send_control,
             opening_file: None,
             opener: None,
@@ -790,6 +807,7 @@ impl Session {
             changed = true;
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
+        if self.reads > 0 { ctx.request_repaint_after(std::time::Duration::from_millis(50)); }
         if self.media.transfer().is_some() { changed = true; }
         if let Some(rx) = &self.opener && let Ok(ok) = rx.try_recv() {
             self.opener = None;
@@ -936,12 +954,20 @@ impl Session {
             self.draft_scope = scope;
         }
         changed |= self.drive_operations();
+        changed |= self.flush_outgoing();
+        changed |= self.take_files();
         if let Some((_, rx)) = &mut self.send {
             // Outcomes show up as the message's own row once the live view refreshes (S5: no separate failure UI yet); an upload's card goes away.
             while let Ok(event) = rx.try_recv() {
                 use matrix_engine::sending::{SendEvent, SendNotice};
                 let done = match event {
-                    SendEvent::Result(r) => Some(r.transaction_id),
+                    SendEvent::Result(r) => {
+                        // A file that did not go out says so: its card was the only sign of it.
+                        if let Err(e) = &r.result && *e != matrix_engine::sending::SendError::Cancelled && self.uploads.iter().any(|u| u.id == r.transaction_id) {
+                            self.notice = Some(i18n::t(if *e == matrix_engine::sending::SendError::TooLarge { "File too large for the server" } else { "File not sent" }).to_owned());
+                        }
+                        Some(r.transaction_id)
+                    }
                     SendEvent::Notice { transaction_id, notice: SendNotice::Cancelled, .. } => Some(transaction_id),
                     SendEvent::Notice { .. } => None,
                 };
@@ -982,7 +1008,9 @@ impl Session {
             }
         }
         if self.pending.is_none() && self.messages.is_some() {
-            self.pending = if self.unread_pending() { self.unread_history_step() } else { self.history.load_older_near_top(if self.search_jump.is_some() || self.viewer_wants_older() { 0 } else { self.first_visible }) };
+            let older = self.viewer_wants_older();
+            self.pending = if self.unread_pending() { self.unread_history_step() } else { self.history.load_older_near_top(if self.search_jump.is_some() || older { 0 } else { self.first_visible }) };
+            if older && self.pending.is_some() { self.viewer_pages += 1; }
         }
         if let (Some(request), Some((tx, _))) = (self.pending.take(), &mut self.route) {
             if let Err(e) = tx.try_send(request) {
@@ -1936,6 +1964,7 @@ impl Session {
     pub fn open_viewer(&mut self, id: EventId, video: bool, name: String) {
         let Some(scope) = self.draft_scope.clone() else { return };
         self.media.cancel_original();
+        self.viewer_pages = 0;
         if !video { self.media.request_original(scope, id.clone()); }
         self.viewer = Some(crate::viewer::Viewer::new(id, video, name));
     }
@@ -1954,7 +1983,7 @@ impl Session {
 
     /// The viewer is near the oldest loaded picture: the chat may load an older page.
     fn viewer_wants_older(&self) -> bool {
-        self.viewer.as_ref().is_some_and(|v| v.near_start(&self.viewer_items()))
+        self.viewer_pages < VIEWER_PAGES && self.viewer.as_ref().is_some_and(|v| v.near_start(&self.viewer_items()))
     }
 
     /// Test hook: the first picture of the loaded chat.
@@ -1971,6 +2000,7 @@ impl Session {
 
     fn viewer_go(&mut self, item: &crate::viewer::Item) {
         self.media.cancel_original();
+        self.viewer_pages = 0;
         if let Some(viewer) = &mut self.viewer { viewer.go(item); }
         if !item.video && let Some(scope) = self.draft_scope.clone() { self.media.request_original(scope, item.id.clone()); }
     }
@@ -2024,14 +2054,34 @@ impl Session {
     /// (50 MB until it is known). A file that cannot be read or does not fit is reported and skipped.
     /// `thread`: for the open thread's composer instead of the room's.
     pub fn attach_all(&mut self, paths: &[std::path::PathBuf], thread: bool) {
-        for path in paths {
-            let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
-            let data = std::fs::metadata(path).ok().filter(|m| 0 < m.len() && m.len() <= self.upload_limit.unwrap_or(50 << 20)).and_then(|_| std::fs::read(path).ok());
-            match (name, data) {
-                (Some(name), Some(data)) => self.add_attachment(thread, name, data),
-                _ => self.notice = Some(i18n::t("File cannot be attached").to_owned()),
+        if paths.is_empty() { return; }
+        let (paths, limit, tx) = (paths.to_vec(), self.upload_limit.unwrap_or(50 << 20), self.files_in.0.clone());
+        self.reads += 1;
+        // Off the UI thread: a file may be as big as the server's limit.
+        std::thread::spawn(move || {
+            let files = paths.iter().map(|path| {
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+                let data = std::fs::metadata(path).ok().filter(|m| 0 < m.len() && m.len() <= limit).and_then(|_| std::fs::read(path).ok());
+                (name, data)
+            }).collect();
+            let _ = tx.send((thread, files));
+        });
+    }
+
+    /// The files read in the background join the previews, in the order they were picked.
+    fn take_files(&mut self) -> bool {
+        let mut changed = false;
+        while let Ok((thread, files)) = self.files_in.1.try_recv() {
+            self.reads = self.reads.saturating_sub(1);
+            changed = true;
+            for (name, data) in files {
+                match (name, data) {
+                    (Some(name), Some(data)) => self.add_attachment(thread, name, data),
+                    _ => self.notice = Some(i18n::t("File cannot be attached").to_owned()),
+                }
             }
         }
+        changed
     }
 
     pub fn attach(&mut self, path: &std::path::Path, thread: bool) {
@@ -2075,7 +2125,8 @@ impl Session {
                 false
             }
         };
-        self.notice = full.then(|| i18n::t("At most 10 files").to_owned());
+        // Only a problem sets the notice: a file added after a refused one must not wipe its warning.
+        if full { self.notice = Some(i18n::t("At most 10 files").to_owned()); }
     }
 
     /// A voice note ready to go out.
@@ -2210,11 +2261,31 @@ impl Session {
                 mentions: if i == last { std::mem::take(&mut mentions) } else { Vec::new() },
             };
             let card = request.attachment.as_ref().filter(|a| a.voice.is_none()).map(|a| Upload { id: request.transaction_id.clone(), name: a.filename.clone(), sent: 0, total: a.data.len() as u64 });
-            if tx.try_send(request).is_ok() {
-                self.history.activity(&scope);
-                self.uploads.extend(card);
+            self.history.activity(&scope);
+            self.uploads.extend(card);
+            self.outgoing.push_back(request);
+        }
+        self.flush_outgoing();
+    }
+
+    /// Hands the waiting requests to the send route, in order, until it is full (the rest wait for the next frame).
+    fn flush_outgoing(&mut self) -> bool {
+        let Some((tx, _)) = &mut self.send else { return false };
+        let before = self.outgoing.len();
+        while let Some(request) = self.outgoing.pop_front() {
+            match tx.try_send(request) {
+                Ok(()) => {}
+                Err(matrix_engine::TrySendError::Full(r) | matrix_engine::TrySendError::Busy(r)) => {
+                    self.outgoing.push_front(r);
+                    break;
+                }
+                Err(matrix_engine::TrySendError::Closed(r)) => {
+                    self.uploads.retain(|u| u.id != r.transaction_id);
+                    self.notice = Some(i18n::t("File not sent").to_owned());
+                }
             }
         }
+        before != self.outgoing.len()
     }
 
     /// The download of a file now running, `(file, bytes received, declared size)`.
@@ -2238,8 +2309,10 @@ impl Session {
     /// Withdraws an upload: the one running stops, one waiting for its turn never starts.
     pub fn cancel_upload(&mut self, id: &matrix_domain::TransactionId) {
         if let Some(control) = self.send_control.lock().unwrap().as_ref() {
-            control.cancel(id);
+            control.cancel_upload(id);
         }
+        // One that never reached the send route is simply dropped.
+        self.outgoing.retain(|r| &r.transaction_id != id);
         self.uploads.retain(|u| &u.id != id);
     }
 

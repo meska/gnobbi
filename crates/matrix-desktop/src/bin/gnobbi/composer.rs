@@ -211,6 +211,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, mut a
                 crate::attach::SheetRow::Media | crate::attach::SheetRow::File => {
                     ui.data_mut(|d| d.insert_temp(asker, thread));
                     let media = r == crate::attach::SheetRow::Media;
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new("composer-attach-media"), media));
                     crate::pick::start_many(ui.ctx(), i18n::t(if media { "Photo or video" } else { "Attach a file" }), media);
                 }
                 crate::attach::SheetRow::Poll => *poll = true,
@@ -224,7 +225,9 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, mut a
         if attach_acts.add {
             attach_acts.add = false;
             ui.data_mut(|d| d.insert_temp(asker, thread));
-            crate::pick::start_many(ui.ctx(), i18n::t("Attach a file"), false);
+            // The picker that began the series, so a phone adds the next photo from the library and not from Files.
+            let media = ui.data(|d| d.get_temp::<bool>(egui::Id::new("composer-attach-media"))).unwrap_or(false);
+            crate::pick::start_many(ui.ctx(), i18n::t(if media { "Photo or video" } else { "Attach a file" }), media);
         }
         // Stays open on clicks inside (tabs, search, pack bar); a picked emoji or sticker closes it itself.
         let mut popup = egui::Popup::menu(&emoji).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
