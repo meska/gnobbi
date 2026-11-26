@@ -4,9 +4,6 @@
 - **Android**: the same egui interface as desktop and iOS. Remaining: attachments and sharing, app icon, and end-to-end push notifications through a push gateway.
 - **iOS**: continuous internal TestFlight builds. External testing waits for a stable build.
 - **Repository cleanup** ahead of wider public use.
-- **Unified chat list** across several accounts ("Unread" and "All chats").
-- **Global message search** across all chats.
-- **Send feedback** from the app, opening a direct message with diagnostics prefilled.
 - **Share into Gnobbi** from other apps, Android first, then iOS.
 
 ## Next
@@ -18,13 +15,24 @@
 
 ## Later
 - **Voice and video calls** using MatrixRTC, compatible with Element Call. A feasibility spike comes first.
-- **Stickers**: animated stickers, space packs, a settings entry.
+- **Stickers**: space packs, a settings entry.
 
 ## Not planned
 - In-app auto-update: updates come from app stores and GitHub Releases.
 - Non-standard protocols or formats, and Element's integration manager or identity server.
 
 ## Recently shipped
+- Unified chat list for all accounts, with a setting to switch it off; Unread and All chats count every account.
+- Global message search over a local encrypted index; matching messages appear under the chat list.
+- Send feedback from the account menu and Settings, with a diagnostics line prefilled.
+- Animated GIF, WebP and APNG stickers and pictures; GIFs are sent animated.
+- Avatar editor with pinch, twist and pan on touch screens.
+- Touch lists: taps register on release, a fling-stopping touch is not a tap; long press on a chat opens the room menu.
+- Room header bell for notification settings; message and chat menus with icons.
+- Mention suggestions with member photos; emoji and sticker drawer in the composer.
+- Member card with a large picture, opened from senders and mentions in the chat.
+- Notifications show the sender name, the user ID and the message text.
+- Timeline stays at the bottom when new messages or reactions arrive.
 - Room info: copy button next to each room address; long addresses are shortened.
 - Android: native Gradle shell, system bar and keyboard handling, TLS with bundled roots, push notifications with sender and text.
 - Sticker packs: create and manage, picker with recents, favourites and search, editor.
@@ -35,4 +43,4 @@
 - Crash report written at the next start after a panic.
 - Desktop releases built on GitHub Actions; the updater reads the newest GitHub Release.
 
-Last updated: 2026-11-23
+Last updated: 2026-11-26
