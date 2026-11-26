@@ -19,9 +19,10 @@ env:
   CARGO_TERM_COLOR: never
 jobs:
   gate:
+    if: github.repository == 'meska/gnobbi'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Required to read draft releases.
     outputs:
       run: ${{ steps.gate.outputs.run }}
       nightly: ${{ steps.gate.outputs.nightly }}
@@ -43,7 +44,7 @@ jobs:
           fi
           run=true
           if [[ "$nightly" == true ]]; then
-            body="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '[.[][] | select(.tag_name == "nightly") | select(([.assets[] | select(.state == "uploaded" and .size > 0) | .name] | map(select(. == "SHA256SUMS" or . == "latest.json" or endswith("-linux-x86_64.AppImage") or endswith("-linux-x86_64.tar.gz") or endswith("-windows-x64.zip") or endswith("-macos-arm64.dmg"))) | length) == 6)][0].body // ""')"
+            body="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -r '[.[][] | select(.tag_name == "nightly") | select(([.assets[] | select(.state == "uploaded" and .size > 0) | .name] | map(select(. == "SHA256SUMS" or . == "latest.json" or endswith("-linux-x86_64.AppImage") or endswith("-linux-x86_64.tar.gz") or endswith("-windows-x64.zip") or endswith("-macos-arm64.dmg"))) | length) == 6)][0].body // ""')"
             previous="$(printf '%s\n' "$body" | sed -n 's/^commit: \([0-9a-f]\{40\}\)\r\{0,1\}$/\1/p')"
             if [[ "$previous" == "$GITHUB_SHA" ]]; then run=false; fi
           fi
@@ -234,9 +235,9 @@ jobs:
             --argjson app "$(asset "$app")" --argjson tar "$(asset "$tar")" --argjson win "$(asset "$win")" --argjson mac "$(asset "$mac")" \
             '{schema:1,channel:"nightly",version:$version,build:$build,commit:$commit,commit_short:$commit[0:7],date:$date,released:$released,run:$run,artifacts:{"linux-x86_64-appimage":$app,"linux-x86_64-tar":$tar,"windows-x64-zip":$win,"macos-arm64-dmg":$mac}}' > latest.json
           printf 'commit: %s\nbuild: %s\nrun: %s\ndate: %s\ncommit_short: %s\n' "$GITHUB_SHA" "$BUILD" "$GITHUB_RUN_NUMBER" "$DATE" "${GITHUB_SHA:0:7}" > ../notes-nightly.md
-          existing="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '[.[][] | select(.tag_name == "nightly")][0].id // ""')"
-          if [ -n "$existing" ]; then gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$existing"; fi
-          tags="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/nightly" --jq '[.[][] | select(.ref == "refs/tags/nightly")] | length')"
+          existing="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -r '.[][] | select(.tag_name == "nightly") | .id')"
+          for id in $existing; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"; done
+          tags="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/nightly" | jq -r '[.[][] | select(.ref == "refs/tags/nightly")] | length')"
           if [ "$tags" -gt 0 ]; then gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly"; fi
           gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/nightly -f sha="$GITHUB_SHA" > /dev/null
           gh release create nightly ./* --draft --prerelease --latest=false --title "Gnobbi nightly $DATE · ${GITHUB_SHA:0:7} · build $BUILD" --notes-file ../notes-nightly.md --target "$GITHUB_SHA"
