@@ -722,7 +722,12 @@ impl Session {
         // Room, DM and space pictures of the list and the rail: a few per tick, so a long list does not burst the media worker.
         let mut budget = 6;
         let mut wanted: Vec<String> = ctx.data_mut(|d| d.remove_temp::<Vec<String>>(egui::Id::new(crate::avatar::MENTION_AVATARS))).unwrap_or_default();
-        wanted.extend(ctx.data_mut(|d| d.remove_temp::<Vec<String>>(egui::Id::new(crate::avatar::MEMBER_AVATARS))).unwrap_or_default());
+        let on_screen = ctx.data_mut(|d| d.remove_temp::<Vec<String>>(egui::Id::new(crate::avatar::MEMBER_AVATARS))).unwrap_or_default();
+        if !on_screen.is_empty() {
+            let lists = self.members.iter().chain(self.space_view.iter().filter_map(|v| v.members.as_ref()));
+            crate::avatar::trim_members(&mut self.avatars, lists.flat_map(|l| l.rows()).filter_map(|m| m.avatar.as_deref()), &on_screen);
+        }
+        wanted.extend(on_screen);
         wanted.extend(self.sidebar.rooms().iter().filter_map(|r| r.info.avatar.clone()));
         wanted.extend(self.sidebar.navigation_entries().into_iter().filter_map(|e| e.avatar));
         if let Some(crate::space::SpaceView { children: Some(Ok(c)), .. }) = &self.space_view { wanted.extend(c.children.iter().filter_map(|c| c.avatar_url.clone())); }
@@ -1548,7 +1553,7 @@ impl Session {
                 }
                 changed = true;
             } else if let Some(v) = &mut self.space_view && v.scope == scope {
-                v.members = Some(crate::members::MemberList::new(scope, members.unwrap_or_default(), &Default::default(), (0, 0)));
+                v.members = Some(crate::members::MemberList::new(scope, members.unwrap_or_default(), &Default::default(), (0, 0, 0)));
                 changed = true;
             }
             return changed;
@@ -1677,13 +1682,21 @@ impl Session {
         }
     }
 
-    /// (events, last timestamp) of the open room's timeline when it is `scope`'s: tells whether the member order is out of date.
-    fn timeline_mark(&self, scope: &matrix_domain::RoomScope) -> (usize, u64) {
-        self.messages.as_ref().filter(|m| m.scope() == scope).map_or((0, 0), |m| (m.events().len(), m.events().last().map_or(0, |e| e.timestamp_ms)))
+    fn receipts_of(&self, scope: &matrix_domain::RoomScope) -> &[matrix_engine::receipts::PublicReadReceipt] {
+        self.sidebar.rooms().iter().find(|r| &r.scope == scope).map_or(&[], |r| &r.info.public_read_receipts)
+    }
+
+    /// (events, last timestamp, receipts) of the open room's timeline when it is `scope`'s: tells whether the member order is out of date.
+    fn timeline_mark(&self, scope: &matrix_domain::RoomScope) -> crate::members::Mark {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.receipts_of(scope).iter().for_each(|r| (r.event_id.as_str(), r.users.iter().map(|u| &u.id).collect::<Vec<_>>()).hash(&mut h));
+        let (n, last) = self.messages.as_ref().filter(|m| m.scope() == scope).map_or((0, 0), |m| (m.events().len(), m.events().last().map_or(0, |e| e.timestamp_ms)));
+        (n, last, h.finish())
     }
 
     fn member_activity(&self, scope: &matrix_domain::RoomScope) -> crate::members::Activity {
-        self.messages.as_ref().filter(|m| m.scope() == scope).map_or_else(Default::default, |m| crate::members::activity(m.events(), &self.user))
+        self.messages.as_ref().filter(|m| m.scope() == scope).map_or_else(Default::default, |m| crate::members::activity(m.events(), self.receipts_of(scope), &self.user))
     }
 
     /// Called while the info panel is open: sorts again once per opening, and only if messages arrived since the last sort.

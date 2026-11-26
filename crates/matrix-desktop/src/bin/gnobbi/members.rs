@@ -83,13 +83,26 @@ pub fn row_h() -> f32 {
 /// user_id -> most recent message in the loaded timeline (ms). O(events), not O(members).
 pub type Activity = std::collections::HashMap<String, u64>;
 
-/// shortcut: only the loaded part of the timeline counts and there is no presence (sliding sync v5 has none); add it here if it arrives.
-pub fn activity(events: &[matrix_desktop::DemoEvent], me: &str) -> Activity {
+/// Order mark of a list: (events, last timestamp, hash of the read receipts) of the timeline it was computed with.
+pub type Mark = (usize, u64, u64);
+
+/// shortcut: only the loaded part of the timeline counts (a receipt on an event not loaded is ignored) and there is no presence (sliding sync v5 has none); add it here if it arrives.
+pub fn activity(events: &[matrix_desktop::DemoEvent], receipts: &[matrix_engine::receipts::PublicReadReceipt], me: &str) -> Activity {
+    let server = |e: &matrix_desktop::DemoEvent| match &e.id.id { matrix_domain::TimelineId::Server(id) => Some(id.as_str().to_owned()), _ => None };
+    activity_of(events.iter().map(|e| (e.sender.as_ref().map(|s| s.id.as_str()).or(e.outgoing.then_some(me)), e.timestamp_ms, server(e))), receipts)
+}
+
+/// Last message per author, and the moment of the event each user's read receipt sits on, whichever is later.
+fn activity_of<'a>(events: impl Iterator<Item = (Option<&'a str>, u64, Option<String>)>, receipts: &[matrix_engine::receipts::PublicReadReceipt]) -> Activity {
+    let readers: std::collections::HashMap<&str, &Vec<matrix_engine::history::HistorySender>> = receipts.iter().map(|r| (r.event_id.as_str(), &r.users)).collect();
     let mut a = Activity::new();
-    for e in events {
-        let Some(id) = e.sender.as_ref().map(|s| s.id.as_str()).or(e.outgoing.then_some(me)) else { continue };
+    let mut seen = |id: &str, ts: u64| {
         let t = a.entry(id.to_owned()).or_default();
-        *t = (*t).max(e.timestamp_ms);
+        *t = (*t).max(ts);
+    };
+    for (author, ts, event) in events {
+        author.into_iter().for_each(|id| seen(id, ts));
+        event.and_then(|id| readers.get(id.as_str()).copied()).into_iter().flatten().for_each(|u| seen(&u.id, ts));
     }
     a
 }
@@ -106,14 +119,14 @@ pub struct MemberList {
     /// Lowercase "name\nid" per row, for the search.
     keys: Vec<String>,
     /// (events, last timestamp) of the timeline the order was computed with.
-    mark: (usize, u64),
+    mark: Mark,
     /// Last search asked and its answer (indices into `rows`).
     query: (String, Option<String>),
     hits: Vec<u32>,
 }
 
 impl MemberList {
-    pub fn new(scope: RoomScope, rows: Vec<Member>, activity: &Activity, mark: (usize, u64)) -> Self {
+    pub fn new(scope: RoomScope, rows: Vec<Member>, activity: &Activity, mark: Mark) -> Self {
         let mut l = Self { scope, rows, duplicate: Vec::new(), keys: Vec::new(), mark, query: Default::default(), hits: Vec::new() };
         l.resort(mark, activity);
         l
@@ -131,11 +144,11 @@ impl MemberList {
         self.duplicate[i]
     }
 
-    pub fn mark(&self) -> (usize, u64) {
+    pub fn mark(&self) -> Mark {
         self.mark
     }
 
-    pub fn resort(&mut self, mark: (usize, u64), activity: &Activity) {
+    pub fn resort(&mut self, mark: Mark, activity: &Activity) {
         #[cfg(test)]
         SORTS.with(|c| c.set(c.get() + 1));
         self.rows.sort_by_cached_key(|m| matrix_domain::role::member_sort_key(m.role, activity.get(&m.user_id).copied(), &m.name));
@@ -242,7 +255,15 @@ fn menu_hook() -> bool {
 /// Tells `drive_avatars` which pictures are on screen: only those are requested.
 fn publish_avatars(ui: &egui::Ui, rows: impl Iterator<Item = Option<String>>) {
     let visible: Vec<String> = rows.flatten().collect();
-    ui.data_mut(|d| d.insert_temp(egui::Id::new(crate::avatar::MEMBER_AVATARS), visible));
+    // Added to, not replaced: a space window over a room with the info open draws two lists in one frame.
+    ui.data_mut(|d| {
+        let wanted = d.get_temp_mut_or_default::<Vec<String>>(egui::Id::new(crate::avatar::MEMBER_AVATARS));
+        for v in visible {
+            if !wanted.contains(&v) {
+                wanted.push(v);
+            }
+        }
+    });
 }
 
 /// The first `PREVIEW` members (admins and moderators come first) and «Members · N» when there are more, then «Bloccati».
@@ -303,8 +324,13 @@ pub fn page(ui: &mut egui::Ui, list: &mut MemberList, query: &mut String, promot
     let mut promote = promote;
     let mut hook = menu_hook();
     let mut visible = Vec::new();
+    if hits.is_empty() && list.len() != 0 {
+        ui.label(RichText::new(i18n::t("No results")).color(rgb(t.secondary)));
+    }
+    // Rows are row_h() apart: `show_rows` takes its step from the spacing of the Ui it is called on, not the one inside.
+    ui.scope(|ui| {
+    ui.spacing_mut().item_spacing.y = 0.;
     egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, row_h(), hits.len(), |ui, range| {
-        ui.spacing_mut().item_spacing.y = 0.;
         for &i in &hits[range] {
             let m = &rows[i as usize];
             visible.push(m.avatar.clone());
@@ -321,12 +347,18 @@ pub fn page(ui: &mut egui::Ui, list: &mut MemberList, query: &mut String, promot
             }
         }
     });
+    });
     publish_avatars(ui, visible.into_iter());
     out
 }
 
+/// True when `banned` draws something.
+pub fn has_banned(admin: Option<&Admin>) -> bool {
+    admin.is_some_and(|a| a.perms.can_ban && !a.banned.as_ref().is_ok_and(|r| r.is_empty()))
+}
+
 /// «Bloccati» and the failure line.
-fn banned(ui: &mut egui::Ui, admin: Option<&Admin>, avatars: &crate::avatar::Avatars, t: &DesignTokens) -> Option<Act> {
+pub fn banned(ui: &mut egui::Ui, admin: Option<&Admin>, avatars: &crate::avatar::Avatars, t: &DesignTokens) -> Option<Act> {
     let mut act = None;
     let perms = admin.map(|a| a.perms).unwrap_or_default();
     let busy = admin.is_some_and(|a| a.busy);
@@ -488,10 +520,12 @@ mod tests {
 
     fn list_of(n: usize, avatar: bool) -> MemberList {
         let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:x") };
-        MemberList::new(scope, crate::members_bench::synthetic(n, avatar), &Activity::new(), (0, 0))
+        MemberList::new(scope, crate::members_bench::synthetic(n, avatar), &Activity::new(), (0, 0, 0))
     }
 
     fn frame(ctx: &egui::Context, list: &mut MemberList, query: &mut String) {
+        // The session drains the list of wanted pictures every frame.
+        ctx.data_mut(|d| d.remove_temp::<Vec<String>>(egui::Id::new(crate::avatar::MEMBER_AVATARS)));
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 800.))), ..Default::default() };
         let mut out = ctx.run_ui(input, |ui| {
             page(ui, list, query, None, None, "@me:x", &Default::default(), &matrix_desktop::LIGHT);
@@ -512,8 +546,8 @@ mod tests {
         assert_eq!(sorts(), before + 1);
         // Activity puts the member who wrote last first inside the group; the same mark is a no-op for the caller, a new one sorts again.
         let activity = Activity::from([("@user9000:x".to_owned(), 5), ("@user77:example.org".to_owned(), 9)]);
-        list.resort((1, 9), &activity);
-        assert_eq!(list.mark(), (1, 9));
+        list.resort((1, 9, 0), &activity);
+        assert_eq!(list.mark(), (1, 9, 0));
         assert_eq!(list.rows()[10].user_id, "@user77:example.org");
         assert_eq!(sorts(), before + 2);
     }
@@ -557,12 +591,15 @@ mod tests {
     }
 
     /// One frame of the page in a 300x`h` window with `events` (wheel, pointer) and the given avatar map.
-    fn frame_with(ctx: &egui::Context, list: &mut MemberList, query: &mut String, h: f32, events: Vec<egui::Event>, avatars: &crate::avatar::Avatars) {
+    fn frame_with(ctx: &egui::Context, list: &mut MemberList, query: &mut String, h: f32, events: Vec<egui::Event>, avatars: &crate::avatar::Avatars) -> Vec<egui::epaint::ClippedShape> {
+        // The session drains the list of wanted pictures every frame.
+        ctx.data_mut(|d| d.remove_temp::<Vec<String>>(egui::Id::new(crate::avatar::MEMBER_AVATARS)));
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., h))), events, ..Default::default() };
         let mut out = ctx.run_ui(input, |ui| {
             page(ui, list, query, None, None, "@me:x", avatars, &matrix_desktop::LIGHT);
         });
         out.textures_delta.clear();
+        out.shapes
     }
 
     /// Scroll the list by `dy` points (positive = down) and let egui's scroll smoothing settle.
@@ -589,17 +626,24 @@ mod tests {
         times[times.len() / 2]
     }
 
-    /// Threshold: median of 10 warm frames (4 warm-up frames dropped; fonts and layout caches fill in the first ones).
-    /// Absolute cap 50 ms: 8000 rows drawn the old way cost 27-39 ms already in RELEASE (debug, where tests run, is slower still);
-    /// the virtualised page costs ~1.1 ms in debug on the CT (0.2 ms release), so 50 ms leaves a ~45x margin to a loaded CT yet fails on O(N) drawing.
-    /// Relative cap: 8000 members must cost less than 4x 100 members. It does not depend on the speed of the machine, only on the cost not growing with N.
-    /// The median ignores the odd frame delayed by the scheduler; no sleeps, no network.
+    fn shapes_drawn(n: usize) -> usize {
+        let mut list = list_of(n, true);
+        let (ctx, mut q) = (egui::Context::default(), String::new());
+        frame_with(&ctx, &mut list, &mut q, 800., vec![], &Default::default());
+        frame_with(&ctx, &mut list, &mut q, 800., vec![], &Default::default()).len()
+    }
+
+    /// Absolute cap 50 ms on the median of 10 warm frames: 8000 rows drawn the old way cost 27-39 ms already in RELEASE, the virtualised page ~1 ms in debug.
+    /// That the cost does not grow with N is checked without a clock: the number of shapes of a frame is about the same for 100 and for 8000 members.
     #[test]
     fn frame_with_8000_members_is_fast_and_does_not_grow_with_n() {
-        let (small, big) = (median_frame(100), median_frame(8000));
-        eprintln!("median frame: 100 members {small:?}, 8000 members {big:?}");
+        let big = median_frame(8000);
+        eprintln!("median frame, 8000 members: {big:?}");
         assert!(big < std::time::Duration::from_millis(50), "8000 members: {big:?}");
-        assert!(big < small * 4 + std::time::Duration::from_millis(2), "100 members {small:?}, 8000 members {big:?}");
+        let small = shapes_drawn(100);
+        assert!(small > 0);
+        // Not equal to the unit (duplicate names take two lines), but never 80x more.
+        assert!(shapes_drawn(8000) < small * 2);
     }
 
     #[test]
@@ -637,7 +681,7 @@ mod tests {
         // Scrolled away from the top: the first row is no longer asked for, the first on screen is near row 100.
         assert!(!v.contains(list.rows()[0].avatar.as_ref().unwrap()));
         let first = list.rows().iter().position(|m| m.avatar.as_ref() == Some(&v[0])).unwrap();
-        assert!((85..=105).contains(&first), "first visible row {first}");
+        assert!((99..=101).contains(&first), "first visible row {first}");
     }
 
     #[test]
@@ -695,8 +739,78 @@ mod tests {
         let v = visible_avatars(&ctx);
         assert_eq!(v.len(), 5, "{v:?}");
         // And it grows again with a new sort.
-        list.resort((9, 9), &Activity::new());
+        list.resort((9, 9, 0), &Activity::new());
         frame(&ctx, &mut list, &mut q);
         assert_eq!(visible_avatars(&ctx).len(), 5);
+    }
+
+    /// y of the first text shape that contains `needle`.
+    fn text_y(shapes: &[egui::epaint::ClippedShape], needle: &str) -> Option<f32> {
+        fn walk(s: &egui::Shape, needle: &str) -> Option<f32> {
+            match s {
+                egui::Shape::Text(t) if t.galley.text().contains(needle) => Some(t.pos.y),
+                egui::Shape::Vec(v) => v.iter().find_map(|s| walk(s, needle)),
+                _ => None,
+            }
+        }
+        shapes.iter().find_map(|c| walk(&c.shape, needle))
+    }
+
+    #[test]
+    fn one_point_of_wheel_moves_a_row_exactly_one_point() {
+        let mut list = list_of(8000, false);
+        let (ctx, mut q) = (egui::Context::default(), String::new());
+        let name = list.rows()[5].name.clone();
+        let wheel = |h: f32| vec![egui::Event::PointerMoved(egui::pos2(150., h / 2.)), egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0., -1.), modifiers: Default::default(), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown }];
+        let mut y = text_y(&frame_with(&ctx, &mut list, &mut q, 300., vec![], &Default::default()), &name).unwrap();
+        // Over 90 steps `min_row` advances twice: the old pitch (43 for rows of 40) made the list jump back by 3 pt each time.
+        for step in 0..90 {
+            let mut shapes = frame_with(&ctx, &mut list, &mut q, 300., wheel(300.), &Default::default());
+            for _ in 0..30 {
+                shapes = frame_with(&ctx, &mut list, &mut q, 300., vec![], &Default::default());
+            }
+            let now = text_y(&shapes, &name).unwrap();
+            assert!((now - y + 1.).abs() < 0.01, "step {step}: row moved {} pt", now - y);
+            y = now;
+        }
+    }
+
+    #[test]
+    fn the_space_window_shows_the_banned_and_unban_works() {
+        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:x") };
+        let mut admin = Admin::new(scope);
+        admin.perms = MemberPermissions { can_kick: true, can_ban: true, ..Default::default() };
+        admin.banned = Ok(vec![BannedMember { user_id: "@bad:x".into(), name: "Bad".into(), avatar: None, reason: None }]);
+        assert!(has_banned(Some(&admin)));
+        let (ctx, mut act) = (egui::Context::default(), None);
+        let mut run = |ctx: &egui::Context, events: Vec<egui::Event>, act: &mut Option<Act>| {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 400.))), events, ..Default::default() };
+            {
+                let mut out = ctx.run_ui(input, |ui| *act = banned(ui, Some(&admin), &Default::default(), &matrix_desktop::LIGHT).or(act.take()));
+                out.textures_delta.clear();
+                out.shapes
+            }
+        };
+        let shapes = run(&ctx, vec![], &mut act);
+        assert!(text_y(&shapes, "Bad").is_some() && text_y(&shapes, i18n::t("Unban")).is_some());
+        admin.banned = Ok(vec![]);
+        assert!(!has_banned(Some(&admin)));
+    }
+
+    fn receipt(event: &str, users: &[&str]) -> matrix_engine::receipts::PublicReadReceipt {
+        let users = users.iter().map(|u| matrix_engine::history::HistorySender { id: (*u).into(), name: None, avatar: None }).collect::<Vec<_>>();
+        matrix_engine::receipts::PublicReadReceipt { event_id: matrix_domain::EventId::new(event), readers: users.len() as u64, users }
+    }
+
+    #[test]
+    fn activity_is_the_latest_message_or_the_latest_read_receipt() {
+        let events = [(Some("@w:x"), 10, Some("$a:x")), (Some("@w:x"), 30, Some("$b:x")), (Some("@w:x"), 20, None), (Some("@me:x"), 40, None), (None, 25, Some("$c:x"))];
+        let a = activity_of(events.into_iter().map(|(a, t, e)| (a, t, e.map(str::to_owned))), &[receipt("$a:x", &["@r:x"]), receipt("$c:x", &["@r:x", "@w:x"])]);
+        // The sender's latest wins over the earlier ones; the own message has no sender but counts for `me`; a reader counts at the event read.
+        assert_eq!((a["@w:x"], a["@me:x"], a["@r:x"]), (30, 40, 25));
+        assert!(!a.contains_key("@nobody:x"));
+        // Sorted: who wrote after sits above who only read, who only read above who did nothing.
+        let key = |u: &str, name: &str| matrix_domain::role::member_sort_key(matrix_domain::role::MemberRole::Member, a.get(u).copied(), name);
+        assert!(key("@w:x", "Z") < key("@r:x", "Y") && key("@r:x", "Y") < key("@none:x", "A"));
     }
 }

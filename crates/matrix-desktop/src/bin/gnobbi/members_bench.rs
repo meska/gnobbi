@@ -25,7 +25,7 @@ fn median(mut v: Vec<Duration>) -> Duration {
 /// Median CPU time of one full frame (layout + tessellation) of the panel, after warm-up; also the shape count.
 fn frame(members: &[Member], admin: Option<&crate::members::Admin>, page: bool) -> (Duration, usize) {
     let scope = matrix_domain::RoomScope { account_id: matrix_domain::AccountId::new(1), room_id: matrix_domain::RoomId::new("!r:example.org") };
-    let mut list = crate::members::MemberList::new(scope, members.to_vec(), &Default::default(), (0, 0));
+    let mut list = crate::members::MemberList::new(scope, members.to_vec(), &Default::default(), (0, 0, 0));
     let mut query = String::new();
     let ctx = egui::Context::default();
     let avatars = Default::default();

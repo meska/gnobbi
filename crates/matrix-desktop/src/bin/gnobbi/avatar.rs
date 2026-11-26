@@ -16,10 +16,25 @@ pub enum Avatar {
 pub const MENTION_AVATARS: &str = "mention-avatars";
 
 /// Same for the member rows on screen (preview and members page).
-// shortcut: the avatar map has no eviction; scrolling through 8000 members loads up to 8000 small thumbnails. Make it an LRU if memory shows it matters.
 pub const MEMBER_AVATARS: &str = "member-avatars";
 
 pub type Avatars = std::collections::HashMap<String, Avatar>;
+
+/// Above this many entries the member pictures that are not on screen are dropped (a room of 8000 would hold ~300 MB of textures);
+/// the engine's byte cache makes asking for them again cheap. shortcut: no LRU, the ones on screen are simply kept.
+pub const MEMBER_CAP: usize = 300;
+
+/// Drops the pictures of `members` that are not in `keep` once the map is over `MEMBER_CAP`.
+pub fn trim_members<'a>(avatars: &mut Avatars, members: impl Iterator<Item = &'a str>, keep: &[String]) {
+    if avatars.len() <= MEMBER_CAP {
+        return;
+    }
+    for m in members.filter(|m| !keep.iter().any(|k| k == m)) {
+        if matches!(avatars.get(m), Some(Avatar::Ready(_))) {
+            avatars.remove(m);
+        }
+    }
+}
 
 impl Avatar {
     fn initials_shown(&self) -> bool {
@@ -46,6 +61,22 @@ pub fn paint(ui: &egui::Ui, c: Pos2, size: f32, color: Color32, state: &Avatar, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn member_pictures_stay_under_the_cap_and_the_visible_ones_stay() {
+        let ctx = egui::Context::default();
+        let tex = ctx.load_texture("t", egui::ColorImage::example(), Default::default());
+        let names: Vec<String> = (0..2000).map(|i| format!("mxc://x/{i}")).collect();
+        let mut map = Avatars::new();
+        let keep = vec![names[1999].clone()];
+        for (i, n) in names.iter().enumerate() {
+            map.insert(n.clone(), Avatar::Ready(tex.clone()));
+            // What the session does after every batch while scrolling.
+            trim_members(&mut map, names[..=i].iter().map(String::as_str), &keep);
+            assert!(map.len() <= MEMBER_CAP + 1, "{}", map.len());
+        }
+        assert!(map.contains_key(&keep[0]));
+    }
 
     #[test]
     fn letters_only_without_picture() {

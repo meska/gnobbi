@@ -254,11 +254,18 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
             match &mut view.members {
                 None => drop(ui.vertical_centered(|ui| ui.spinner())),
                 Some(members) => {
-                    ui.set_height(360.);
-                    let out = crate::members::page(ui, members, &mut view.query, view.promote.then_some(&mut promote), session.admin.as_ref().filter(|a| a.scope == view.scope), &session.user, &session.avatars, t);
+                    let admin = session.admin.as_ref().filter(|a| a.scope == view.scope);
+                    // The list takes the fixed 360 pt minus what sits under it: «Bloccati» (scrolls on its own) or the failure line.
+                    let tail = if view.promote { if session.moderation_failed { 24. } else { 0. } } else if crate::members::has_banned(admin) { 120. } else { 0. };
+                    let out = ui.allocate_ui(egui::vec2(ui.available_width(), 360. - tail), |ui| {
+                        ui.set_height(360. - tail);
+                        crate::members::page(ui, members, &mut view.query, view.promote.then_some(&mut promote), admin, &session.user, &session.avatars, t)
+                    }).inner;
                     (member, back) = (out.act, out.back);
                     if view.promote && session.moderation_failed {
                         ui.colored_label(rgb(t.error), i18n::t("Failed"));
+                    } else if tail > 0. {
+                        member = egui::ScrollArea::vertical().id_salt("space-banned").max_height(tail).show(ui, |ui| crate::members::banned(ui, admin, &session.avatars, t)).inner.or(member.take());
                     }
                 }
             }
