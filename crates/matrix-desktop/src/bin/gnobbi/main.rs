@@ -2264,7 +2264,7 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     if fresh {
         ctx.data_mut(|d| {
             d.remove_temp::<bool>(egui::Id::new(touch_menu::MORE_ID));
-            d.insert_temp(egui::Id::new("message-menu-hull"), egui::Rect::NOTHING);
+            d.insert_temp(touch_menu::hull_id(), egui::Rect::NOTHING);
         });
     }
     let entries = touch_menu::entries(s);
@@ -2272,13 +2272,8 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     let mut react: Option<&'static str> = None;
     let own = |key: &str| s.reacted(key);
     let mut picked = None;
-    let mut cards: Vec<egui::Rect> = vec![];
-    let hull_id = egui::Id::new("message-menu-hull");
     // Two cards with the look of the room list's menu: the reactions as a pill, the entries under it. Opens at the click, pushed back inside the window.
-    let area = egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(pos).constrain_to(ctx.content_rect().shrink(8.)).show(ctx, |ui| dir::popup(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 6.;
-        // Under the cards' own widgets: a click on the gap or the card margin stays in the menu instead of reaching the timeline.
-        if let Some(hull) = ui.data(|d| d.get_temp::<egui::Rect>(hull_id)).filter(|h| h.is_positive()) { ui.interact(hull, hull_id.with("block"), egui::Sense::click_and_drag()); }
+    let (cards, _) = touch_menu::desktop_menu(ctx, pos, |ui, cards| {
         let card = egui::Frame::menu(ui.style()).fill(rgb(t.surface));
         // Both shadows go under both cards: the second one's would darken the first.
         let shadows = [ui.painter().add(egui::Shape::Noop), ui.painter().add(egui::Shape::Noop)];
@@ -2304,15 +2299,14 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
         } else if !p.react {
             cards.push(card.show(ui, |ui| ui.label("—")).response.rect);
         }
-    }));
-    ctx.data_mut(|d| d.insert_temp(hull_id, touch_menu::hull(&cards)));
+    });
     match (picked, react) {
         (Some(action), _) => touch_menu::apply(ctx, s, action),
         (None, Some(key)) => s.react(key),
         (None, None) => {
             // The cards as drawn, not `area.response`: an area pushed inside the window keeps the rect it had before the push for hit-testing.
-            let pressed = ctx.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos())).flatten();
-            let outside = !fresh && pressed.is_some_and(|p| !touch_menu::in_menu(&cards, p));
+            // A press in the gap between the cards counts as inside (`in_menu`).
+            let outside = !fresh && touch_menu::pressed_outside(ctx, &cards);
             if outside || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 s.close_menu();
             }
