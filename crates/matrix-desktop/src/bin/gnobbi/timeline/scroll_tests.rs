@@ -114,6 +114,41 @@ impl Rig {
     }
 }
 
+/// One picture of an album of 3 from the same sender.
+fn album_item(index: u8) -> DemoEvent {
+    let mut e = msg(&format!("album{index}"), 0);
+    e.text.clear();
+    e.sender = Some(matrix_engine::history::HistorySender::new("@anna:fixture.invalid", None));
+    e.attachment_name = Some(format!("foto{index}.png"));
+    e.media = Some(matrix_engine::history::Media {
+        kind: matrix_engine::history::MediaKind::Image,
+        label: "Image".into(),
+        animated: false,
+        dims: Some((400, 300)),
+        album: Some(matrix_engine::sending::Album { id: "a".into(), index, count: 3 }),
+    });
+    e
+}
+
+#[test]
+fn an_album_is_one_row_and_the_view_stays_at_the_bottom() {
+    for slack in SLACKS {
+        let mut rig = Rig::new(ROWS);
+        rig.near_bottom(slack);
+        rig.events.extend((0..3).map(album_item));
+        rig.settle();
+        let n = rig.events.len();
+        // The first two items take no room; the last draws the grid (three 4:3 tiles tall).
+        assert_eq!(rig.heights.rows[n - 3..n - 1], [0., 0.], "slack {slack}px");
+        assert!(rig.heights.rows[n - 1] > 150., "slack {slack}px: the grid is {}px", rig.heights.rows[n - 1]);
+        assert!(rig.last_in_view(), "slack {slack}px: the album is below the fold");
+        // One more message after it: still at the bottom, and the album's rows stay hidden.
+        rig.events.push(msg("after", 2));
+        rig.settle();
+        assert!(rig.last_in_view() && rig.heights.rows[n - 2] == 0., "slack {slack}px");
+    }
+}
+
 #[test]
 fn at_the_bottom_a_new_message_keeps_the_view_at_the_bottom() {
     for slack in SLACKS {
