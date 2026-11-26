@@ -1794,7 +1794,7 @@ impl App {
                 let recording = s.recording(false);
                 let mut stop = None;
                 for u in &s.uploads {
-                    if media_cards::upload_card(ui, &u.name, u.sent, u.total, t) { stop = Some(u.id.clone()); }
+                    if ui.push_id(("upload", u.id.as_str()), |ui| media_cards::upload_card(ui, &u.name, u.sent, u.total, t)).inner { stop = Some(u.id.clone()); }
                 }
                 if let Some(id) = stop { s.cancel_upload(&id); }
                 to_send = composer::show(ui, "", &mut s.draft, mode, s.attachment.as_mut(), &mut cancel, &mut attach_acts, &mut open_poll, &mut picked_files, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)), t);
