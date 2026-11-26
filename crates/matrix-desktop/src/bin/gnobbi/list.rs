@@ -341,7 +341,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             let mark = AccountMark { avatar: owner.own_avatar(), initial: who.trim_start_matches('@').chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned()), name: who.clone() };
             let spoken = format!("{}, {}", room.name, mark.name);
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &spoken));
-            paint_row(ui, rect, &resp, room, egui::Id::new(("row-mark", slot, i)), &owner.avatars, slot == 0 && shown.as_ref() == Some(&room.scope), Some(&mark), t);
+            paint_row(ui, rect, &resp, room, egui::Id::new(("row-mark", slot, i)), &owner.avatars, slot == 0 && shown.as_ref() == Some(&room.scope), matrix_desktop::shows_account_mark(slot).then_some(&mark), t);
             let long = pressed_here(ui, rect, press);
             if crate::touch_list::tapped(&resp) && !swallow {
                 *pick = Some((slot, room.scope.clone()));

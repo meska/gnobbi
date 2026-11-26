@@ -1447,11 +1447,7 @@ impl App {
         let (active_id, active_label, account) = self.account_rows(&mut others);
         // The badges of «Non lette» and «Tutte le chat» count every account, the parked ones too (cached per sidebar, no walk of the rooms).
         // With «Lista unica» off they count the shown account only, as the list does.
-        let parked: &[Parked] = if self.prefs.unified_list { &self.parked[..] } else { &[] };
-        let totals = self.session.iter().chain(parked.iter().map(|p| &p.session)).fold((0u64, 0u64), |(r, m), s| {
-            let (rooms, messages) = s.sidebar.counts();
-            (r.saturating_add(rooms), m.saturating_add(messages))
-        });
+        let totals = matrix_desktop::badge_totals(self.prefs.unified_list, self.session.iter().chain(self.parked.iter().map(|p| &p.session)).map(|s| s.sidebar.counts()));
         if let Some(session) = &mut self.session {
             if std::mem::take(&mut self.rail.feedback) {
                 session.send_feedback();
@@ -2036,6 +2032,10 @@ impl App {
             }
             if new.language != self.prefs.language {
                 matrix_desktop::i18n::apply(new.language, Some(ui.ctx()));
+            }
+            // Switching it back on merges the list at once, even after an account was picked from the menu.
+            if new.unified_list && !self.prefs.unified_list {
+                self.rail.one_account = false;
             }
             self.prefs = new;
             self.applied = None;

@@ -110,7 +110,7 @@ mod unified;
 pub mod tray_menu;
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub mod tray; // tray-icon does not exist on iOS or Android
-pub use unified::{UnifiedList, unified_applies};
+pub use unified::{UnifiedList, badge_totals, shows_account_mark, unified_applies};
 pub use sidebar::{InviteState, Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]

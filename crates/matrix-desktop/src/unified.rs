@@ -20,6 +20,18 @@ pub fn unified_applies(enabled: bool, one_account: bool, other_accounts: usize, 
     enabled && !one_account && other_accounts > 0 && !in_space
 }
 
+/// Whether a merged row carries the mini avatar of its account: only rows of the accounts that are not the shown one (slot 0), so
+/// switching the shown account swaps which rows have it.
+pub fn shows_account_mark(slot: usize) -> bool {
+    slot > 0
+}
+
+/// The «Non lette» / «Tutte le chat» badges from the `(rooms, messages)` counts of each account, the shown one first: all of
+/// them with the setting on, the shown account's only with it off.
+pub fn badge_totals(enabled: bool, counts: impl IntoIterator<Item = (u64, u64)>) -> (u64, u64) {
+    counts.into_iter().take(if enabled { usize::MAX } else { 1 }).fold((0, 0), |(r, m), (rooms, messages)| (r.saturating_add(rooms), m.saturating_add(messages)))
+}
+
 impl UnifiedList {
     /// Invitations first, then pinned, the rest and low priority last (as in a single account); inside each, the last message
     /// (received or sent) first. The SDK order of one account cannot be compared with another's, so the stamp decides.
@@ -70,18 +82,30 @@ mod tests {
     }
 
     #[test]
-    fn setting_off_keeps_the_list_to_the_shown_account() {
-        let (mut a, mut b) = (Sidebar::connected(AccountId::new(1)), Sidebar::connected(AccountId::new(1)));
-        upsert(&mut a, "mine", 0, Some(10));
-        upsert(&mut b, "theirs", 0, Some(20));
-        let sidebars = [a, b];
-        let mut list = UnifiedList::default();
-        // On: both accounts. Off: `unified_applies` is false, the app draws the shown sidebar's own list.
-        assert_eq!(names(&mut list, &sidebars, false, "").len(), 2);
+    fn setting_off_counts_the_shown_account_only() {
+        let counts = [(1, 5), (2, 7)];
+        assert_eq!(badge_totals(true, counts), (3, 12));
+        assert_eq!(badge_totals(false, counts), (1, 5));
+        assert_eq!(badge_totals(false, []), (0, 0));
         assert!(unified_applies(true, false, 1, false));
         assert!(!unified_applies(false, false, 1, false));
-        assert_eq!(sidebars[0].visible_indices().len(), 1);
         assert!(!unified_applies(true, true, 1, false) && !unified_applies(true, false, 0, false) && !unified_applies(true, false, 1, true));
+    }
+
+    #[test]
+    fn mini_avatar_only_on_rows_of_the_other_accounts() {
+        // The shown account is slot 0: only the chats of the others have the badge.
+        let marked = |shown: &str, other: &str| {
+            let (mut a, mut b) = (Sidebar::connected(AccountId::new(1)), Sidebar::connected(AccountId::new(1)));
+            upsert(&mut a, shown, 0, Some(10));
+            upsert(&mut b, other, 0, Some(20));
+            let sidebars = [a, b];
+            let rows = UnifiedList::default().rows(sidebars.iter().zip(["@a:t", "@b:t"]), false, "").to_vec();
+            rows.into_iter().filter(|&(slot, _)| shows_account_mark(slot)).map(|(slot, i)| sidebars[slot].rooms()[i].name.clone()).collect::<Vec<_>>()
+        };
+        // Account A shown: only B's chat is marked. After switching to B (B at slot 0) the result inverts.
+        assert_eq!(marked("of-a", "of-b"), ["of-b"]);
+        assert_eq!(marked("of-b", "of-a"), ["of-a"]);
     }
 
     fn names(list: &mut UnifiedList, sidebars: &[Sidebar], unread: bool, query: &str) -> Vec<(usize, String)> {
