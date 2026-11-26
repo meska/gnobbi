@@ -4,6 +4,7 @@
 //! can be cancelled and never reaches the room. alice sends, bob reads through `RoomSync`. Synthetic accounts only.
 //! Driver: PROBE_TARGET=attachment_view PROBE_SERVER=synapse|tuwunel python3 tools/attachment_send.py (via ct.sh).
 #![cfg(feature = "sdk")]
+#![recursion_limit = "256"]
 use matrix_domain::{AccountId, RoomId, RoomScope};
 use matrix_engine::{
     TestOutbox, ViewRequests,
@@ -54,7 +55,7 @@ async fn until(what: &str, mut cond: impl FnMut() -> bool) {
     let start = Instant::now();
     while !cond() {
         assert!(start.elapsed() < Duration::from_secs(90), "timeout: {what}");
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
 
@@ -147,7 +148,7 @@ fn attachment_view_plain_and_encrypted() {
         let out = std::env::temp_dir().join("attachment-view");
         std::fs::create_dir_all(&out).unwrap();
         for encrypted in [false, true] {
-            let (ra, id) = room_pair(&a, &b, encrypted).await;
+            let (_ra, id) = room_pair(&a, &b, encrypted).await;
             let scope = RoomScope { account_id: acc(), room_id: RoomId::new(id.as_str()) };
             let sync = RoomSync::from_client(acc(), b.clone());
 
@@ -205,7 +206,7 @@ fn attachment_view_plain_and_encrypted() {
 
             // Upload cancel: the first (big) one is stopped while it uploads, the second never starts.
             let outbox = TestOutbox::new(a.clone(), acc());
-            let big = request(&scope, "", "grande.bin", vec![7u8; 40 << 20], None);
+            let big = request(&scope, "", "grande.bin", vec![7u8; 23 << 20], None);
             let later = request(&scope, "", "dopo.bin", vec![8u8; 1 << 10], None);
             let (first, second) = (big.transaction_id.clone(), later.transaction_id.clone());
             let (results, ()) = tokio::join!(
