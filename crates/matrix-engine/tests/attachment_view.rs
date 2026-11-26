@@ -209,13 +209,13 @@ fn attachment_view_plain_and_encrypted() {
             let sample = request(&scope, "", "progresso.bin", vec![9u8; 12 << 20], None);
             let id = sample.transaction_id.clone();
             let (result, samples) = tokio::join!(outbox.send(&sample), async {
-                let mut samples = Vec::new();
-                while samples.len() < 2 || samples.last().is_some_and(|s: &(u64, u64)| s.0 < s.1) {
+                let mut samples: Vec<(u64, u64)> = Vec::new();
+                for _ in 0..4000 {
                     tokio::time::sleep(Duration::from_millis(5)).await;
-                    if let Some((_, got, all)) = outbox.control().uploads().into_iter().find(|(i, ..)| *i == id) {
-                        samples.push((got, all));
-                    } else if !samples.is_empty() {
-                        break;
+                    match outbox.control().uploads().into_iter().find(|(i, ..)| *i == id) {
+                        Some((_, got, all)) => samples.push((got, all)),
+                        None if !samples.is_empty() => break,
+                        None => {}
                     }
                 }
                 samples
