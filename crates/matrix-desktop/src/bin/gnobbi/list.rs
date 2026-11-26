@@ -137,7 +137,8 @@ pub fn menu_divider(ui: &mut egui::Ui, title: Option<(crate::icons::Icon, &str)>
     let Some((icon, title)) = title else { return ui.add_space(2.) };
     let mut job = crate::icons::with_label(icon, title);
     for section in &mut job.sections { section.format.color = rgb(t.secondary); }
-    let label = ui.add(egui::Label::new(job).selectable(false));
+    // A button pads its text: the title takes the same inset, so its icon and text sit in the column of the entries.
+    let label = egui::Frame::NONE.inner_margin(egui::Margin::symmetric(ui.spacing().button_padding.x.round() as i8, 0)).show(ui, |ui| ui.add(egui::Label::new(job).selectable(false))).inner;
     label.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
 }
 
@@ -481,7 +482,9 @@ fn row_popup(resp: &egui::Response, long: bool) -> egui::Popup<'static> {
 /// The room menu on `menu` (a context menu or a pinned one); what the user picked. Shared by the single list and the multi-account list.
 fn room_menu(menu: egui::Popup, room: &matrix_desktop::SidebarRoom, choices: &Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>, confirm: &mut Option<matrix_domain::RoomScope>, pick: &mut Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>, t: &DesignTokens) -> Option<crate::session::RoomAction> {
     let mut action = None;
-    menu.show(|ui| crate::dir::popup(ui, |ui| {
+    // The area is kept inside the screen: the transparent margin leaves 8 pt to the edge, like the message menu.
+    let frame = egui::Frame::popup(&menu.ctx().global_style()).outer_margin(8);
+    menu.frame(frame).show(|ui| crate::dir::popup(ui, |ui| {
         use crate::session::RoomAction;
         ui.spacing_mut().item_spacing.y = 2.;
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // an entry never wraps: the menu grows (and the area shifts into the screen) instead
