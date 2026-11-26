@@ -164,6 +164,12 @@ fn attachment_view_plain_and_encrypted() {
             let pdf_id = send(&a, &request(&scope, "", "relazione.pdf", pdf.clone(), None)).await;
             let mut all = ids.clone();
             all.push(pdf_id.clone());
+            // The sender's own view, read at once (the echo of the send queue, before sync brings the event back), has the marker too.
+            let own = RoomSync::from_client(acc(), a.clone());
+            let mine = read(&own, &scope, &all).await;
+            for id in &ids {
+                assert!(mine.iter().find(|e| e.event_id.as_str() == id).unwrap().media.as_ref().is_some_and(|m| m.album.is_some()), "encrypted={encrypted}: the sender's own row lost the album mark");
+            }
             let rows = read(&sync, &scope, &all).await;
             let row = |id: &str| rows.iter().find(|e| e.event_id.as_str() == id).unwrap();
 

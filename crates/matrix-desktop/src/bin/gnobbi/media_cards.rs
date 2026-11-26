@@ -271,7 +271,9 @@ pub fn file_card(ui: &mut egui::Ui, e: &DemoEvent, name: &str, transfer: Option<
             }
         });
     });
+    ui.add_space(6.);
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.;
         let size = Vec2::splat(button);
         if transfer.is_some() {
             out.cancel = ui.add(egui::Button::new(i18n::t("Cancel")).min_size(size)).clicked();

@@ -576,6 +576,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     acts.cancel_transfer |= card.cancel;
                 } else if let Some(name) = &e.attachment_name
                     && !e.redacted
+                    && album.is_empty() // an album is saved from the viewer, picture by picture
                     && ui.button(crate::icons::with_label(crate::icons::Icon::DownloadSimple, name)).clicked()
                 {
                     save = true;

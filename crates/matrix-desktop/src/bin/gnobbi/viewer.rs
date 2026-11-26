@@ -119,10 +119,13 @@ impl Viewer {
         if key(egui::Key::ArrowRight) && let Some(n) = next { action = Action::Go(n.clone()); }
         let screen = ctx.content_rect();
         let phone = crate::mobile::touch();
-        // The whole window (on a phone the safe area): no title bar, nothing to resize.
-        let window = egui::Window::new(if self.video { i18n::t("Video") } else { i18n::t("Image") }).collapsible(false).title_bar(false).resizable(false).fixed_rect(screen);
-        window
+        // The whole window (on a phone the safe area), above everything, on the panel colour.
+        let fill = ctx.style().visuals.panel_fill;
+        egui::Area::new(egui::Id::new("viewer-full")).order(egui::Order::Foreground).fixed_pos(screen.min).constrain(false)
             .show(ctx, |ui| {
+                egui::Frame::NONE.fill(fill).show(ui, |ui| {
+                ui.set_min_size(screen.size());
+                ui.set_max_size(screen.size());
                 ui.horizontal(|ui| {
                     let resp = crate::icons::button(ui, crate::icons::Icon::X, false, i18n::t("Close"));
                     if resp.clicked() { action = Action::Close; }
@@ -160,6 +163,7 @@ impl Viewer {
                         }
                     }
                 }
+                });
             });
         action
     }
