@@ -416,8 +416,8 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         // A sticker alone is drawn like on Telegram: no bubble, smaller than a photo. "Sticker" is the engine's label of `m.sticker`.
         let sticker = e.text.is_empty() && e.media.as_ref().is_some_and(|m| m.label == "Sticker");
         let bare = (big.is_some() || sticker) && e.reply_to.is_none() && !e.highlighted && !flashed;
-        let fill = if bare { Color32::TRANSPARENT } else if e.highlighted { rgb(t.mention_row) } else {
-            let base = if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
+        let fill = if bare { Color32::TRANSPARENT } else {
+            let base = if e.highlighted { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
             // The accent veil: its alpha is the highlight's opacity (capped, or the text would drown).
             if flashed { base.lerp_to_gamma(rgb(t.accent), 0.35 * acts.flash_alpha) } else { base }
         };

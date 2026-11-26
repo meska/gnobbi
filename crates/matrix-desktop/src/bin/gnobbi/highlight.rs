@@ -19,10 +19,10 @@ pub fn opacity(elapsed: Duration, reduce_motion: bool) -> f32 {
     (1. - (t - HOLD) / FADE).clamp(0., 1.)
 }
 
-/// Byte ranges of `term` in `text`, ignoring case. Empty when lowercasing changes the byte length (ranges would not map back).
+/// Byte ranges of `term` in `text`, ignoring case. Empty when lowercasing changes the byte length of any character (ranges would not map back).
 pub fn term_ranges(text: &str, term: &str) -> Vec<std::ops::Range<usize>> {
     let (low, t) = (text.to_lowercase(), term.to_lowercase());
-    if t.is_empty() || low.len() != text.len() {
+    if t.is_empty() || text.chars().any(|c| c.to_lowercase().map(char::len_utf8).sum::<usize>() != c.len_utf8()) {
         return Vec::new();
     }
     low.match_indices(&t).map(|(i, m)| i..i + m.len()).collect()
@@ -79,7 +79,9 @@ impl Highlight {
         let at = self.drawn_at?;
         let elapsed = now.saturating_duration_since(at);
         let end = Duration::from_secs_f32(if reduce_motion { HOLD_STILL } else { HOLD + FADE });
-        (elapsed < end).then(|| if reduce_motion { end - elapsed } else { STEP })
+        let hold = Duration::from_secs_f32(if reduce_motion { HOLD_STILL } else { HOLD });
+        // Flat phase: wake up when it ends, no frames in between; only the fade needs steps.
+        (elapsed < end).then(|| if elapsed < hold { hold - elapsed } else { STEP })
     }
 }
 
@@ -111,6 +113,23 @@ mod tests {
     fn term_ranges_ignore_case() {
         assert_eq!(term_ranges("Ciao ciao CIAO", "ciao"), vec![0..4, 5..9, 10..14]);
         assert!(term_ranges("abc", "").is_empty());
+    }
+
+    #[test]
+    fn term_ranges_survive_hostile_case_mapping() {
+        let t = "\u{130}\u{130}a\u{212A}";
+        for r in term_ranges(t, "a") { assert!(t.is_char_boundary(r.start) && t.is_char_boundary(r.end)); }
+        let t = "\u{130} foo \u{130}\u{212A}";
+        assert!(term_ranges(t, "foo").iter().all(|r| &t[r.clone()] == "foo"));
+    }
+
+    #[test]
+    fn repaints_only_while_fading() {
+        let (mut h, t0) = (Highlight::default(), Instant::now());
+        h.set_target(id("$a"), None);
+        h.mark_drawn(&id("$a"), t0);
+        assert_eq!(h.repaint_in(t0 + ms(500), false), Some(ms(1000)));
+        assert_eq!(h.repaint_in(t0 + ms(1600), false), Some(STEP));
     }
 
     #[test]
