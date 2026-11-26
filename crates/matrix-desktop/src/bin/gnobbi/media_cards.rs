@@ -18,11 +18,11 @@ pub enum Role {
     Leader(usize),
 }
 
-/// The album an event belongs to, with who sent it: consecutive rows with the same key are one album.
+/// The album a picture or video belongs to, with who sent it: consecutive rows with the same key are one album (file cards never join one).
 fn album_key(e: &DemoEvent) -> Option<(bool, &str, &str)> {
     let media = e.media.as_ref()?;
     let album = media.album.as_ref()?;
-    if e.status || e.redacted || !matches!(e.id.id, TimelineId::Server(_)) || !matches!(media.kind, MediaKind::Image | MediaKind::Video | MediaKind::File) {
+    if e.status || e.redacted || !matches!(e.id.id, TimelineId::Server(_)) || !matches!(media.kind, MediaKind::Image | MediaKind::Video) {
         return None;
     }
     Some((e.outgoing, e.sender.as_ref().map_or("", |s| s.id.as_str()), album.id.as_str()))
@@ -152,7 +152,7 @@ fn cell(ui: &mut egui::Ui, rect: Rect, e: &DemoEvent, pictures: &Pictures, acts:
     }
 }
 
-/// The album: its pictures in a grid of `width`. Files of an album (sent with «Send as file») are cards, one under the other.
+/// The album: its pictures and videos in a grid of `width`. Files of an album (sent with «Send as file») stay one card each.
 pub fn album(ui: &mut egui::Ui, items: &[DemoEvent], pictures: &Pictures, width: f32, acts: &mut Acts, t: &DesignTokens) {
     let aspects: Vec<f32> = items.iter().map(|e| aspect_of(e, pictures)).collect();
     let (cells, height) = grid(&aspects, width, 2.);
@@ -332,6 +332,14 @@ mod tests {
     fn a_run_of_album_rows_is_drawn_once_on_the_last_and_a_lone_one_stays_single() {
         let rows = [ev(0, Some("a"), "@x:y"), ev(1, Some("a"), "@x:y"), ev(2, Some("a"), "@x:y"), ev(0, Some("b"), "@x:y"), ev(0, None, "@x:y"), ev(0, Some("c"), "@x:y"), ev(1, Some("c"), "@z:y")];
         assert_eq!(album_roles(&rows), [Role::Hidden, Role::Hidden, Role::Leader(0), Role::Single, Role::Single, Role::Single, Role::Single]);
+        // Files of an album are cards of their own.
+        let file = |i| {
+            let mut e = ev(i, Some("f"), "@x:y");
+            e.media.as_mut().unwrap().kind = MediaKind::File;
+            e
+        };
+        let (file, file2) = (file(0), file(1));
+        assert_eq!(album_roles(&[file, file2]), [Role::Single; 2]);
         // The same album id from another sender is another album; a row in between splits the run.
         assert_eq!(album_roles(&[ev(0, Some("a"), "@x:y"), ev(0, None, "@x:y"), ev(1, Some("a"), "@x:y")]), [Role::Single; 3]);
     }

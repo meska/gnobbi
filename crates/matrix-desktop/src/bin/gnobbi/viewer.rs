@@ -152,10 +152,10 @@ impl Viewer {
                 }
                 // Stepping buttons over the picture's sides (the swipe does the same on a phone).
                 let reach = crate::mobile::target(44.);
-                for (item, side, icon, label) in [(previous, area.left_center() + egui::vec2(reach / 2. + 4., 0.), crate::icons::Icon::CaretLeft, "Previous"), (next, area.right_center() - egui::vec2(reach / 2. + 4., 0.), crate::icons::Icon::CaretRight, "Next")] {
+                for (item, side, icon, label) in [(previous, area.left_center() + egui::vec2(reach / 2. + 4., 0.), crate::icons::Icon::CaretLeft, i18n::t("Previous")), (next, area.right_center() - egui::vec2(reach / 2. + 4., 0.), crate::icons::Icon::CaretRight, i18n::t("Next"))] {
                     if let Some(item) = item {
                         let rect = egui::Rect::from_center_size(side, egui::Vec2::splat(reach));
-                        if crate::icons::button_at(ui, rect, ui.id().with(("step", label)), icon, false, crate::metrics::get().icon, i18n::t(label), None, true, 1.).clicked() {
+                        if crate::icons::button_at(ui, rect, ui.id().with(("step", label)), icon, false, crate::metrics::get().icon, label, None, true, 1.).clicked() {
                             action = Action::Go(item.clone());
                         }
                     }
