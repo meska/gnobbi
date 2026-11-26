@@ -10,11 +10,11 @@ val nativeLibs = rootDir.resolve("../../artifacts/android/jniLibs")
 
 android {
     namespace = "net.meskatech.gnobbi"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = "net.meskatech.gnobbi"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         // tools/android-build.sh passes the real values: code = git rev-list --count (same build number as iOS), name = workspace version.
         versionCode = (findProperty("gnobbiVersionCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("gnobbiVersionName") as String?) ?: "0.1"
@@ -43,6 +43,6 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
     implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("org.robolectric:robolectric:4.16")
     testImplementation("androidx.test:core:1.6.1")
 }
