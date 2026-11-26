@@ -42,3 +42,28 @@ fn check_switch_only_on_self_updating_channels() {
         assert_eq!(c.self_updates(), shown, "{c:?}");
     }
 }
+
+#[test]
+fn unsent_is_asked_again_after_the_download_and_unknown_means_unsent() {
+    use std::{cell::RefCell, convert::Infallible};
+    let postponed = "Update postponed: message not sent";
+    let run = |answers: Vec<Option<bool>>| {
+        let (asked, staged, installed) = (Cell::new(0), Cell::new(0), Cell::new(0));
+        let answers = RefCell::new(answers.into_iter());
+        let line = update::stage_then_install(
+            || { asked.set(asked.get() + 1); answers.borrow_mut().next().unwrap() },
+            || { staged.set(staged.get() + 1); Ok(()) },
+            |()| -> Result<Infallible, String> { installed.set(installed.get() + 1); Err("Update failed: error".into()) },
+        );
+        (line, asked.get(), staged.get(), installed.get())
+    };
+    // Nothing unsent at the click and after the download: installs.
+    assert_eq!(run(vec![Some(false), Some(false)]), ("Update failed: error".into(), 2, 1, 1));
+    // A message starts during the download: staged, but never installed.
+    assert_eq!(run(vec![Some(false), Some(true)]), (postponed.into(), 2, 1, 0));
+    // Unsent at the click: nothing is even downloaded.
+    assert_eq!(run(vec![Some(true)]), (postponed.into(), 1, 0, 0));
+    // Unknown state is fail-safe, at the click and after the download.
+    assert_eq!(run(vec![None]), (postponed.into(), 1, 0, 0));
+    assert_eq!(run(vec![Some(false), None]), (postponed.into(), 2, 1, 0));
+}

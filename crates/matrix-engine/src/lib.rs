@@ -29,6 +29,8 @@ mod outbox;
 #[doc(hidden)]
 pub use outbox::TestOutbox;
 #[cfg(feature = "sdk")]
+pub use outbox::unsent_messages;
+#[cfg(feature = "sdk")]
 pub mod room_sync;
 pub mod alias;
 #[cfg(feature = "sdk")]

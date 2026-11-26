@@ -76,8 +76,9 @@ fn status_of(state: &Mutex<stage::UpdateState>) -> Status {
 
 /// «Aggiorna»: downloads, verifies and installs in a background thread (the UI never blocks), then
 /// restarts the app. Any failure leaves the running build untouched and becomes `Status::Error`.
-/// `unsent` = a message is still being sent: nothing starts (the row says so).
-pub fn start_update(dirs: AppDirs, unsent: bool) {
+/// `unsent` says whether a message is still being sent (`None` = unknown, counts as yes). It is asked at
+/// the click and again right after the download, just before the restart: nothing installs while it says so.
+pub fn start_update(dirs: AppDirs, unsent: impl Fn() -> Option<bool> + Send + 'static) {
     let state = shared_state();
     let Some(offer) = ({
         let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
@@ -90,10 +91,11 @@ pub fn start_update(dirs: AppDirs, unsent: bool) {
     let channel = channel::detect_channel(&channel::Env::from_process());
     let finish = state.clone();
     let spawned = std::thread::Builder::new().name("update-apply".into()).spawn(move || {
-        let line = install_unless_unsent(unsent, || {
-            let ready = scheduler::stage(&dirs, &state, &channel, &offer)?;
-            install::install_and_restart(&dirs, &channel, &ready)
-        });
+        let line = stage_then_install(
+            unsent,
+            || scheduler::stage(&dirs, &state, &channel, &offer),
+            |ready| install::install_and_restart(&dirs, &channel, &ready),
+        );
         let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
         (s.working, s.error) = (false, Some(line));
     });
@@ -134,6 +136,19 @@ pub fn install_unless_unsent(unsent: bool, install: impl FnOnce() -> Result<std:
         Err(line) => line,
         Ok(never) => match never {},
     }
+}
+
+/// Asks `unsent` before the download and again after it (a message may have been sent meanwhile), never later than the restart.
+pub fn stage_then_install<R>(
+    unsent: impl Fn() -> Option<bool>,
+    stage: impl FnOnce() -> Result<R, String>,
+    install: impl FnOnce(R) -> Result<std::convert::Infallible, String>,
+) -> String {
+    let busy = || unsent().unwrap_or(true);
+    install_unless_unsent(busy(), || {
+        let staged = stage()?;
+        Err(install_unless_unsent(busy(), || install(staged)))
+    })
 }
 
 /// `BUILD_INFO.build` as a number; `None` for «sconosciuto» or anything non-numeric.

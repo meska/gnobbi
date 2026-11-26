@@ -27,12 +27,36 @@ struct Entry {
     failed: bool,
 }
 
+type Entries = Arc<Mutex<HashMap<OwnedTransactionId, Entry>>>;
+
+/// Every account's queue, so the window can ask «is anything still being sent?» before a restart.
+static LIVE: Mutex<Vec<std::sync::Weak<Mutex<HashMap<OwnedTransactionId, Entry>>>>> = Mutex::new(Vec::new());
+
+fn register(entries: &Entries) {
+    if let Ok(mut live) = LIVE.lock() {
+        live.retain(|w| w.strong_count() > 0);
+        live.push(Arc::downgrade(entries));
+    }
+}
+
+/// Messages still on their way out across all accounts (failed ones wait for a retry and do not count).
+/// `None` = cannot tell (a lock is poisoned): callers must treat it as «something is unsent».
+/// shortcut: attachments are not queued here, so they are not counted.
+pub fn unsent_messages() -> Option<usize> {
+    let live = LIVE.lock().ok()?;
+    let mut total = 0;
+    for w in live.iter().filter_map(|w| w.upgrade()) {
+        total += w.lock().ok()?.values().filter(|e| !e.failed).count();
+    }
+    Some(total)
+}
+
 #[derive(Clone)]
 pub(crate) struct Outbox {
     client: Client,
     account: AccountId,
     runtime: tokio::runtime::Handle,
-    entries: Arc<Mutex<HashMap<OwnedTransactionId, Entry>>>,
+    entries: Entries,
     /// Attachments on their way out, with their progress, and the ones withdrawn.
     uploads: crate::sending::Uploads,
 }
@@ -43,7 +67,9 @@ fn notice(scope: RoomScope, transaction_id: TransactionId, notice: SendNotice) -
 
 impl Outbox {
     pub(crate) fn new(client: Client, account: AccountId, runtime: tokio::runtime::Handle) -> Self {
-        Self { client, account, runtime, entries: Default::default(), uploads: Default::default() }
+        let entries = Entries::default();
+        register(&entries);
+        Self { client, account, runtime, entries, uploads: Default::default() }
     }
 
     fn scope(&self, room: &OwnedRoomId) -> RoomScope {
@@ -342,5 +368,23 @@ impl TestOutbox {
 
     pub fn control(&self) -> &dyn SendControl {
         &self.0
+    }
+}
+
+#[cfg(test)]
+mod unsent_tests {
+    use super::*;
+
+    #[test]
+    fn counts_live_queues_ignores_dropped_and_is_unknown_when_poisoned() {
+        assert_eq!(unsent_messages(), Some(0));
+        let entries = Entries::default();
+        register(&entries);
+        assert_eq!(unsent_messages(), Some(0));
+        let poisoned = entries.clone();
+        let _ = std::thread::spawn(move || { let _g = poisoned.lock().unwrap(); panic!("poison") }).join();
+        assert_eq!(unsent_messages(), None, "unknown state is reported, not guessed");
+        drop(entries);
+        assert_eq!(unsent_messages(), Some(0), "a closed account no longer counts");
     }
 }
