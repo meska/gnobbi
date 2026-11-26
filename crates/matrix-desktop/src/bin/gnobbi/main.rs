@@ -1021,10 +1021,18 @@ impl App {
                     });
                 }
             }
-            // GNOBBI_EGUI_ATTACH=<path>: attaches that file to the open room's composer once.
+            // GNOBBI_EGUI_ATTACH=<path>[:<path>...]: attaches those files to the open room's composer once (the same call a drop makes).
+            // GNOBBI_EGUI_ATTACH_SHEET=1: opens the phone attach sheet once.
+            if s.messages.is_some() && matrix_desktop::hooks::var_os("GNOBBI_EGUI_ATTACH_SHEET").is_some() {
+                static SHEET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                if !SHEET.swap(true, std::sync::atomic::Ordering::Relaxed) { ctx.data_mut(|d| d.insert_temp(egui::Id::new("attach-sheet-open"), true)); }
+            }
             if s.messages.is_some() && let Ok(path) = matrix_desktop::hooks::var("GNOBBI_EGUI_ATTACH") {
                 static ATTACHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-                if !ATTACHED.swap(true, std::sync::atomic::Ordering::Relaxed) { s.attach(std::path::Path::new(&path), false); }
+                if !ATTACHED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let files: Vec<_> = path.split(':').map(std::path::PathBuf::from).collect();
+                    s.attach_all(&files, false);
+                }
             }
             // A headless seat never focuses the window, and egui drops the text focus with it: say it is focused.
             if self.hook_type && matrix_desktop::hooks::var_os("GNOBBI_EGUI_TYPE").is_some() {
