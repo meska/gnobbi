@@ -13,6 +13,59 @@ fn store(title: &str, path: Option<PathBuf>) {
     *DONE.lock().unwrap_or_else(|e| e.into_inner()) = path.map(|p| (title.to_owned(), p));
 }
 
+/// Several files at once (desktop multi-select), keyed like `DONE`.
+static MANY: Mutex<Option<(String, Vec<PathBuf>)>> = Mutex::new(None);
+
+/// The files chosen for the dialog titled `title`, once; empty while open, closed or taken. A single-file picker
+/// (iOS, Android) answers through `done`, which this also reads.
+pub fn done_many(title: &str) -> Vec<PathBuf> {
+    let mut slot = MANY.lock().unwrap_or_else(|e| e.into_inner());
+    if slot.as_ref().is_some_and(|(t, _)| t == title) {
+        return slot.take().map(|(_, p)| p).unwrap_or_default();
+    }
+    drop(slot);
+    done(title).into_iter().collect()
+}
+
+/// Extensions the «Photo or video» entry offers.
+const MEDIA: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "heic", "mp4", "mov", "m4v", "webm", "mkv"];
+
+/// Pickers for the attach menu: any number of files, or only pictures and videos.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub fn start_many(ctx: &eframe::egui::Context, title: &str, media_only: bool) {
+    let mut dialog = rfd::AsyncFileDialog::new().set_title(title);
+    if media_only {
+        dialog = dialog.add_filter(i18n::t("Photo or video"), MEDIA);
+    }
+    let (ctx, title, pick) = (ctx.clone(), title.to_owned(), dialog.pick_files());
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread().build().expect("tokio runtime");
+        let files = rt.block_on(pick).unwrap_or_default().into_iter().map(|h| h.path().to_path_buf()).collect();
+        *MANY.lock().unwrap_or_else(|e| e.into_inner()) = Some((title, files));
+        ctx.request_repaint();
+    });
+}
+
+/// The phone pickers return one file per pass: «Add» in the preview adds the next. iOS: PHPicker for pictures and videos.
+#[cfg(target_os = "ios")]
+pub fn start_many(ctx: &eframe::egui::Context, title: &str, media_only: bool) {
+    if !media_only {
+        return start(ctx, title, false);
+    }
+    purge_temp();
+    let (ctx, t) = (ctx.clone(), title.to_owned());
+    let done = move |r: robius_file_picker::Result<Option<robius_file_picker::PickedFile>>| {
+        store(&t, r.ok().flatten().and_then(|f| f.into_path()));
+        ctx.request_repaint();
+    };
+    let _ = robius_file_picker::FileDialog::new().set_title(title).pick_image_or_video(done);
+}
+
+#[cfg(target_os = "android")]
+pub fn start_many(ctx: &eframe::egui::Context, title: &str, media_only: bool) {
+    start(ctx, title, media_only);
+}
+
 /// The file chosen for the dialog titled `title`, once; None while open, closed or taken.
 pub fn done(title: &str) -> Option<PathBuf> {
     let mut slot = DONE.lock().unwrap_or_else(|e| e.into_inner());

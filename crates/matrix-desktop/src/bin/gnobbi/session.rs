@@ -25,9 +25,7 @@ pub struct ThreadState {
     pub failed: bool,
     pub draft: String,
     /// File, picture or voice note going out with the next send.
-    pub attachment: Option<(String, Vec<u8>)>,
-    pub attachment_revision: u64,
-    voice: Option<matrix_engine::sending::Voice>,
+    pub attachment: Option<crate::attach::Pending>,
     pub reply_to: Option<(EventId, String)>,
     /// Right-clicked reply and where.
     pub menu: Option<(EventId, egui::Pos2)>,
@@ -169,7 +167,6 @@ pub struct Session {
     pub recorder: Option<matrix_desktop::voice_recorder::Recorder>,
     /// The recording was started from the thread's composer: its bar shows there and the note goes into the thread.
     record_thread: bool,
-    voice: Option<matrix_engine::sending::Voice>,
     /// Set by the app each frame: the window has focus, the newest message is in view, the «Conferme di lettura» setting.
     pub reading: (bool, bool, bool),
     read_dirty: bool,
@@ -285,8 +282,7 @@ pub struct Session {
     /// The menu was opened by a long press: the message is lifted and the touch menu is shown instead (it outlives `menu` while it fades out).
     pub lift: Option<crate::touch_menu::Lift>,
     /// File dropped on the window, sent with the next Enter (the text is its caption).
-    pub attachment: Option<(String, Vec<u8>)>,
-    pub attachment_revision: u64,
+    pub attachment: Option<crate::attach::Pending>,
     /// Short result line for the last save or refused attachment.
     pub notice: Option<String>,
     pub notice_shown: Option<(String, std::time::Instant)>,
@@ -376,7 +372,6 @@ impl Session {
             audio_wave: Vec::new(),
             recorder: None,
             record_thread: false,
-            voice: None,
             reading: (false, false, true),
             read_dirty: true,
             alerted_unread: Default::default(),
@@ -457,7 +452,6 @@ impl Session {
             menu: None,
             lift: None,
             attachment: None,
-            attachment_revision: 0,
             notice: None,
             notice_shown: None,
             confirm_delete: false,
@@ -1666,15 +1660,22 @@ impl Session {
     }
 
     pub fn open_thread(&mut self, root: EventId) {
-        self.thread = Some(ThreadState { root, views: Default::default(), history: None, at_start: false, heights: Default::default(), failed: false, draft: String::new(), attachment: None, attachment_revision: 0, voice: None, reply_to: None, menu: None, want: 50, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
+        self.thread = Some(ThreadState { root, views: Default::default(), history: None, at_start: false, heights: Default::default(), failed: false, draft: String::new(), attachment: None, reply_to: None, menu: None, want: 50, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
         self.info_open = false;
         self.search_open = false;
     }
 
-    pub fn send_thread(&mut self, body: String) {
+    pub fn send_thread(&mut self, mut body: String) {
         let (Some(th), Some(scope)) = (&mut self.thread, self.draft_scope.clone()) else { return };
-        let attachment = th.attachment.take().map(|(filename, data)| matrix_engine::sending::Attachment { filename, data, voice: th.voice.take() });
-        self.op_queue.push(OperationCommand::ThreadSend { scope, root: th.root.clone(), reply_to: th.reply_to.take().map(|(id, _)| id), body, attachment });
+        // One command per file, in order; the caption rides on the last one.
+        let mut files: Vec<_> = th.attachment.take().map(crate::attach::Pending::into_attachments).unwrap_or_default().into_iter().map(Some).collect();
+        if files.is_empty() { files.push(None); }
+        let last = files.len() - 1;
+        let reply_to = th.reply_to.take().map(|(id, _)| id);
+        for (i, attachment) in files.into_iter().enumerate() {
+            let body = if i == last { std::mem::take(&mut body) } else { String::new() };
+            self.op_queue.push(OperationCommand::ThreadSend { scope: scope.clone(), root: th.root.clone(), reply_to: reply_to.clone(), body, attachment });
+        }
     }
 
     /// Votes for option `ix` of the poll started by `target` (the engine replaces own votes; the same option again withdraws).
@@ -1925,46 +1926,71 @@ impl Session {
         self.notice = (!queued).then(|| i18n::t("A save is already in progress").to_owned());
     }
 
-    /// Takes a dropped file as the pending attachment (up to the server's upload limit, 50 MB until it is known).
+    /// Adds the picked, dropped or pasted files to the room's (or the thread's) preview, each up to the server's upload limit
+    /// (50 MB until it is known). A file that cannot be read or does not fit is reported and skipped.
     /// `thread`: for the open thread's composer instead of the room's.
-    pub fn attach(&mut self, path: &std::path::Path, thread: bool) {
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
-        let data = std::fs::metadata(path).ok().filter(|m| 0 < m.len() && m.len() <= self.upload_limit.unwrap_or(50 << 20)).and_then(|_| std::fs::read(path).ok());
-        match (name, data) {
-            (Some(name), Some(data)) => self.set_attachment(thread, name, data, None),
-            _ => self.notice = Some(i18n::t("File cannot be attached").to_owned()),
+    pub fn attach_all(&mut self, paths: &[std::path::PathBuf], thread: bool) {
+        for path in paths {
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+            let data = std::fs::metadata(path).ok().filter(|m| 0 < m.len() && m.len() <= self.upload_limit.unwrap_or(50 << 20)).and_then(|_| std::fs::read(path).ok());
+            match (name, data) {
+                (Some(name), Some(data)) => self.add_attachment(thread, name, data),
+                _ => self.notice = Some(i18n::t("File cannot be attached").to_owned()),
+            }
         }
+    }
+
+    pub fn attach(&mut self, path: &std::path::Path, thread: bool) {
+        self.attach_all(&[path.to_path_buf()], thread);
     }
 
     /// A pasted picture goes out as a PNG; a pasted GIF as its original bytes, so it stays animated.
     pub fn attach_image(&mut self, pasted: crate::composer::Pasted, thread: bool) {
         use crate::composer::Pasted;
-        let occupied = if thread { self.thread.as_ref().is_some_and(|th| th.attachment.is_some()) } else { self.attachment.is_some() };
-        if occupied {
-            self.notice = Some(i18n::t("Only one attachment is supported").to_owned());
-            return;
-        }
         let limit = self.upload_limit.unwrap_or(50 << 20);
         match pasted {
             Pasted::Picture(image) => match matrix_desktop::composer_image::prepare(&image, limit) {
-                Ok(data) => self.set_attachment(thread, i18n::t("Image.png").to_owned(), data, None),
+                Ok(data) => self.add_attachment(thread, i18n::t("Image.png").to_owned(), data),
                 Err(_) => self.notice = Some(i18n::t("Image cannot be attached").to_owned()),
             },
-            Pasted::Gif(data) if data.len() as u64 <= limit => self.set_attachment(thread, "Image.gif".to_owned(), data, None),
+            Pasted::Gif(data) if data.len() as u64 <= limit => self.add_attachment(thread, "Image.gif".to_owned(), data),
             Pasted::Gif(_) => self.notice = Some(i18n::t("Image cannot be attached").to_owned()),
         }
     }
 
-    /// The pending attachment of the room's composer or of the thread's.
-    fn set_attachment(&mut self, thread: bool, name: String, data: Vec<u8>, voice: Option<matrix_engine::sending::Voice>) {
-        static REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let revision = REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    /// What the preview card asked for: take one file out, or all of them.
+    pub fn attach_acts(&mut self, acts: &crate::attach::Acts, thread: bool) {
+        let slot = if thread { self.thread.as_mut().map(|th| &mut th.attachment) } else { Some(&mut self.attachment) };
+        let Some(slot) = slot else { return };
+        if let Some(i) = acts.remove && let Some(p) = slot.as_mut() && i < p.items.len() {
+            p.items.remove(i);
+        }
+        if acts.clear || slot.as_ref().is_some_and(|p| p.items.is_empty()) {
+            *slot = None;
+        }
+    }
+
+    /// Appends to the pending files of the room's composer or of the thread's (a voice note starts its own).
+    fn add_attachment(&mut self, thread: bool, name: String, data: Vec<u8>) {
+        let slot = if thread { self.thread.as_mut().map(|th| &mut th.attachment) } else { Some(&mut self.attachment) };
+        let Some(slot) = slot else { return };
+        let full = match slot.as_mut() {
+            Some(pending) => !pending.push(name, data),
+            None => {
+                *slot = Some(crate::attach::Pending::single(name, data, None));
+                false
+            }
+        };
+        self.notice = full.then(|| i18n::t("At most 10 files").to_owned());
+    }
+
+    /// A voice note ready to go out.
+    fn set_voice(&mut self, thread: bool, name: String, data: Vec<u8>, voice: Option<matrix_engine::sending::Voice>) {
+        let pending = Some(crate::attach::Pending::single(name, data, voice));
         if !thread {
-            (self.attachment, self.voice) = (Some((name, data)), voice);
-            self.attachment_revision = revision;
+            self.attachment = pending;
         } else if let Some(th) = &mut self.thread {
-            (th.attachment, th.voice) = (Some((name, data)), voice);
-            th.attachment_revision = revision;
+            th.attachment = pending;
         }
         self.notice = None;
     }
@@ -2075,16 +2101,23 @@ impl Session {
     /// Sends the text to the open room; the live view picks up the echo.
     pub fn send(&mut self, body: String) {
         let (Some(scope), Some((tx, _))) = (self.draft_scope.clone(), &mut self.send) else { return };
-        let request = matrix_engine::sending::SendRequest {
-            scope: scope.clone(),
-            transaction_id: matrix_engine::sending::fresh_transaction_id(),
-            body,
-            attachment: self.attachment.take().map(|(filename, data)| matrix_engine::sending::Attachment { filename, data, voice: self.voice.take() }),
-            poll: None,
-            mentions: std::mem::take(&mut self.mentions),
-        };
-        if tx.try_send(request).is_ok() {
-            self.history.activity(&scope);
+        // One request per file, in order; the caption and its mentions ride on the last one (the album's caption).
+        let mut files: Vec<_> = self.attachment.take().map(crate::attach::Pending::into_attachments).unwrap_or_default().into_iter().map(Some).collect();
+        if files.is_empty() { files.push(None); }
+        let last = files.len() - 1;
+        let (mut body, mut mentions) = (body, std::mem::take(&mut self.mentions));
+        for (i, attachment) in files.into_iter().enumerate() {
+            let request = matrix_engine::sending::SendRequest {
+                scope: scope.clone(),
+                transaction_id: matrix_engine::sending::fresh_transaction_id(),
+                body: if i == last { std::mem::take(&mut body) } else { String::new() },
+                attachment,
+                poll: None,
+                mentions: if i == last { std::mem::take(&mut mentions) } else { Vec::new() },
+            };
+            if tx.try_send(request).is_ok() {
+                self.history.activity(&scope);
+            }
         }
     }
 
@@ -2170,7 +2203,7 @@ impl Session {
             Some(note) => {
                 let thread = self.record_thread;
                 // A thread closed meanwhile: the note has nowhere to go and is dropped.
-                self.set_attachment(thread, note.filename, note.data, note.voice);
+                self.set_voice(thread, note.filename, note.data, note.voice);
                 if thread { self.send_thread(String::new()) } else { self.send(String::new()) }
             }
             None => self.notice = Some(i18n::t("No audio recorded").to_owned()),

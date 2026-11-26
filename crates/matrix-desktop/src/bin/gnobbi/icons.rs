@@ -82,7 +82,7 @@ icons! {
 static REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Phosphor-subset.ttf");
 static FILL: &[u8] = include_bytes!("../../../assets/fonts/Phosphor-Fill-subset.ttf");
 
-fn family(fill: bool) -> FontFamily {
+pub(crate) fn family(fill: bool) -> FontFamily {
     FontFamily::Name(if fill { "phosphor-fill" } else { "phosphor" }.into())
 }
 

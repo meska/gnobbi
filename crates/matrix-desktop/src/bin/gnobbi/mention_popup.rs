@@ -127,7 +127,7 @@ pub fn demo(ctx: &egui::Context, t: &matrix_desktop::DesignTokens) {
         }
         egui::Area::new(egui::Id::new("mention-demo")).anchor(egui::Align2::LEFT_BOTTOM, [0., 0.]).show(ctx, |ui| {
             ui.set_width(ctx.content_rect().width());
-            let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, false, false, None, None, None);
+            let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, crate::attach::Acts::default(), false, Vec::new(), None, None);
             crate::composer::show(ui, "", draft, crate::composer::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &members, mentions, Some((panel, avatars)), t);
         });
     });
@@ -164,7 +164,7 @@ mod tests {
         }
         fn frame(&mut self, events: Vec<Event>) {
             let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, self.size)), events, ..Default::default() };
-            let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, false, false, None, None, None);
+            let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, crate::attach::Acts::default(), false, Vec::new(), None, None);
             let mut out = self.ctx.run_ui(input, |ui| {
                 crate::composer::panel(egui::Frame::NONE).show(ui, |ui| {
                     let sent = crate::composer::show(ui, "", &mut self.draft, crate::composer::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &members(), &mut self.mentions, Some((&mut self.panel, &self.avatars)), &matrix_desktop::DARK);

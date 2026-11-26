@@ -476,7 +476,8 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
 pub struct ThreadOut {
     pub send: Option<String>,
     pub voice: Option<crate::composer::VoiceAct>,
-    pub picked: Option<std::path::PathBuf>,
+    pub picked: Vec<std::path::PathBuf>,
+    pub attach: crate::attach::Acts,
     pub pasted: Option<crate::composer::Pasted>,
     pub save: Option<(matrix_domain::EventId, String)>,
 }
@@ -505,10 +506,8 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, pictures:
                 if crate::icons::button(ui, crate::icons::Icon::X, false, i18n::t("Cancel reply")).clicked() { th.reply_to = None; }
             });
         }
-        let (mut cancel, mut drop, mut poll) = (false, false, false);
-        let attachment = th.attachment.as_ref().map(|(n, data)| (n.as_str(), data.as_slice(), th.attachment_revision));
-        out.send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, attachment, &mut cancel, &mut drop, &mut poll, &mut out.picked, &mut out.pasted, recording, &mut out.voice, &[], &mut Vec::new(), None, t);
-        if drop { th.attachment = None; }
+        let (mut cancel, mut poll) = (false, false);
+        out.send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, th.attachment.as_mut(), &mut cancel, &mut out.attach, &mut poll, &mut out.picked, &mut out.pasted, recording, &mut out.voice, &[], &mut Vec::new(), None, t);
     }));
     th.tail_visible = false;
     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show_inside(ui, |ui| crate::dir::scope(ui, |ui| {

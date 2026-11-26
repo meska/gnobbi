@@ -28,7 +28,7 @@ pub enum Mode {
 pub const THREAD: &str = "-thread";
 
 /// `salt` is `""` for the room composer and `THREAD` for the drawer: the same bar minus the poll (attach and voice go into the thread).
-pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<(&str, &[u8], u64)>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<Pasted>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>, t: &matrix_desktop::DesignTokens) -> Option<String> {
+pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, mut attachment: Option<&mut crate::attach::Pending>, cancel: &mut bool, attach_acts: &mut crate::attach::Acts, poll: &mut bool, picked: &mut Vec<std::path::PathBuf>, pasted: &mut Option<Pasted>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>, t: &matrix_desktop::DesignTokens) -> Option<String> {
     let avatars = stickers.as_ref().map(|(_, a)| *a);
     // The suggestions take Up/Down/Enter/Tab/Esc first, so Enter picks instead of sending.
     crate::mention_popup::keys(ui, egui::Id::new(format!("composer-text{salt}")), draft, members, mentions);
@@ -61,11 +61,12 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
             }
         });
     }
+    let has_attachment = attachment.is_some();
     let error_id = nid("composer-image-error");
-    if let Some(gif) = take_gif_input(ui, nid("composer-text"), mode != Mode::Edit && recording.is_none() && attachment.is_none()) {
+    if let Some(gif) = take_gif_input(ui, nid("composer-text"), mode != Mode::Edit && recording.is_none()) {
         *pasted = Some(Pasted::Gif(gif));
     }
-    let image_input = take_image_input(ui, nid("composer-text"), if recording.is_some() { Mode::Edit } else { mode }, attachment.is_some(), draft);
+    let image_input = take_image_input(ui, nid("composer-text"), if recording.is_some() { Mode::Edit } else { mode }, false, draft);
     let inserting_image = image_input.is_some();
     if let Some(result) = image_input {
         match result {
@@ -84,29 +85,27 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
             }
         });
     }
-    if let Some((name, data, revision)) = attachment {
-        ui.horizontal(|ui| {
-            ui.add_space(12.);
-            let picture = attachment_thumbnail(ui, nid("composer-thumbnail"), data, revision);
-            // The chip never outgrows the bar: the name is cut to what is left after the icon and the buttons that follow, so Send stays on screen.
-            let m = crate::metrics::get();
-            let gap = ui.spacing().item_spacing.x;
-            let buttons = 1 + (picture && stickers.is_some()) as usize;
-            let room = ui.available_width() - (m.icon + m.gap + 2. * gap) - buttons as f32 * (crate::metrics::button() + gap) - 12.;
-            let font = egui::FontId::proportional(m.body);
-            let shown = fit_name(name, |s| ui.painter().layout_no_wrap(s.to_owned(), font.clone(), egui::Color32::WHITE).size().x <= room);
-            ui.label(crate::icons::with_label(crate::icons::Icon::Paperclip, &shown));
-            // A picture (pasted, picked, or a Memoji from the iOS keyboard) can become a sticker instead of a message.
-            if picture && let Some((panel, _)) = stickers.as_mut() && crate::icons::button(ui, Icon::Sticker, false, i18n::t("Save as sticker")).clicked() {
-                panel.add_picture(data, &std::path::Path::new(name).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
-                *drop_attachment = true;
+    if let Some(pending) = attachment.as_mut() {
+        if pending.voice.is_some() {
+            // A voice note waiting to go out: its name and a remove button.
+            ui.horizontal(|ui| {
+                ui.add_space(12.);
+                ui.label(crate::icons::with_label(crate::icons::Icon::Paperclip, &pending.items[0].name));
+                if crate::info::close_icon(ui, i18n::t("Remove attachment")).clicked() {
+                    attach_acts.clear = true;
+                }
+            });
+        } else {
+            let a = crate::attach::card(ui, pending, t, stickers.is_some());
+            if a.sticker && let Some((panel, _)) = stickers.as_mut() && let Some(item) = pending.items.first() {
+                // A picture (pasted, picked, or a Memoji from the iOS keyboard) can become a sticker instead of a message.
+                panel.add_picture(&item.data, &std::path::Path::new(&item.name).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+                attach_acts.clear = true;
             }
-            if crate::info::close_icon(ui, i18n::t("Remove attachment")).clicked() {
-                *drop_attachment = true;
-            }
-        });
-    } else {
-        ui.data_mut(|d| d.remove::<Thumbnail>(nid("composer-thumbnail")));
+            attach_acts.add |= a.add;
+            attach_acts.remove = attach_acts.remove.or(a.remove);
+            attach_acts.clear |= a.clear;
+        }
     }
     if let Some(secs) = recording {
         ui.horizontal(|ui| {
@@ -184,22 +183,49 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
             }
             emoji_hover = Some(button);
         }
-        if attach.clicked() { open_popup(ui.ctx(), Popup::Attach); }
-        egui::Popup::menu(&attach).show(|ui| {
-            if extra == 0 && ui.button(i18n::t("Emoji")).clicked() {
-                open_popup(ui.ctx(), Popup::Emoji);
-                egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&emoji));
+        // Telegram's order: pictures and videos, file, then the rest. A phone gets a sheet from the bottom edge, the desktop a menu.
+        let sheet_id = nid("attach-sheet-open");
+        let touch = crate::mobile::touch();
+        let mut row = None;
+        let mut rows = vec![(crate::attach::SheetRow::Media, i18n::t("Photo or video")), (crate::attach::SheetRow::File, i18n::t("File"))];
+        if !thread { rows.push((crate::attach::SheetRow::Poll, i18n::t("Poll"))); }
+        if extra == 0 { rows.push((crate::attach::SheetRow::Emoji, i18n::t("Emoji"))); }
+        if touch {
+            let mut open = ui.data(|d| d.get_temp::<bool>(sheet_id)).unwrap_or(false);
+            if attach.clicked() { open = !open; }
+            if open { row = crate::attach::sheet(ui.ctx(), &mut open, &rows, t); }
+            ui.data_mut(|d| d.insert_temp(sheet_id, open));
+        } else {
+            if attach.clicked() { open_popup(ui.ctx(), Popup::Attach); }
+            egui::Popup::menu(&attach).show(|ui| {
+                for (r, label) in &rows {
+                    if ui.button(*label).clicked() {
+                        row = Some(*r);
+                        ui.close();
+                    }
+                }
+            });
+        }
+        if let Some(r) = row {
+            match r {
+                crate::attach::SheetRow::Media | crate::attach::SheetRow::File => {
+                    ui.data_mut(|d| d.insert_temp(asker, thread));
+                    let media = r == crate::attach::SheetRow::Media;
+                    crate::pick::start_many(ui.ctx(), i18n::t(if media { "Photo or video" } else { "Attach a file" }), media);
+                }
+                crate::attach::SheetRow::Poll => *poll = true,
+                crate::attach::SheetRow::Emoji => {
+                    open_popup(ui.ctx(), Popup::Emoji);
+                    egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&emoji));
+                }
             }
-            if !thread && ui.button(i18n::t("Poll")).clicked() {
-                *poll = true;
-                ui.close();
-            }
-            if ui.button(i18n::t("Attach a file")).clicked() {
-                ui.data_mut(|d| d.insert_temp(asker, thread));
-                crate::pick::start(ui.ctx(), i18n::t("Attach a file"), false);
-                ui.close();
-            }
-        });
+        }
+        // The preview's «Add» opens the same file dialog.
+        if attach_acts.add {
+            attach_acts.add = false;
+            ui.data_mut(|d| d.insert_temp(asker, thread));
+            crate::pick::start_many(ui.ctx(), i18n::t("Attach a file"), false);
+        }
         // Stays open on clicks inside (tabs, search, pack bar); a picked emoji or sticker closes it itself.
         let mut popup = egui::Popup::menu(&emoji).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
         // One box for both tabs, so switching tabs moves and resizes nothing.
@@ -260,11 +286,13 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
                 ui.data_mut(|d| d.insert_temp(hid, (false, last)));
             }
         }
-        if ui.data(|d| d.get_temp::<bool>(asker)) == Some(thread) && let Some(p) = crate::pick::done(i18n::t("Attach a file")) {
-            *picked = Some(p);
+        if ui.data(|d| d.get_temp::<bool>(asker)) == Some(thread) {
+            for title in ["Photo or video", "Attach a file"] {
+                picked.extend(crate::pick::done_many(i18n::t(title)));
+            }
         }
         // Voice and Send share one slot and cross-fade; the one fading out is inert.
-        let has_text = !(draft.trim().is_empty() && attachment.is_none());
+        let has_text = !(draft.trim().is_empty() && !has_attachment);
         let t = ui.ctx().animate_bool_with_time(nid("composer-send-fade"), has_text, 0.15);
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
         if t < 1. && icon_at(ui, rect, &format!("composer-voice{salt}"), Icon::Microphone, 1. - t, !has_text, i18n::t("Voice message")).clicked() {
@@ -278,7 +306,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
     });
     // A native insertion is first validated and attached by the session after this call.
     // Never send a caption before that validation succeeds in the same frame.
-    if !inserting_image && (enter || send_click) && (attachment.is_some() || !draft.trim().is_empty()) {
+    if !inserting_image && (enter || send_click) && (has_attachment || !draft.trim().is_empty()) {
         return Some(std::mem::take(draft));
     }
     None
@@ -412,7 +440,7 @@ fn hover_step((open, last): (bool, f64), over: bool, drawer_open: bool, now: f64
 }
 
 /// `name` cut with «…» until `fits` accepts it, keeping a short extension: `documento_molto_lu….pdf`.
-fn fit_name(name: &str, fits: impl Fn(&str) -> bool) -> String {
+pub(crate) fn fit_name(name: &str, fits: impl Fn(&str) -> bool) -> String {
     if fits(name) { return name.to_owned(); }
     let (stem, ext) = match name.rfind('.') {
         Some(i) if i > 0 && name.len() - i <= 6 => name.split_at(i),
@@ -537,27 +565,6 @@ fn take_image_input(ui: &egui::Ui, id: egui::Id, mode: Mode, occupied: bool, dra
     Some(Ok(image.as_ref().clone()))
 }
 
-#[derive(Clone)]
-struct Thumbnail {
-    revision: u64,
-    texture: Option<egui::TextureHandle>,
-}
-
-/// Draws the thumbnail; false when the attachment is not a picture.
-fn attachment_thumbnail(ui: &mut egui::Ui, id: egui::Id, data: &[u8], revision: u64) -> bool {
-    let mut cached = ui.data(|d| d.get_temp::<Thumbnail>(id));
-    if cached.as_ref().is_none_or(|c| c.revision != revision) {
-        let texture = matrix_desktop::composer_image::thumbnail(data).map(|image| ui.ctx().load_texture("composer-attachment", image, Default::default()));
-        cached = Some(Thumbnail { revision, texture });
-        ui.data_mut(|d| d.insert_temp(id, cached.clone().unwrap()));
-    }
-    let texture = cached.and_then(|c| c.texture);
-    if let Some(texture) = &texture {
-        ui.add(egui::Image::new(texture).max_size(egui::vec2(64., 64.)));
-    }
-    texture.is_some()
-}
-
 #[cfg(test)]
 mod image_tests {
     use super::*;
@@ -648,7 +655,7 @@ mod image_tests {
             }
             let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900., 600.))), events, ..Default::default() }, |ui| {
                 ui.memory_mut(|m| m.request_focus(egui::Id::new("composer-text")));
-                let (mut cancel, mut drop, mut poll, mut picked, mut pasted, mut voice) = (false, false, false, None, None, None);
+                let (mut cancel, mut drop, mut poll, mut picked, mut pasted, mut voice) = (false, crate::attach::Acts::default(), false, Vec::new(), None, None);
                 let sent = show(ui, "", &mut draft, Mode::Send, None, &mut cancel, &mut drop, &mut poll, &mut picked, &mut pasted, None, &mut voice, &[], &mut vec![], None, &matrix_desktop::LIGHT);
                 assert!(sent.is_none());
                 if frame == 3 { assert!(matches!(pasted, Some(Pasted::Picture(_)))); }
@@ -759,7 +766,7 @@ mod tests {
             for frame in 0..6 {
                 let mut out = ctx.run_ui(input.clone(), |ui| {
                     super::panel(egui::Frame::NONE).show(ui, |ui| {
-                        let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (String::new(), false, false, false, None, None, None);
+                        let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (String::new(), false, crate::attach::Acts::default(), false, Vec::new(), None, None);
                         super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
                     });
                 });
@@ -803,7 +810,7 @@ mod tests {
             let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(self.width, 1200.))), events, ..Default::default() }; // tall: the open drawer pushes the bar down
             let mut out = self.ctx.run_ui(input, |ui| {
                 super::panel(egui::Frame::NONE).show(ui, |ui| {
-                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (String::new(), false, false, false, None, None, None);
+                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (String::new(), false, crate::attach::Acts::default(), false, Vec::new(), None, None);
                     let (mut panel, avatars) = (crate::stickers::Panel::default(), crate::avatar::Avatars::new());
                     super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), Some((&mut panel, &avatars)), &matrix_desktop::LIGHT);
                 });
@@ -875,11 +882,12 @@ mod tests {
     }
 
     #[test]
-    fn phone_has_no_hover_popup_and_the_menu_still_opens() {
+    fn phone_has_no_hover_popup_and_the_attach_sheet_opens_instead_of_the_menu() {
         crate::mobile::FORCE_TOUCH.set(true);
         let bar = Bar::new(436.);
         bar.click("composer-attach");
-        assert!(bar.menu() && !bar.small_popup());
+        let sheet = bar.ctx.data(|d| d.get_temp::<bool>(eframe::egui::Id::new("attach-sheet-open")));
+        assert!(sheet == Some(true) && !bar.menu() && !bar.small_popup());
         crate::mobile::FORCE_TOUCH.set(false);
     }
 
@@ -895,7 +903,7 @@ mod tests {
         for _ in 0..4 {
             let mut out = ctx.run_ui(input.clone(), |ui| {
                 let r = super::panel(egui::Frame::NONE).show(ui, |ui| {
-                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
+                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, crate::attach::Acts::default(), false, Vec::new(), None, None);
                     super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
                 });
                 h = r.response.rect.height();
@@ -939,7 +947,7 @@ mod tests {
             }
             let mut out = ctx.run_ui(input, |ui| {
                 let r = super::panel(egui::Frame::NONE).show(ui, |ui| {
-                    let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, false, false, None, None, None);
+                    let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, crate::attach::Acts::default(), false, Vec::new(), None, None);
                     sent = super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
                 });
                 panel_right = r.response.rect.right();
@@ -997,7 +1005,7 @@ mod tests {
             let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(320., 600.))), predicted_dt: 1., ..Default::default() };
             for _ in 0..4 {
                 let mut out = ctx.run_ui(input.clone(), |ui| {
-                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
+                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, crate::attach::Acts::default(), false, Vec::new(), None, None);
                     super::show(ui, super::THREAD, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
                 });
                 out.textures_delta.clear();
@@ -1028,7 +1036,7 @@ mod tests {
                 for _ in 0..4 {
                     let mut out = ctx.run_ui(input.clone(), |ui| {
                         super::panel(egui::Frame::NONE).show(ui, |ui| {
-                            let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
+                            let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, crate::attach::Acts::default(), false, Vec::new(), None, None);
                             super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
                         });
                     });

@@ -13,6 +13,7 @@ use std::time::Duration;
 
 mod accounts;
 mod animation;
+mod attach;
 mod avatar;
 mod avatar_editor;
 mod pick;
@@ -658,6 +659,14 @@ impl eframe::App for App {
             });
         }
         let dropped: Vec<_> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
+        // Files over the window: the chat says it takes them (Telegram does the same).
+        if self.session.as_ref().is_some_and(|s| s.messages.is_some()) && ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+            let screen = ctx.content_rect();
+            let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop-hint"));
+            let painter = ctx.layer_painter(layer);
+            painter.rect_filled(screen, 0., egui::Color32::from_black_alpha(140));
+            painter.text(screen.center(), egui::Align2::CENTER_CENTER, i18n::t("Drop files to send"), egui::FontId::proportional(22.), egui::Color32::WHITE);
+        }
         if let Some(session) = &mut self.session {
             if let Some(path) = dropped.first() {
                 // With the account window open a dropped picture is the profile photo (kept for «Salva»), otherwise an attachment.
@@ -668,7 +677,7 @@ impl eframe::App for App {
                         }
                     }
                     _ if self.rail.accounts && session.profile_caps.is_some_and(|c| c.1) => self.account_form.pick(path.clone(), &self.root, &ctx),
-                    _ => session.attach(path, false),
+                    _ => session.attach_all(&dropped, false),
                 }
             }
             if session.account.is_some() && !session.recovering() {
@@ -1703,7 +1712,8 @@ impl App {
                 s.stop_recording(false);
             }
             if let Some(image) = out.pasted { s.attach_image(image, true); }
-            if let Some(path) = out.picked { s.attach(&path, true); }
+            s.attach_all(&out.picked, true);
+            s.attach_acts(&out.attach, true);
             match out.voice {
                 Some(composer::VoiceAct::Start) => s.start_recording(true, ui.ctx()),
                 Some(composer::VoiceAct::Send) => s.stop_recording(true),
@@ -1737,12 +1747,11 @@ impl App {
             {
                 let mode = s.target.as_ref().map_or(composer::Mode::Send, |(_, m)| *m);
                 let mut cancel = false;
-                let mut drop_file = false;
+                let mut attach_acts = attach::Acts::default();
                 let mut open_poll = false;
-                let mut picked_file = None;
+                let mut picked_files = Vec::new();
                 let mut pasted_image = None;
                 let mut voice_act = None;
-                let attachment = s.attachment.as_ref().map(|(n, data)| (n.as_str(), data.as_slice(), s.attachment_revision));
                 if let Some(remaining) = status_pill::expire_line(&mut s.notice, &mut s.notice_shown, i18n::t("Saved"), std::time::Instant::now()) {
                     if let Some(notice) = &s.notice {
                         // Above everything (the phone viewer covers the chat) and inside the safe area, never at the screen edge.
@@ -1757,20 +1766,16 @@ impl App {
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
                 let recording = s.recording(false);
-                to_send = composer::show(ui, "", &mut s.draft, mode, attachment, &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)), t);
+                to_send = composer::show(ui, "", &mut s.draft, mode, s.attachment.as_mut(), &mut cancel, &mut attach_acts, &mut open_poll, &mut picked_files, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)), t);
                 if let Some(image) = pasted_image {
                     s.attach_image(image, false);
                 }
-                if drop_file {
-                    s.attachment = None;
-                }
+                s.attach_acts(&attach_acts, false);
                 s.poll_open |= open_poll;
                 if let Some(sticker) = s.stickers.chosen.take() {
                     s.send_sticker(sticker);
                 }
-                if let Some(path) = picked_file {
-                    s.attach(&path, false);
-                }
+                s.attach_all(&picked_files, false);
                 match voice_act {
                     Some(composer::VoiceAct::Start) => s.start_recording(false, ui.ctx()),
                     Some(composer::VoiceAct::Send) => s.stop_recording(true),

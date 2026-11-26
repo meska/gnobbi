@@ -77,7 +77,8 @@ fn decoded(data: &[u8]) -> Result<image::DynamicImage, ImageError> {
         return Err(ImageError::TooLarge);
     }
     let reader = || {
-        let mut reader = image::ImageReader::with_format(std::io::Cursor::new(data), image::ImageFormat::Png);
+        // The format comes from the bytes: a picked JPEG or WebP previews like a pasted PNG.
+        let mut reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format().unwrap_or_else(|_| image::ImageReader::with_format(std::io::Cursor::new(data), image::ImageFormat::Png));
         let mut limits = image::Limits::default();
         limits.max_image_width = Some(MAX_IMAGE_PIXELS as u32);
         limits.max_image_height = Some(MAX_IMAGE_PIXELS as u32);
@@ -175,6 +176,13 @@ mod tests {
         assert!(writer.write_all(&[3, 4]).is_err());
         assert_eq!(writer.data, [1, 2]);
         assert!(writer.exceeded);
+    }
+
+    #[test]
+    fn a_jpeg_has_a_thumbnail_too() {
+        let mut jpeg = Vec::new();
+        image::DynamicImage::new_rgb8(200, 100).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+        assert_eq!(thumbnail(&jpeg).unwrap().size, [96, 48]);
     }
 
     #[test]
