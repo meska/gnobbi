@@ -185,7 +185,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
     // One line: the answer to the last «Salva».
     match (s.profile_saved, dirty) {
         (Some(Err(line)), _) => {
-            ui.add(egui::Label::new(RichText::new(line).color(ui.visuals().error_fg_color)).truncate());
+            ui.add(egui::Label::new(RichText::new(line).color(ui.visuals().error_fg_color)).wrap_mode(egui::TextWrapMode::Wrap));
         }
         (Some(Ok(())), false) => {
             ui.label(RichText::new(i18n::t("Saved")).color(rgb(t.secondary)));

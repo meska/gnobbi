@@ -784,7 +784,7 @@ impl eframe::App for App {
         });
         if let Some(line) = &self.account_notice {
             egui::Panel::top("account-selection-notice").frame(bar(&t)).show(ui, |ui| {
-                ui.add(egui::Label::new(line).truncate());
+                ui.add(egui::Label::new(line).wrap_mode(egui::TextWrapMode::Wrap));
             });
         }
         if self.open_failed() {
@@ -2047,9 +2047,9 @@ impl App {
         let mut retry = false;
         let mut again = false;
         let mut switch = None;
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline)).inner_margin(16.)).show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.set_max_width(400.);
+                ui.set_max_width(ui.available_width().min(400.)); // never wider than the window (a phone is under 400 pt)
                 ui.heading(i18n::t("Account unavailable"));
                 if let Some(e) = &entry {
                     ui.label(&e.label);
