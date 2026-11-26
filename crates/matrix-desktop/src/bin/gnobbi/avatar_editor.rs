@@ -449,7 +449,7 @@ impl Editor {
 
     /// The round preview with move, zoom and rotation.
     fn frame_side(&mut self, ui: &mut egui::Ui, column: f32, t: &DesignTokens) {
-        // On touch the preview is a full-width square, but not taller than a third of the screen, so the filters stay in view.
+        // On touch the preview is a full-width square, but not taller than 36% of the screen, so the filters stay in view.
         let side = if crate::mobile::touch() { column.min((ui.ctx().content_rect().height() * 0.36).max(160.)) } else { PREVIEW.min(column) };
         let (row, _) = ui.allocate_exact_size(Vec2::new(column, side), egui::Sense::hover());
         let rect = egui::Rect::from_center_size(row.center(), Vec2::splat(side));
@@ -462,7 +462,8 @@ impl Editor {
                 resp.request_focus();
             }
             // Two fingers that started on the preview: egui's own pinch, twist and pan (their zoom is also in `zoom_delta`).
-            let touch = ui.input(|i| i.multi_touch()).filter(|m| rect.contains(m.start_pos));
+            // Not while the window is disabled (saving), and only on the visible part of the preview.
+            let touch = ui.input(|i| i.multi_touch()).filter(|m| ui.is_enabled() && rect.intersect(ui.clip_rect()).contains(m.start_pos));
             let pan = touch.map_or_else(|| resp.drag_delta(), |m| m.translation_delta);
             let (turn, mut factor) = (touch.map_or(0., |m| m.rotation_delta), 1.);
             if touch.is_some() || resp.hovered() {
@@ -580,8 +581,9 @@ impl Editor {
         if touch {
             // One row that scrolls sideways; a vertical drag on it is passed on to the window's scroll.
             let row = egui::ScrollArea::horizontal().id_salt("avatar-filters").show(ui, |ui| lines(ui));
+            // `row.id.with("area")` is the id egui gives the scroll area's own drag response (an egui internal: check on upgrade).
             if let Some(drag) = ui.ctx().read_response(row.id.with("area")).filter(|r| r.dragged()) {
-                ui.scroll_with_delta(Vec2::new(0., drag.drag_delta().y));
+                forward_scroll(ui, drag.drag_delta().y);
             }
         } else {
             lines(ui);
@@ -593,6 +595,11 @@ impl Editor {
         slider(ui, names[1], wide, &mut self.look.contrast, -1. ..=1., column, t, percent);
         slider(ui, names[2], wide, &mut self.look.saturation, -1. ..=1., column, t, percent);
     }
+}
+
+/// Passes a vertical drag to the window's scroll so that it follows the finger (no animation).
+fn forward_scroll(ui: &egui::Ui, dy: f32) {
+    ui.scroll_with_delta_animation(Vec2::new(0., dy), egui::style::ScrollAnimation::none());
 }
 
 /// The Zoom and Rotation sliders are for mouse users: on touch the fingers do it.
@@ -619,6 +626,10 @@ fn slider(ui: &mut egui::Ui, label: &str, label_w: f32, value: &mut f32, range: 
         ui.spacing_mut().slider_width = column - label_w - VALUE - 2. * m.gap;
         ui.visuals_mut().selection.bg_fill = rgb(t.accent);
         let resp = ui.add(egui::Slider::new(value, range).show_value(false).trailing_fill(true).handle_shape(egui::style::HandleShape::Circle));
+        if crate::mobile::touch() && resp.dragged() {
+            // The slider takes the drag; a swipe that starts on it must still scroll the page.
+            forward_scroll(ui, resp.drag_delta().y);
+        }
         resp.widget_info(|| egui::WidgetInfo::slider(true, f64::from(*value), format!("{label} {}", shown(*value))));
         let (number, _) = ui.allocate_exact_size(Vec2::new(VALUE, height), egui::Sense::hover());
         ui.painter().text(crate::dir::flip_pos(number, number.right_center()), crate::dir::align(egui::Align2::RIGHT_CENTER), shown(*value), egui::FontId::proportional(m.secondary), rgb(t.secondary));
@@ -895,5 +906,123 @@ mod tests {
             // ±1: float rounding may differ between CPUs, a real change moves a pixel by far more.
             assert!(got[3] == 255 && got[..3].iter().zip(want).all(|(g, w)| g.abs_diff(w) <= 1), "({x},{y}): {got:?} instead of {want:?}");
         }
+    }
+
+    /// Headless egui with forced touch: real touch and pointer events, positions read from the accessibility tree.
+    use eframe::egui::{Event, Modifiers, PointerButton, Pos2, Rect, TouchDeviceId, TouchId, TouchPhase};
+    use std::collections::HashMap;
+
+        struct Rig { ctx: egui::Context, ed: Editor, size: Vec2 }
+        impl Rig {
+            fn new(size: Vec2) -> Self {
+                crate::mobile::FORCE_TOUCH.set(true);
+                let ctx = crate::icons::test_context();
+                ctx.enable_accesskit();
+                let ed = Editor::start(PathBuf::from("/nonexistent/x.png"), &ctx, || Ok(RgbaImage::from_pixel(400, 400, image::Rgba([90, 120, 200, 255]))));
+                let mut rig = Self { ctx, ed, size };
+                for _ in 0..200 {
+                    rig.frame(vec![]);
+                    if rig.ed.picture.is_some() { break; }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                assert!(rig.ed.picture.is_some());
+                rig.frame(vec![Self::touch(9, TouchPhase::Start, egui::pos2(2., 2.))]);
+                rig.frame(vec![Self::touch(9, TouchPhase::End, egui::pos2(2., 2.))]);
+                for _ in 0..40 { rig.frame(vec![]); }
+                rig
+            }
+            fn frame(&mut self, events: Vec<Event>) -> HashMap<String, Rect> {
+                let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, self.size)), events, ..Default::default() };
+                let ed = &mut self.ed;
+                let mut out = self.ctx.run_ui(input, |ui| { ed.show(ui.ctx(), &matrix_desktop::LIGHT); });
+                out.textures_delta.clear();
+                let mut map = HashMap::new();
+                if let Some(u) = out.platform_output.accesskit_update {
+                    for (_, n) in u.nodes {
+                        if let Some(b) = n.bounds() {
+                            let name = n.label().or(n.value()).unwrap_or("").to_owned();
+                            if !name.is_empty() { map.insert(name, Rect::from_min_max(egui::pos2(b.x0 as f32, b.y0 as f32), egui::pos2(b.x1 as f32, b.y1 as f32))); }
+                        }
+                    }
+                }
+                map
+            }
+            fn touch(id: u64, phase: TouchPhase, pos: Pos2) -> Event {
+                Event::Touch { device_id: TouchDeviceId(0), id: TouchId(id), phase, pos, force: None }
+            }
+            /// One finger: touch plus the emulated pointer, as egui-winit sends them.
+            fn swipe(&mut self, from: Pos2, by: Vec2) {
+                self.frame(vec![Self::touch(1, TouchPhase::Start, from), Event::PointerMoved(from), Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
+                for i in 1..=10 {
+                    let p = from + by * (i as f32 / 10.);
+                    self.frame(vec![Self::touch(1, TouchPhase::Move, p), Event::PointerMoved(p)]);
+                }
+                let p = from + by;
+                self.frame(vec![Self::touch(1, TouchPhase::End, p), Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }, Event::PointerGone]);
+                for _ in 0..40 { self.frame(vec![]); }
+            }
+            /// Two fingers around `c`: spread from 20 to 60 px half-distance, turning by `turn` radians.
+            fn pinch(&mut self, c: Pos2, turn: f32) {
+                let at = |i: f32| { let (r, a) = (20. + 4. * i, turn * i / 10.); Vec2::new(a.cos(), a.sin()) * r };
+                let (a, b) = (c - at(0.), c + at(0.));
+                self.frame(vec![Self::touch(1, TouchPhase::Start, a), Event::PointerMoved(a), Event::PointerButton { pos: a, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
+                self.frame(vec![Self::touch(2, TouchPhase::Start, b)]);
+                for i in 1..=10 {
+                    let (a, b) = (c - at(i as f32), c + at(i as f32));
+                    self.frame(vec![Self::touch(1, TouchPhase::Move, a), Event::PointerMoved(a), Self::touch(2, TouchPhase::Move, b)]);
+                }
+                let (a, b) = (c - at(10.), c + at(10.));
+                self.frame(vec![Self::touch(2, TouchPhase::End, b)]);
+                self.frame(vec![Self::touch(1, TouchPhase::End, a), Event::PointerButton { pos: a, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }, Event::PointerGone]);
+                for _ in 0..5 { self.frame(vec![]); }
+            }
+            fn find(map: &HashMap<String, Rect>, key: &str) -> Rect {
+                *map.iter().find(|(k, _)| k.contains(key)).unwrap_or_else(|| panic!("no node {key}: {:?}", map.keys())).1
+            }
+        }
+
+    /// Starts every rig with touch forced on (restored by the caller).
+    #[test]
+    fn vertical_swipe_from_a_colour_slider_scrolls_the_page() {
+        for key in ["Brightness", "Sepia", "Mirror"] {
+            let mut rig = Rig::new(Vec2::new(291., 600.));
+            let map = rig.frame(vec![]);
+            let (target, mark, title) = (Rig::find(&map, key), Rig::find(&map, "Mirror"), Rig::find(&map, "Profile").top());
+            let look = rig.ed.look;
+            rig.swipe(target.center(), Vec2::new(0., -80.));
+            let after = rig.frame(vec![]);
+            let moved = Rig::find(&after, "Mirror").top() - (Rig::find(&after, "Profile").top() - title) - mark.top();
+            assert!((moved + 80.).abs() < 1.5 || moved < -80., "{key}: the content moved {moved} instead of following the finger");
+            if key == "Brightness" {
+                assert_eq!(rig.ed.look.contrast, look.contrast);
+            }
+        }
+        crate::mobile::FORCE_TOUCH.set(false);
+    }
+
+    #[test]
+    fn two_fingers_do_nothing_while_saving() {
+        let mut rig = Rig::new(Vec2::new(436., 900.));
+        let map = rig.frame(vec![]);
+        let preview = Rig::find(&map, "Preview");
+        let (_tx, rx) = mpsc::channel();
+        rig.ed.saving = Some(rx);
+        rig.frame(vec![]);
+        let before = rig.ed.pose;
+        rig.pinch(preview.center(), 0.3);
+        assert_eq!(rig.ed.pose, before);
+        crate::mobile::FORCE_TOUCH.set(false);
+    }
+
+    #[test]
+    fn zoom_and_rotation_sliders_are_in_the_tree_only_on_desktop() {
+        let count = |rig: &mut Rig| rig.frame(vec![]).keys().filter(|k| k.contains("Zoom") || k.contains("Rotation")).count();
+        let mut touch = Rig::new(Vec2::new(436., 900.));
+        assert_eq!(count(&mut touch), 0);
+        crate::mobile::FORCE_TOUCH.set(false);
+        let mut desktop = Rig::new(Vec2::new(1280., 800.));
+        crate::mobile::FORCE_TOUCH.set(false);
+        for _ in 0..40 { desktop.frame(vec![]); }
+        assert!(count(&mut desktop) >= 2);
     }
 }
