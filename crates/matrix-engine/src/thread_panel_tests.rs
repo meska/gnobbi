@@ -27,7 +27,15 @@ impl PanelRoom {
         peer.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
         alice.sliding_round().await.unwrap();
         let scope = matrix_domain::RoomScope { account_id: AccountId::new(n), room_id: matrix_domain::RoomId::new(room.clone()) };
-        let sent = alice.send_text(&crate::sending::SendRequest { scope: scope.clone(), transaction_id: matrix_domain::TransactionId::new(format!("panel-root-{n}")), body: "root".into(), attachment: None, poll: None, mentions: Vec::new() }).await.unwrap();
+        // The send waits 5 s for the server: an encrypted room on a loaded host (keys to query and share) can miss it. A timed-out
+        // attempt is aborted by the engine, so trying again leaves no second root.
+        let mut sent = Err(crate::sending::SendError::Transport);
+        for attempt in 0..3 {
+            let request = crate::sending::SendRequest { scope: scope.clone(), transaction_id: matrix_domain::TransactionId::new(format!("panel-root-{n}-{attempt}")), body: "root".into(), attachment: None, poll: None, mentions: Vec::new() };
+            sent = alice.send_text(&request).await;
+            if sent.is_ok() { break; }
+        }
+        let sent = sent.unwrap();
         let root_ev = matrix_sdk::ruma::OwnedEventId::try_from(sent.as_str().to_owned()).unwrap();
         let mut this = PanelRoom { alice, scope, root: matrix_domain::EventId::new(sent.as_str()), peer, root_ev, config };
         this.reply(0..count).await;
@@ -44,7 +52,11 @@ impl PanelRoom {
         for i in range {
             let mut m = Msg::text_plain(format!("reply {i:03}"));
             m.relates_to = Some(Relation::Thread(Thread::plain(self.root_ev.clone(), self.root_ev.clone())));
-            room.send(m).await.unwrap();
+            // A loaded host can time a request out; the same transaction id makes the retry idempotent (no duplicate reply).
+            let txn = matrix_sdk::ruma::TransactionId::new();
+            let mut sent = room.send(m.clone()).with_transaction_id(txn.clone()).await;
+            for _ in 0..3 { if sent.is_ok() { break; } sent = room.send(m.clone()).with_transaction_id(txn.clone()).await; }
+            sent.unwrap();
         }
     }
 
@@ -92,19 +104,18 @@ fn disposable_thread_panel_root_at_first_paint_and_thread_without_replies() {
     });
 }
 
-/// OPEN DEFECT, pinned: the full ask on a thread without replies (a plain message opened as a thread) waits for the
-/// step limit instead of answering at once; the panel keeps its spinner all that time (`loaded` only turns on with the
-/// answer). `fill` breaks on `reached_start`, but an empty thread never reports it and the 3 s row deadline runs.
-/// Expected: under 600 ms. When this is fixed the test fails: remove `should_panic`.
+/// The full ask on a thread without replies (a plain message opened as a thread) answers at once: the room shows the root
+/// without a thread summary, so there is nothing to page (the SDK would wait 3 s for a first pagination token that a
+/// thread cache without events never gets). Measured before the fix: 3010, 3039, 3009 ms.
 #[test]
 #[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
-#[should_panic(expected = "paged to the step limit")]
 fn disposable_thread_panel_empty_thread_answers_at_once() {
     runtime().block_on(async {
         let room = PanelRoom::new(false, 0, 305).await;
         let (full, took) = room.open(50).await;
         println!("PANEL_EMPTY_FULL {}", serde_json::json!({"ms": took.as_millis() as u64, "root": full.root.is_some(), "at_start": full.at_start}));
-        assert!(took.as_millis() < 600, "a thread without replies waited {took:?} (paged to the step limit)");
+        assert!(full.root.is_some() && full.replies.is_empty());
+        assert!(took.as_millis() < 100, "a thread without replies waited {took:?}");
     });
 }
 
@@ -125,7 +136,7 @@ fn disposable_thread_panel_second_open_comes_from_the_cache() {
         // And the full ask that follows does not start over.
         let (again, took) = room.open(50).await;
         assert_eq!(panel_bodies(&again), panel_bodies(&first));
-        assert!(took.as_millis() < 600, "second full open took {took:?}");
+        assert!(took.as_millis() < 250, "second full open took {took:?}");
     });
 }
 
@@ -193,7 +204,7 @@ fn disposable_thread_panel_encrypted_room_decrypts() {
 fn disposable_thread_panel_encrypted_messages_not_yet_decrypted() {
     use crate::{ViewRequests, room_sync::RoomSync};
     runtime().block_on(async {
-        let mut room = PanelRoom::new(true, 3, 340).await;
+        let room = PanelRoom::new(true, 3, 340).await;
         // A second device of alice with a store of its own: it joined after the messages and has no room key.
         let mut late = RoomSync::new(login(&room.config, "alice", 349).await);
         for _ in 0..3 { late.sliding_round().await.unwrap(); }
@@ -243,5 +254,40 @@ fn disposable_thread_panel_close_and_reopen_quickly() {
         let (cached, took) = room.open(0).await;
         assert_eq!(panel_bodies(&cached), want);
         assert!(took.as_millis() < 100, "cache-only answer took {took:?}");
+    });
+}
+
+/// A reply edited or deleted by its author reaches the panel, open (the next read) and reopened (the first paint from the cache).
+#[test]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_thread_panel_edit_and_delete_of_a_reply_reach_the_panel() {
+    use matrix_sdk::ruma::events::room::message::{ReplacementMetadata, RoomMessageEventContent as Msg};
+    runtime().block_on(async {
+        let mut room = PanelRoom::new(false, 3, 360).await;
+        let page = room.open_until(50, 3, 10).await;
+        assert_eq!(panel_bodies(&page), ["reply 000", "reply 001", "reply 002"]);
+        let ids: Vec<_> = page.replies.iter().map(|r| matrix_sdk::ruma::OwnedEventId::try_from(r.event_id.as_str().to_owned()).unwrap()).collect();
+        let bob = room.peer.get_room(&matrix_sdk::ruma::RoomId::parse(room.scope.room_id.as_str()).unwrap()).unwrap();
+        bob.send(Msg::text_plain("reply 001 edited").make_replacement(ReplacementMetadata::new(ids[1].clone(), None))).await.unwrap();
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let edited = loop {
+            let (p, _) = room.open(50).await;
+            if panel_bodies(&p).contains(&"reply 001 edited".to_owned()) || std::time::Instant::now() > end { break p; }
+            let _ = room.alice.sliding_round().await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        };
+        assert_eq!(panel_bodies(&edited), ["reply 000", "reply 001 edited", "reply 002"], "edit while the panel is open");
+        assert_eq!(panel_bodies(&room.open(0).await.0), panel_bodies(&edited), "edit seen from the cache on reopening");
+        bob.redact(&ids[2], None, None).await.unwrap();
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let deleted = loop {
+            let (p, _) = room.open(50).await;
+            if p.replies.iter().all(|r| r.body != "reply 002") || std::time::Instant::now() > end { break p; }
+            let _ = room.alice.sliding_round().await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        };
+        let gone = |p: &crate::threads::ThreadPage| p.replies.iter().all(|r| r.body != "reply 002");
+        assert!(gone(&deleted), "deleted reply still shows its text while the panel is open: {:?}", panel_bodies(&deleted));
+        assert!(gone(&room.open(0).await.0), "deleted reply comes back on reopening");
     });
 }

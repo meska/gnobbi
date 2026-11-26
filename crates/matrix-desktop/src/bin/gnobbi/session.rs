@@ -43,6 +43,8 @@ pub struct ThreadState {
     read_at: Option<std::time::Instant>,
     /// Next re-read; the thread has no live feed of its own here.
     pub next_read: std::time::Instant,
+    /// The read in flight: when it left and the `want` it asked for.
+    pending: Option<(std::time::Instant, usize)>,
 }
 
 /// Older replies are asked for when the reader is near the top: one request at a time, never once the thread is whole
@@ -63,6 +65,55 @@ fn thread_pages_back_near_the_top_once_and_stops_at_the_root() {
 }
 
 impl ThreadState {
+    /// A panel just opened: `seed` is the root as the room's timeline holds it (shown at once), the first
+    /// read asks the cache alone (`want` 0).
+    pub fn open(root: EventId, seed: Option<matrix_desktop::DemoHistory>) -> Self {
+        Self { root, views: Default::default(), history: seed, loaded: false, at_start: false, heights: Default::default(), failed: false, draft: String::new(), attachment: None, reply_to: None, menu: None, want: 0, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now(), pending: None }
+    }
+
+    /// Time for a read. One in flight is not cancelled by the next (its answer would be thrown away): the next waits for it,
+    /// unless it asks for something else or the first looks lost.
+    fn read_due(&self) -> bool {
+        self.next_read <= std::time::Instant::now()
+            && !self.pending.is_some_and(|(at, asked)| asked == self.want && at.elapsed() < std::time::Duration::from_secs(15))
+    }
+
+    /// New activity in `room`: only the open room's concerns the open thread.
+    fn activity(&mut self, room: &matrix_domain::RoomScope, open: Option<&matrix_domain::RoomScope>) {
+        if open == Some(room) {
+            self.next_read = std::time::Instant::now();
+        }
+    }
+
+    /// The answer to the read in flight. The first one comes from the cache (`want` 0): it shows what is saved but
+    /// the panel stays «loading» until the full page, which is asked for at once.
+    pub fn page(&mut self, scope: &matrix_domain::RoomScope, result: Result<Box<matrix_engine::history::ThreadPage>, matrix_engine::operations::OperationError>) {
+        let cached = self.pending.take().map_or(self.want == 0, |(_, asked)| asked == 0);
+        let Ok(page) = result else {
+            self.failed = true;
+            self.growing = None;
+            return;
+        };
+        let page = *page;
+        if cached {
+            self.want = 50;
+            self.next_read = std::time::Instant::now();
+        }
+        if let Some(before) = self.growing.take() {
+            self.stalled = page.replies.len() <= before;
+        }
+        // An empty cache answer leaves what is on screen (the root seeded from the room) alone.
+        if !cached || !page.replies.is_empty() {
+            // Rebuilt from the page: older replies land between the root and the ones held, which an append could not do.
+            let mut rows = matrix_desktop::DemoHistory::new(scope.clone(), 0);
+            rows.append_server(page.root.into_iter().chain(page.replies).collect());
+            self.history = Some(rows);
+            self.at_start = page.at_start;
+        }
+        self.loaded |= !cached;
+        self.failed = false;
+    }
+
     /// Rows pinned on top of the list: the root, when it is there.
     pub fn head(&self) -> usize {
         self.history.as_ref().and_then(|h| h.events().first()).is_some_and(|e| e.id.id == TimelineId::Server(self.root.clone())) as usize
@@ -72,6 +123,8 @@ impl ThreadState {
     pub fn scrolled(&mut self, first_visible: usize) {
         let Some(h) = self.history.as_ref().filter(|_| self.loaded) else { return };
         let held = h.events().len() - self.head();
+        // A page that held no reply has nothing older to ask for (the root alone does not report a start).
+        if held == 0 { return; }
         let total = h.events().first().filter(|_| self.head() == 1).and_then(|e| e.thread.as_ref()).map(|t| t.num_replies as usize);
         if wants_older(first_visible, held, total, self.at_start, self.stalled, self.growing.is_some()) {
             self.growing = Some(held);
@@ -614,8 +667,9 @@ impl Session {
                 }
                 // A new event in a room (an upload that finished, a reply from someone else): read the open room again.
                 RoomListEvent::TimelineActivity(scope) => {
+                    // Only the open room's activity concerns the open thread.
                     if let Some(th) = &mut self.thread {
-                        th.next_read = std::time::Instant::now();
+                        th.activity(&scope, self.draft_scope.as_ref());
                     }
                     self.read_dirty |= self.sidebar.selected().is_some_and(|r| r.scope == scope);
                     if self.roles_stale.as_ref() == Some(&scope) {
@@ -1236,10 +1290,11 @@ impl Session {
     fn queue_thread_requests(&mut self) {
         let (focused, _, public) = self.reading;
         if let (Some(th), Some(scope)) = (&mut self.thread, &self.draft_scope)
-            && th.next_read <= std::time::Instant::now()
+            && th.read_due()
             && let Ok(tag) = th.views.start(scope.clone())
         {
             th.next_read = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            th.pending = Some((std::time::Instant::now(), th.want));
             self.op_queue.push(OperationCommand::Thread { tag, root: th.root.clone(), want: th.want });
         }
         if let (Some(th), Some(scope)) = (&mut self.thread, &self.draft_scope) {
@@ -1580,30 +1635,9 @@ impl Session {
                 && th.root == root
                 && th.views.accepts(&tag)
             {
-                match (result, &self.draft_scope) {
-                    (Ok(page), Some(scope)) => {
-                        let page = *page;
-                        // `want` 0 = the first answer, from the cache alone; the full page is asked for at once.
-                        let cached = th.want == 0;
-                        if cached {
-                            th.want = 50;
-                            th.next_read = std::time::Instant::now();
-                        }
-                        if let Some(before) = th.growing.take() {
-                            th.stalled = page.replies.len() <= before;
-                        }
-                        // An empty cache answer leaves what is on screen (the root seeded from the room) alone.
-                        if !cached || !page.replies.is_empty() {
-                            // Rebuilt from the page: older replies land between the root and the ones held, which an append could not do.
-                            let mut rows = matrix_desktop::DemoHistory::new(scope.clone(), 0);
-                            rows.append_server(page.root.into_iter().chain(page.replies).collect());
-                            th.history = Some(rows);
-                            th.loaded = true;
-                            th.at_start = page.at_start;
-                        }
-                        th.failed = false;
-                    }
-                    _ => { th.failed = true; th.growing = None; },
+                match &self.draft_scope {
+                    Some(scope) => th.page(scope, result),
+                    None => { th.failed = true; th.growing = None; }
                 }
                 changed = true;
             }
@@ -1803,7 +1837,7 @@ impl Session {
     pub fn open_thread(&mut self, root: EventId) {
         // The root is already in the room's timeline: show it at once, the page only adds the replies.
         let seed = self.messages.as_ref().and_then(|m| m.row(&root).map(|r| matrix_desktop::DemoHistory::seeded(m.scope().clone(), r.clone())));
-        self.thread = Some(ThreadState { root, views: Default::default(), history: seed, loaded: false, at_start: false, heights: Default::default(), failed: false, draft: String::new(), attachment: None, reply_to: None, menu: None, want: 0, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
+        self.thread = Some(ThreadState::open(root, seed));
         self.info_open = false;
         self.search_open = false;
     }

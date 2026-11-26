@@ -175,7 +175,8 @@ impl DemoHistory {
         &self.scope
     }
 
-    /// A history holding one row already known (a thread's root, taken from the room's timeline).
+    /// A history holding one row already known (a thread's root, taken from the room's timeline). The row goes in as it
+    /// is, not through `insert_server`: it is already a rendered row, and its id and thread summary must stay untouched.
     pub fn seeded(scope: RoomScope, row: DemoEvent) -> Self {
         let mut history = Self::new(scope, 0);
         history.events.push(row);

@@ -33,7 +33,7 @@ fn thread_load_probe(encrypted: bool, count: usize, n: u64) {
                 println!("THREAD_TIME {}", serde_json::json!({"encrypted":encrypted,"count":count,"opening":opening,"ms":started.elapsed().as_millis(),"replies":page.replies.len(),"root":page.root.is_some(),"at_start":page.at_start}));
                 assert!(!page.replies.is_empty());
                 // A thread with fewer replies than asked for must not wait for the missing ones.
-                assert!(started.elapsed().as_millis() < 600, "open_thread waited {} ms", started.elapsed().as_millis());
+                assert!(started.elapsed().as_millis() < 250, "open_thread waited {} ms", started.elapsed().as_millis());
             }
             // The panel's first paint: the cache alone (want 0), root included, no network.
             let started = std::time::Instant::now();

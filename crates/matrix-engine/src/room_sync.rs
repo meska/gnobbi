@@ -2430,6 +2430,7 @@ pub(crate) async fn fill(
     room: &matrix_sdk::Room,
     timeline: &std::sync::Arc<matrix_sdk_ui::timeline::Timeline>,
     want: usize,
+    thread: Option<&matrix_sdk::event_cache::ThreadEventCache>,
 ) -> (Loaded, Result<(), crate::history::HistoryError>) {
     // shortcut: at most 10 steps of one page for a long absence, then the newest part is shown.
     let mut now = loaded(room, timeline).await;
@@ -2439,28 +2440,35 @@ pub(crate) async fn fill(
         }
         let before = now.rows.len();
         let step_started = std::time::Instant::now();
-        let paged = timeline.paginate_backwards(PAGE as u16).await;
+        // A thread timeline pages through its event cache, which is what `Timeline::paginate_backwards` does
+        // for it; going there ourselves tells whether the page brought events (the timeline does not).
+        let paged = match thread {
+            Some(cache) => cache.pagination().run_backwards_once(PAGE as u16).await.map(|o| (o.reached_start, !o.events.is_empty())).map_err(|_| ()),
+            None => timeline.paginate_backwards(PAGE as u16).await.map(|reached| (reached, true)).map_err(|_| ()),
+        };
         tracing::info!("paginate_backwards source=network ms={} ok={}", step_started.elapsed().as_millis(), paged.is_ok());
-        let Ok(reached_start) = paged else {
+        let Ok((reached_start, added)) = paged else {
             return (
                 loaded(room, timeline).await,
                 Err(crate::history::HistoryError::Transport),
             );
         };
-        // The timeline applies the cache updates in its own task: wait for the rows to show up.
+        // The timeline applies the cache updates in its own task: wait for the rows to show up, but only when
+        // the page brought events (an empty one has nothing to wait for).
         // Reaching the start adds its marker at once, so only a row count change counts.
         // shortcut: polling with a deadline, upgrade to the timeline's diff stream if it flickers.
         let deadline = tokio::time::Instant::now()
             + Duration::from_millis(if reached_start { 400 } else { 3000 });
-        loop {
-            now = loaded(room, timeline).await;
+        now = loaded(room, timeline).await;
+        while added {
             if now.rows.len() != before || tokio::time::Instant::now() >= deadline {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
+            now = loaded(room, timeline).await;
         }
         // The server has nothing older. A thread has no start marker of its own, so without this it paged on to the step
-        // limit (~1.1 s for a 5-reply thread) while the rows it wanted did not exist.
+        // limit while the rows it wanted did not exist.
         if reached_start {
             break;
         }
@@ -2557,7 +2565,7 @@ pub(crate) async fn open_page(
         .ok_or(crate::history::HistoryError::Unavailable)?;
     let timeline = timelines.get(&room).await?;
     // Best effort: a failed gap keeps what is saved.
-    let (mut now, _) = fill(&room, &timeline, PAGE).await;
+    let (mut now, _) = fill(&room, &timeline, PAGE, None).await;
     crate::threads::annotate_unread(timelines, &room, &mut now.rows).await;
     let next = cursor(&now.rows, now.at_start);
     Ok((
@@ -2880,7 +2888,7 @@ async fn load_history(
     }
     let room = joined(client, &tag, account_id)?;
     let timeline = timelines.get(&room).await?;
-    let (mut now, step) = fill(&room, &timeline, PAGE).await;
+    let (mut now, step) = fill(&room, &timeline, PAGE, None).await;
     step?;
     if let Some(anchor) = before {
         let at = |rows: &[crate::history::HistoryEvent]| {
@@ -2889,7 +2897,7 @@ async fn load_history(
         let mut shown = at(&now.rows).ok_or(HistoryError::Unavailable)?;
         if shown < PAGE && !now.at_start {
             let step;
-            (now, step) = fill(&room, &timeline, now.rows.len() + PAGE).await;
+            (now, step) = fill(&room, &timeline, now.rows.len() + PAGE, None).await;
             step?;
             shown = at(&now.rows).ok_or(HistoryError::Unavailable)?;
         }

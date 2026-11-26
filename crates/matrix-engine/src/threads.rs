@@ -29,24 +29,30 @@ pub(crate) async fn open(
     let thread = timelines.thread(room, &root_id).await?;
     let mut now = loaded(room, &thread).await;
     let mut offline = false;
+    // A root the room shows without a thread summary has no replies: the SDK would wait 3 s for a first
+    // pagination token that never comes, so a thread cache with no events is not paged then.
+    let no_replies = main.rows.iter().find(|r| r.event_id == *root).is_some_and(|r| r.thread.is_none());
     // `want == 0`: the cache only, no network (the panel's first paint).
-    if want == 0 {
-    } else if now.rows.is_empty() {
-        let (filled, status) = fill(room, &thread, want.max(PAGE)).await;
-        now = filled;
-        if now.rows.is_empty() && let Err(e) = status {
-            return Err(e);
+    let guard = if want > 0 { room.client().event_cache().thread(room.room_id(), &root_id).await.ok() } else { None };
+    let cache = guard.as_ref().map(|(cache, _)| cache);
+    if want > 0 && now.rows.is_empty() {
+        if !no_replies {
+            let (filled, status) = fill(room, &thread, want.max(PAGE), cache).await;
+            now = filled;
+            if now.rows.is_empty() && let Err(e) = status {
+                return Err(e);
+            }
         }
-    } else {
+    } else if want > 0 {
         // The SDK loads only the newest saved chunk first: the older saved ones come with a pagination
         // step. A step that has to leave the disk is dropped after 1 s, so a frozen server only delays it.
-        let step = tokio::time::timeout(std::time::Duration::from_secs(1), fill(room, &thread, want.max(PAGE))).await;
+        let step = tokio::time::timeout(std::time::Duration::from_secs(1), fill(room, &thread, want.max(PAGE), cache)).await;
         now = loaded(room, &thread).await;
         // Each live sync batch left a gap before its chunk: only the newest chunk is reachable without the
         // network. Offline, read the older saved chunks across those gaps (the holes stay gaps in the cache).
         if step.is_err() || matches!(step, Ok((_, Err(_)))) {
             offline = true;
-            if let Ok((cache, _)) = room.client().event_cache().thread(room.room_id(), &root_id).await {
+            if let Some(cache) = cache {
                 cache.set_read_through_gaps(true);
                 let _ = tokio::time::timeout(std::time::Duration::from_secs(1), thread.paginate_backwards(PAGE as u16)).await;
                 cache.set_read_through_gaps(false);

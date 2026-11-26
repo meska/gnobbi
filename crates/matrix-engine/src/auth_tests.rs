@@ -57,15 +57,26 @@ fn http(config: &serde_json::Value) -> reqwest::Client {
 }
 
 async fn login(config: &serde_json::Value, name: &str, account: u64) -> AccountSession {
-    AccountSession::password_login_with_http(
-        AccountId::new(account),
-        HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
-        &format!("@{name}:matrix-desktop.test"),
-        config[format!("{name}_password")].as_str().unwrap(),
-        http(config),
-    )
-    .await
-    .expect("fixture login accepted")
+    // A fresh Synapse on a loaded host can miss the client's timeout once (password hashing): the fixture's login is retried
+    // twice, a real rejection still fails after the third try.
+    let mut attempt = 0;
+    loop {
+        let session = AccountSession::password_login_with_http(
+            AccountId::new(account),
+            HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+            &format!("@{name}:matrix-desktop.test"),
+            config[format!("{name}_password")].as_str().unwrap(),
+            http(config),
+        )
+        .await;
+        match session {
+            Err(_) if attempt < 2 => {
+                attempt += 1;
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+            session => return session.expect("fixture login accepted"),
+        }
+    }
 }
 
 #[test]
