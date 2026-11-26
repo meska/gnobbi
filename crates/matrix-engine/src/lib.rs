@@ -26,6 +26,9 @@ pub mod recovery;
 #[cfg(feature = "sdk")]
 mod outbox;
 #[cfg(feature = "sdk")]
+#[doc(hidden)]
+pub use outbox::TestOutbox;
+#[cfg(feature = "sdk")]
 pub mod room_sync;
 pub mod alias;
 #[cfg(feature = "sdk")]

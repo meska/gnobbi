@@ -335,3 +335,23 @@ pub(crate) async fn run(
         }
     }
 }
+
+/// The outbox the window drives, for the disposable-server tests in `tests/`: accept one request (waits until it is
+/// out, failed or withdrawn), and the cancel and progress side the window reads.
+#[doc(hidden)]
+pub struct TestOutbox(Outbox, crate::room_sync::Timelines);
+
+#[doc(hidden)]
+impl TestOutbox {
+    pub fn new(client: Client, account: AccountId) -> Self {
+        Self(Outbox::new(client, account, tokio::runtime::Handle::current()), Default::default())
+    }
+
+    pub async fn send(&self, request: &SendRequest) -> Option<SendEvent> {
+        self.0.accept(&self.1, request).await
+    }
+
+    pub fn control(&self) -> &dyn SendControl {
+        &self.0
+    }
+}
