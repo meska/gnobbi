@@ -121,7 +121,7 @@ pub fn card(ui: &mut egui::Ui, pending: &mut Pending, t: &matrix_desktop::Design
                 let hit = ui.interact(close, ui.scope_id().with(("attach-remove", i)), egui::Sense::click());
                 hit.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, i18n::t("Remove attachment")));
                 painter.circle_filled(close.center(), 11., egui::Color32::from_black_alpha(150));
-                painter.text(close.center(), egui::Align2::CENTER_CENTER, Icon::X.ch(), egui::FontId::new(m.icon * 0.7, crate::icons::family(true)), egui::Color32::WHITE);
+                painter.text(close.center(), egui::Align2::CENTER_CENTER, Icon::X.ch(), egui::FontId::new(m.icon * 0.7, crate::icons::family(false)), egui::Color32::WHITE);
                 acts.remove = acts.remove.or(hit.clicked().then_some(i));
             }
             if pending.items.len() < MAX_ITEMS {
