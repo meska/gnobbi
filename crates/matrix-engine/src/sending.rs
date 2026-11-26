@@ -119,6 +119,25 @@ pub struct Album {
     pub count: u8,
 }
 
+/// The marks of the albums this run is sending, by transaction id: once its own send is confirmed the timeline keeps the
+/// local item, which has no raw JSON to read the mark from. Bounded (a few albums); an older entry only costs a grid
+/// that forms after the next reload.
+#[cfg(feature = "sdk")]
+static SENT_ALBUMS: std::sync::Mutex<Vec<(String, Album)>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(feature = "sdk")]
+fn remember_album(transaction_id: &str, album: &Album) {
+    let mut marks = SENT_ALBUMS.lock().unwrap_or_else(|e| e.into_inner());
+    if marks.len() >= 64 { marks.remove(0); }
+    marks.push((transaction_id.to_owned(), album.clone()));
+}
+
+/// The album mark of an item this run sent (see `SENT_ALBUMS`).
+#[cfg(feature = "sdk")]
+pub fn sent_album(transaction_id: &str) -> Option<Album> {
+    SENT_ALBUMS.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(t, _)| t == transaction_id).map(|(_, a)| a.clone())
+}
+
 #[cfg(feature = "sdk")]
 impl Album {
     /// The album mark of an event's `content`; a missing, malformed or inconsistent one is no album.
@@ -210,6 +229,11 @@ pub type ControlSlot = std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<dyn
 #[cfg(all(test, feature = "sdk"))]
 mod album_mark_tests {
     use super::Album;
+    #[test]
+    fn a_sent_album_is_found_by_its_transaction_id_and_the_list_stays_bounded() {
+        for i in 0..70 { super::remember_album(&format!("t{i}"), &Album { id: "x".into(), index: 0, count: 2 }); }
+        assert!(super::sent_album("t0").is_none() && super::sent_album("t69").is_some() && super::sent_album("zz").is_none());
+    }
     #[test]
     fn reads_a_valid_mark_and_refuses_the_rest() {
         let ok = serde_json::json!({"chat.gnobbi.album": {"id": "a1", "index": 1, "count": 3}});
@@ -724,6 +748,7 @@ pub(crate) async fn send_attachment(
         }
     }
     if let Some(album) = &file.album {
+        remember_album(request.transaction_id.as_str(), album);
         config.extra_content = Some(serde_json::Map::from_iter([(
             ALBUM_KEY.to_owned(),
             serde_json::json!({ "id": album.id, "index": album.index, "count": album.count }),

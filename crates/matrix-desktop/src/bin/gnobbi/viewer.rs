@@ -146,7 +146,7 @@ impl Viewer {
                     ui.add(egui::ProgressBar::new(crate::media_cards::fraction(got, total).unwrap_or(0.)).desired_height(6.).animate(total.is_none()));
                 }
                 if self.failed { ui.label(i18n::t("Cannot open the content")); }
-                let area = ui.available_rect_before_wrap();
+                let area = ui.available_rect_before_wrap().intersect(screen); // the Area's own rect is not bounded by the window
                 let resp = ui.interact(area, ui.id().with("viewer-area"), egui::Sense::click_and_drag());
                 if let Some(tex) = self.original.clone().or_else(|| thumbnail.cloned()) {
                     self.picture(ui, area, &resp, &tex, phone, (previous, next), &mut action);

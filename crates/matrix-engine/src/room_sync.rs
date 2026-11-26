@@ -2094,7 +2094,8 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
                 };
                 let at_room = message.mentions().is_some_and(|m| m.room);
                 media = media_of(msgtype).map(|mut m| {
-                    m.album = event.original_json().and_then(|raw| raw.get_field::<serde_json::Value>("content").ok().flatten()).and_then(|c| crate::sending::Album::from_content(&c));
+                    m.album = event.original_json().and_then(|raw| raw.get_field::<serde_json::Value>("content").ok().flatten()).and_then(|c| crate::sending::Album::from_content(&c))
+                        .or_else(|| event.transaction_id().and_then(|t| crate::sending::sent_album(t.as_str())));
                     m
                 });
                 let (body, spans, pills) = if media.is_some() {
