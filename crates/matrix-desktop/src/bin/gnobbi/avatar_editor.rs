@@ -1144,9 +1144,11 @@ mod tests {
     #[test]
     fn vertical_swipe_from_a_colour_slider_scrolls_the_page() {
         for key in ["Brightness", "Sepia", "Mirror"] {
-            let mut rig = Rig::new(Vec2::new(291., 600.));
+            // Tall enough to show the sliders under the gnome rows, short enough to leave more than the swipe to scroll.
+            let mut rig = Rig::new(Vec2::new(291., 700.));
             let map = rig.frame(vec![]);
             let (target, mark, title) = (Rig::find(&map, key), Rig::find(&map, "Mirror"), Rig::find(&map, "Profile").top());
+            assert!(target.bottom() < Rig::find(&map, "Reset").top(), "{key} is not in view: the swipe would start outside the scroll area");
             let look = rig.ed.look;
             rig.swipe(target.center(), Vec2::new(0., -80.));
             let after = rig.frame(vec![]);
