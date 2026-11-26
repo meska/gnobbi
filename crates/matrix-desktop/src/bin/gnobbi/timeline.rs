@@ -2,6 +2,7 @@
 //! heights seen so far are cached and off-screen rows are replaced by empty space.
 use crate::list::rgb;
 use eframe::egui::{self, Align, Color32, CornerRadius, RichText, Vec2};
+use crate::media_cards::Role;
 use matrix_desktop::{DemoEvent, DesignTokens, i18n};
 
 /// Poll clicks of this frame: (poll start, option index).
@@ -34,6 +35,12 @@ pub struct Acts {
     pub wishes: Vec<matrix_desktop::Wish>,
     /// What the pills asked for this frame.
     pub react: crate::reactions::Acts,
+    /// The card of this file was asked to open it.
+    pub open_file: Option<matrix_domain::EventId>,
+    /// The cancel of a running download was pressed.
+    pub cancel_transfer: bool,
+    /// Set by the app before drawing: the download running now, `(file, bytes received, declared size)`.
+    pub transfer: Option<(matrix_domain::EventId, u64, Option<u64>)>,
 }
 
 /// Where the menu was asked for on the bubble `rect` this frame: a right click, or a long press (`acts.held` then carries the bubble).
@@ -356,7 +363,7 @@ fn read_circles(ui: &mut egui::Ui, readers: &[matrix_engine::history::HistorySen
     }
 }
 
-fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, label: Option<&str>, (above, below): (bool, bool), group: bool, day: Option<&str>, readers: &[matrix_engine::history::HistorySender], t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
+fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, label: Option<&str>, (above, below): (bool, bool), group: bool, day: Option<&str>, album: &[DemoEvent], readers: &[matrix_engine::history::HistorySender], t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
     if let Some(day) = day {
         ui.add_space(8.);
         ui.vertical_centered(|ui| ui.label(RichText::new(day).size(11.).color(rgb(t.secondary))));
@@ -497,19 +504,35 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     ui.add_space(4.);
                 }
                 if let (Some(media), matrix_domain::TimelineId::Server(id)) = (&e.media, &e.id.id) {
-                    match pictures.get(id) {
-                        Some(tex) => {
-                            let size = tex.size_vec2();
-                            let side = if sticker { 192. } else { 320. };
-                            let scale = (max.min(side) / size.x).min(1.).min(side / size.y);
-                            let picture = ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)).sense(egui::Sense::click()));
-                            crate::animation::step(ui.ctx(), id.as_str(), tex, ui.is_rect_visible(picture.rect));
-                            if crate::metrics::clickable(picture).clicked() && matches!(media.kind, matrix_engine::history::MediaKind::Image | matrix_engine::history::MediaKind::Video) {
-                                acts.picture = Some((id.clone(), media.kind == matrix_engine::history::MediaKind::Video, e.attachment_name.clone().unwrap_or_else(|| i18n::t("image").into())));
+                    use matrix_engine::history::MediaKind;
+                    let video = media.kind == MediaKind::Video;
+                    let side = if sticker { 192. } else { 320. };
+                    if !album.is_empty() {
+                        crate::media_cards::album(ui, album, pictures, ui.available_width(), acts, t);
+                    } else if media.kind == MediaKind::File {
+                        // The card below draws it.
+                    } else {
+                        match pictures.get(id) {
+                            Some(tex) => {
+                                let size = crate::media_cards::single_size(media.dims, Some(tex.size_vec2()), max, side);
+                                let picture = ui.add(egui::Image::new(tex).fit_to_exact_size(size).corner_radius(CornerRadius::same(8)).sense(egui::Sense::click()));
+                                crate::animation::step(ui.ctx(), id.as_str(), tex, ui.is_rect_visible(picture.rect));
+                                if video { crate::media_cards::video_badge(ui, picture.rect, e); }
+                                if crate::metrics::clickable(picture).clicked() && matches!(media.kind, MediaKind::Image | MediaKind::Video) {
+                                    acts.picture = Some((id.clone(), video, e.attachment_name.clone().unwrap_or_else(|| i18n::t("image").into())));
+                                }
                             }
-                        }
-                        None => {
-                            if crate::metrics::clickable(ui.add(egui::Label::new(RichText::new(media.translated(|k| i18n::t(k).to_owned())).color(rgb(t.secondary))).sense(egui::Sense::click()))).clicked() && media.kind == matrix_engine::history::MediaKind::Video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| i18n::t("video").into()))); }
+                            None if media.dims.is_some() && !sticker && matches!(media.kind, MediaKind::Image | MediaKind::Video) => {
+                                // A tile of the picture's shape with its label, until the thumbnail arrives (or when it cannot).
+                                let tile = crate::media_cards::tile(ui, crate::media_cards::single_size(media.dims, None, max, side), t);
+                                ui.painter().text(tile.rect.center(), egui::Align2::CENTER_CENTER, media.translated(|k| i18n::t(k).to_owned()), egui::FontId::proportional(12.), rgb(t.secondary));
+                                if crate::metrics::clickable(tile).clicked() {
+                                    acts.picture = Some((id.clone(), video, e.attachment_name.clone().unwrap_or_else(|| i18n::t(if video { "video" } else { "image" }).into())));
+                                }
+                            }
+                            None => {
+                                if crate::metrics::clickable(ui.add(egui::Label::new(RichText::new(media.translated(|k| i18n::t(k).to_owned())).color(rgb(t.secondary))).sense(egui::Sense::click()))).clicked() && video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| i18n::t("video").into()))); }
+                            }
                         }
                     }
                     if over && !shown.is_empty() {
@@ -542,6 +565,15 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                             save = true;
                         }
                     }));
+                } else if let (Some(name), Some(media), matrix_domain::TimelineId::Server(id)) = (&e.attachment_name, &e.media, &e.id.id)
+                    && media.kind == matrix_engine::history::MediaKind::File
+                    && !e.redacted
+                {
+                    let transfer = acts.transfer.as_ref().filter(|(t, ..)| t == id).map(|(_, got, total)| (*got, total.or(e.attachment_size)));
+                    let card = crate::media_cards::file_card(ui, e, name, transfer, t);
+                    if card.open { acts.open_file = Some(id.clone()); }
+                    save |= card.save;
+                    acts.cancel_transfer |= card.cancel;
                 } else if let Some(name) = &e.attachment_name
                     && !e.redacted
                     && ui.button(crate::icons::with_label(crate::icons::Icon::DownloadSimple, name)).clicked()
@@ -746,14 +778,23 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     let pinned = head.unwrap_or(0).min(events.len());
     let prepended = shift_for_prepend(&mut heights.rows, &mut heights.first, &events[pinned..].iter().map(|e| &e.id).collect::<Vec<_>>(), pinned);
     heights.rows.resize(events.len(), GUESS);
+    // The rows of an album run are drawn once, on the last: the others take no space (and no gap).
+    let roles = crate::media_cards::album_roles(events);
+    for (r, role) in heights.rows.iter_mut().zip(&roles) {
+        if *role == Role::Hidden { *r = 0.; }
+    }
+    let hidden = |i: usize| roles[i] == Role::Hidden;
+    let jump = jump.map(|j| (j..events.len()).find(|k| !hidden(*k)).unwrap_or(j));
     let mut first = 0;
     let hide = !heights.ready && jump.is_none() && !events.is_empty();
     let mut changed = false;
     let mut area = egui::ScrollArea::vertical().auto_shrink(false);
     let mut restoring = false;
     let mut anchor_missing = false;
-    let glued = |i: usize| i > 0 && i < events.len() && joined(group_key(&events[i - 1]), group_key(&events[i]), || matrix_desktop::time_fmt::starts_day(Some(events[i - 1].timestamp_ms), events[i].timestamp_ms));
-    let top_of = |rows: &[f32], at: usize| TOP + (0..at).map(|i| rows[i] + if glued(i + 1) { TIGHT } else { GAP }).sum::<f32>();
+    // Glued to the nearest drawn row above / below.
+    let above = |i: usize| i < events.len() && (0..i).rev().find(|j| !hidden(*j)).is_some_and(|p| joined(group_key(&events[p]), group_key(&events[i]), || matrix_desktop::time_fmt::starts_day(Some(events[p].timestamp_ms), events[i].timestamp_ms)));
+    let below = |i: usize| (i + 1..events.len()).find(|j| !hidden(*j)).is_some_and(above);
+    let top_of = |rows: &[f32], at: usize| TOP + (0..at).filter(|i| !hidden(*i)).map(|i| rows[i] + if below(i) { TIGHT } else { GAP }).sum::<f32>();
     let position = |id: &matrix_domain::EventId| events.iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone()));
     if !hide && prepended > 0 {
         // An older page arrived: the rows on top push everything down and egui would paint this frame at the old offset (the wrong rows for a frame, 100 ms when idle). Keep the same row at the same offset, or stay at the bottom.
@@ -813,6 +854,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
             }
         }
         for (i, e) in events.iter().enumerate() {
+            if hidden(i) { continue; }
             if let (matrix_domain::TimelineId::Server(id), false, false) = (&e.id.id, e.status, e.redacted) {
                 let ph = crate::reactions::height(ui, &reactions_of(e, &acts.wishes), e.outgoing, members > 2, if pills_over_media(e) { (bubble_max(ui.available_width(), members > 2 && !e.outgoing) - 2. * PAD_X).min(320.) } else { ui.available_width() }, pills_over_media(e));
                 let shifted = pill_shift(&mut heights.pills, id, ph, heights.rows[i]);
@@ -822,7 +864,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
             }
             let h = heights.rows[i];
             // Space below row i: tight when the next bubble belongs to the same group.
-            let gap = if glued(i + 1) { TIGHT } else { GAP };
+            let gap = if below(i) { TIGHT } else { GAP };
             if jump != Some(i) && (y + h < view.min.y - 400. || y > view.max.y + 400.) {
                 ui.add_space(h + gap);
             } else {
@@ -831,14 +873,16 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
                     new_messages_line(ui, t);
                 }
                 // Sender name on the first bubble of a group; deleted rows (no bubble) keep the name rule of the history.
-                let label = if e.redacted { history.sender_label(i, members) } else { (members > 2 && !e.outgoing && !glued(i)).then(|| e.sender.as_ref().map(|s| s.name.clone().unwrap_or_else(|| s.id.clone()))).flatten() };
+                let day_row = if let Role::Leader(start) = roles[i] { start } else { i };
+                let album_of = |i: usize| if let Role::Leader(start) = roles[i] { &events[start..=i] } else { &[][..] };
+                let label = if e.redacted { history.sender_label(i, members) } else { (members > 2 && !e.outgoing && !above(i)).then(|| e.sender.as_ref().map(|s| s.name.clone().unwrap_or_else(|| s.id.clone()))).flatten() };
                 #[cfg(debug_assertions)]
                 let hooked = head.is_none() && heights.ready && !hide && debug_press(i, events.len());
                 #[cfg(debug_assertions)]
                 if hooked {
                     acts.lift = Some((e.id.clone(), 0.));
                 }
-                let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, label.as_deref(), (glued(i), glued(i + 1)), members > 2, history.day_separator(i).as_deref(), readers.get(&i).map_or(&[][..], Vec::as_slice), t);
+                let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, label.as_deref(), (above(i), below(i)), members > 2, history.day_separator(day_row).as_deref(), album_of(i), readers.get(&i).map_or(&[][..], Vec::as_slice), t);
                 #[cfg(debug_assertions)]
                 let opened = if hooked {
                     // GNOBBI_DEBUG_MENU_DESKTOP: the right-click menu at the bubble instead of the long-press one.
@@ -853,7 +897,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
                         ui.set_min_width(line.width());
                         ui.set_max_width(line.width());
                         let mut inert = Acts { now_playing: acts.now_playing.clone(), lift: Some(lift), wishes: acts.wishes.clone(), ..Default::default() };
-                        row(ui, e, pictures, avatars, &mut inert, label.as_deref(), (glued(i), glued(i + 1)), members > 2, None, readers.get(&i).map_or(&[][..], Vec::as_slice), t);
+                        row(ui, e, pictures, avatars, &mut inert, label.as_deref(), (above(i), below(i)), members > 2, None, album_of(i), readers.get(&i).map_or(&[][..], Vec::as_slice), t);
                     });
                 }
                 if let (true, matrix_domain::TimelineId::Server(id)) = (wants_thread, &e.id.id) {

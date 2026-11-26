@@ -36,6 +36,8 @@ pub struct LiveMedia {
     audio: Option<EventId>,
     audio_command: Option<MediaCommand>,
     audio_done: Option<(EventId, Result<OpenedAudio, MediaError>)>,
+    /// The download of a file (save or open) now running: `(file, bytes received, size the sender declared)`.
+    transfer: Option<(EventId, u64, Option<u64>)>,
 }
 impl LiveMedia {
     pub fn clear(&mut self) {
@@ -50,6 +52,15 @@ impl LiveMedia {
         self.cancel_original();
         self.cancel_save();
         self.cancel_audio();
+    }
+    /// How far the running save or open of a file has got.
+    pub fn transfer(&self) -> Option<&(EventId, u64, Option<u64>)> {
+        self.transfer.as_ref()
+    }
+    /// Stop the running download of a file, whichever lane it runs on.
+    pub fn cancel_transfer(&mut self) {
+        self.cancel_save();
+        self.cancel_original();
     }
     /// Download and decode the note of `event` for the in-app player, on its own lane.
     pub fn request_audio(&mut self, scope: RoomScope, event: EventId) {
@@ -85,6 +96,7 @@ impl LiveMedia {
     }
     /// Stop the running save; its answer, if it still comes, is dropped.
     pub fn cancel_save(&mut self) {
+        if self.transfer.as_ref().map(|t| &t.0) == self.saving.as_ref() { self.transfer = None; }
         self.save_views.cancel();
         self.saving = None;
         self.save_command = None;
@@ -125,6 +137,7 @@ impl LiveMedia {
         self.playing = Some(file);
     }
     pub fn cancel_original(&mut self) {
+        if self.transfer.as_ref().map(|t| &t.0) == self.large.as_ref() { self.transfer = None; }
         self.large_views.cancel();
         self.large = None;
         self.large_done = None;
@@ -252,6 +265,7 @@ impl LiveMedia {
                     return false;
                 }
                 self.large = None;
+                self.transfer = None;
                 self.video_done = Some((event, result));
                 return true;
             }
@@ -260,8 +274,16 @@ impl LiveMedia {
                     return false;
                 }
                 self.saving = None;
+                self.transfer = None;
                 self.save_done = Some((event, result));
                 return true;
+            }
+            MediaEvent::Progress { tag, event, received, total } => {
+                let ours = (self.saving.as_ref() == Some(&event) && self.save_views.accepts(&tag)) || (self.large.as_ref() == Some(&event) && self.large_views.accepts(&tag));
+                if ours {
+                    self.transfer = Some((event, received, total));
+                }
+                return ours;
             }
             MediaEvent::AudioOpened { tag, event, result } => {
                 if self.audio.as_ref() != Some(&event) || !self.audio_views.accepts(&tag) {

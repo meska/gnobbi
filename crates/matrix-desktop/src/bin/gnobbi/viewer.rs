@@ -4,10 +4,46 @@ use matrix_domain::EventId;
 use matrix_engine::media::{MediaError, Preview};
 use std::path::PathBuf;
 
-pub enum Action { None, Close, Save(PathBuf), Open }
+/// A picture or video of the chat the viewer can step to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Item {
+    pub id: EventId,
+    pub video: bool,
+    pub name: String,
+}
+
+pub enum Action { None, Close, Save(PathBuf), Open, Go(Item) }
 
 fn fit(image: egui::Vec2, available: egui::Vec2) -> egui::Vec2 {
     image * (available.x / image.x).min(available.y / image.y)
+}
+
+/// Farthest a finger or pointer travels before a drag counts as a swipe, in points.
+const SWIPE: f32 = 60.;
+const SWIPE_CLOSE: f32 = 90.;
+const MAX_ZOOM: f32 = 8.;
+
+#[derive(Debug, PartialEq, Eq)]
+enum Swipe { None, Next, Previous, Close }
+
+/// What a finished drag of `d` means at normal size: sideways steps to the next or previous picture (left = next), a long
+/// vertical one closes (touch only: a mouse drag is not a gesture to dismiss with).
+fn swipe(d: egui::Vec2, touch: bool) -> Swipe {
+    if d.x.abs() >= SWIPE && d.x.abs() > d.y.abs() {
+        if d.x < 0. { Swipe::Next } else { Swipe::Previous }
+    } else if touch && d.y.abs() >= SWIPE_CLOSE && d.y.abs() > d.x.abs() {
+        Swipe::Close
+    } else {
+        Swipe::None
+    }
+}
+
+/// The neighbours of `id` in `items`: (previous, next).
+fn around<'a>(items: &'a [Item], id: &EventId) -> (Option<&'a Item>, Option<&'a Item>) {
+    match items.iter().position(|i| &i.id == id) {
+        Some(at) => (at.checked_sub(1).map(|p| &items[p]), items.get(at + 1)),
+        None => (None, None),
+    }
 }
 
 pub struct Viewer {
@@ -20,16 +56,32 @@ pub struct Viewer {
     pub failed: bool,
     pub opening: bool,
     player: Option<std::sync::mpsc::Receiver<bool>>,
+    /// 1 = the picture fits the screen.
+    zoom: f32,
+    /// Where the zoomed picture's centre sits, from the middle of the screen.
+    pan: egui::Vec2,
+    /// How far the current drag has moved the picture at normal size.
+    drag: egui::Vec2,
 }
 
 impl Viewer {
     pub fn new(id: EventId, video: bool, name: String) -> Self {
-        Self { id, video, avatar: false, name, original: None, failed: false, opening: false, player: None }
+        Self { id, video, avatar: false, name, original: None, failed: false, opening: false, player: None, zoom: 1., pan: egui::Vec2::ZERO, drag: egui::Vec2::ZERO }
     }
 
     /// A profile picture, shown at once from the texture the card already has.
     pub fn for_avatar(name: String, shown: egui::TextureHandle) -> Self {
         Self { avatar: true, original: Some(shown), ..Self::new(EventId::new("avatar"), false, name) }
+    }
+
+    /// Shows another picture of the chat from the start: normal size, its own original on the way.
+    pub fn go(&mut self, to: &Item) {
+        *self = Self::new(to.id.clone(), to.video, to.name.clone());
+    }
+
+    /// The viewer is on one of the first pictures of what the chat has loaded: older ones may be asked for.
+    pub fn near_start(&self, items: &[Item]) -> bool {
+        !self.avatar && items.iter().position(|i| i.id == self.id).is_none_or(|at| at < 3)
     }
 
     /// The picture as uploaded, when it arrives.
@@ -48,24 +100,11 @@ impl Viewer {
     }
 
     pub fn open_player(&mut self, path: PathBuf) {
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.player = Some(rx);
-        // iOS has no external opener process (and UIKit wants the main thread): the share sheet offers the file to other apps.
-        #[cfg(target_os = "ios")]
-        {
-            crate::pick::share(&path);
-            let _ = tx.send(true);
-            return;
-        }
-        #[cfg(not(target_os = "ios"))]
-        std::thread::spawn(move || {
-            let program = std::env::var("GNOBBI_VIDEO_OPENER").unwrap_or_else(|_| if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" }.into());
-            let ok = std::process::Command::new(program).arg(path).status().is_ok_and(|s| s.success());
-            let _ = tx.send(ok);
-        });
+        self.player = Some(open_external(path));
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, thumbnail: Option<&egui::TextureHandle>) -> Action {
+    /// `items`: the pictures and videos of the chat in order, to step through; `transfer`: how far the video being opened has got.
+    pub fn show(&mut self, ctx: &egui::Context, thumbnail: Option<&egui::TextureHandle>, items: &[Item], transfer: Option<(u64, Option<u64>)>) -> Action {
         if let Some(rx) = &self.player && let Ok(ok) = rx.try_recv() {
             self.player = None;
             self.opening = false;
@@ -73,48 +112,149 @@ impl Viewer {
             self.failed = true;
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) { return Action::Close; }
+        let (previous, next) = if self.avatar { (None, None) } else { around(items, &self.id) };
         let mut action = Action::None;
+        let key = |k| ctx.input(|i| i.key_pressed(k));
+        if key(egui::Key::ArrowLeft) && let Some(p) = previous { action = Action::Go(p.clone()); }
+        if key(egui::Key::ArrowRight) && let Some(n) = next { action = Action::Go(n.clone()); }
         let screen = ctx.content_rect();
         let phone = crate::mobile::touch();
-        let window = egui::Window::new(if self.video { i18n::t(i18n::t("Video")) } else { i18n::t("Image") }).collapsible(false);
-        // Phone: the whole safe area, no title bar to drag; desktop: a resizable window.
-        let window = if phone {
-            window.title_bar(false).resizable(false).fixed_rect(screen)
-        } else {
-            window.resizable(true).default_size(screen.size() * 0.8).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-        };
+        // The whole window (on a phone the safe area): no title bar, nothing to resize.
+        let window = egui::Window::new(if self.video { i18n::t("Video") } else { i18n::t("Image") }).collapsible(false).title_bar(false).resizable(false).fixed_rect(screen);
         window
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    let resp = crate::icons::button(ui, crate::icons::Icon::X, false, matrix_desktop::i18n::t("Close"));
+                    let resp = crate::icons::button(ui, crate::icons::Icon::X, false, i18n::t("Close"));
                     if resp.clicked() { action = Action::Close; }
                     if !self.avatar && ui.add(egui::Button::new(i18n::t("Save as")).min_size(egui::Vec2::splat(crate::mobile::target(0.)))).clicked() {
                         let name = std::path::Path::new(&self.name).file_name().and_then(|s| s.to_str()).unwrap_or("file");
                         crate::pick::save_start(ctx, i18n::t("Save as"), name);
                     }
                     if !self.avatar && let Some(path) = crate::pick::done(i18n::t("Save as")) { action = Action::Save(path); }
-                    if self.video && ui.add_enabled(!self.opening, egui::Button::new(i18n::t("Open"))).clicked() {
+                    if self.video && ui.add_enabled(!self.opening, egui::Button::new(i18n::t("Open")).min_size(egui::Vec2::splat(crate::mobile::target(0.)))).clicked() {
                         self.opening = true;
                         action = Action::Open;
                     }
+                    if let Some(at) = items.iter().position(|i| i.id == self.id) && !self.avatar {
+                        ui.label(format!("{} / {}", at + 1, items.len()));
+                    }
                 });
+                if self.opening && let Some((got, total)) = transfer {
+                    ui.add(egui::ProgressBar::new(crate::media_cards::fraction(got, total).unwrap_or(0.)).desired_height(6.).animate(total.is_none()));
+                }
                 if self.failed { ui.label(i18n::t("Cannot open the content")); }
-                if let Some(tex) = self.original.as_ref().or(thumbnail) {
-                    let available = ui.available_size().max(egui::Vec2::splat(1.));
-                    let image = tex.size_vec2();
-                    ui.centered_and_justified(|ui| { ui.add(egui::Image::new(tex).fit_to_exact_size(fit(image, available))); });
-                } else if !self.failed { ui.spinner(); }
+                let area = ui.available_rect_before_wrap();
+                let resp = ui.interact(area, ui.id().with("viewer-area"), egui::Sense::click_and_drag());
+                if let Some(tex) = self.original.clone().or_else(|| thumbnail.cloned()) {
+                    self.picture(ui, area, &resp, &tex, phone, (previous, next), &mut action);
+                } else if !self.failed {
+                    ui.put(egui::Rect::from_center_size(area.center(), egui::Vec2::splat(24.)), egui::Spinner::new());
+                }
+                // Stepping buttons over the picture's sides (the swipe does the same on a phone).
+                let reach = crate::mobile::target(44.);
+                for (item, side, icon, label) in [(previous, area.left_center() + egui::vec2(reach / 2. + 4., 0.), crate::icons::Icon::CaretLeft, "Previous"), (next, area.right_center() - egui::vec2(reach / 2. + 4., 0.), crate::icons::Icon::CaretRight, "Next")] {
+                    if let Some(item) = item {
+                        let rect = egui::Rect::from_center_size(side, egui::Vec2::splat(reach));
+                        if crate::icons::button_at(ui, rect, ui.id().with(("step", label)), icon, false, crate::metrics::get().icon, i18n::t(label), None, true, 1.).clicked() {
+                            action = Action::Go(item.clone());
+                        }
+                    }
+                }
             });
         action
     }
+
+    /// The picture with zoom, pan and the drag that steps or closes.
+    #[allow(clippy::too_many_arguments)]
+    fn picture(&mut self, ui: &mut egui::Ui, area: egui::Rect, resp: &egui::Response, tex: &egui::TextureHandle, phone: bool, (previous, next): (Option<&Item>, Option<&Item>), action: &mut Action) {
+        let fitted = fit(tex.size_vec2(), area.size().max(egui::Vec2::splat(1.)));
+        // Pinch, and the wheel over the picture: zoom about the centre.
+        let (pinch, wheel) = ui.input(|i| (i.zoom_delta(), if resp.hovered() { i.smooth_scroll_delta.y } else { 0. }));
+        self.zoom = (self.zoom * pinch * (wheel * 0.0025).exp()).clamp(1., MAX_ZOOM);
+        if resp.double_clicked() {
+            self.zoom = if self.zoom > 1.01 { 1. } else { 2.5 };
+        }
+        if self.zoom <= 1.01 {
+            self.zoom = 1.;
+            self.pan = egui::Vec2::ZERO;
+        }
+        if resp.dragged() {
+            if self.zoom > 1. { self.pan += resp.drag_delta(); } else { self.drag += resp.drag_delta(); }
+        }
+        let shown = fitted * self.zoom;
+        // The zoomed picture cannot be dragged off the screen.
+        let room = ((shown - area.size()) / 2.).max(egui::Vec2::ZERO);
+        self.pan = self.pan.clamp(-room, room);
+        if resp.drag_stopped() {
+            let moved = std::mem::take(&mut self.drag);
+            if self.zoom == 1. {
+                match swipe(moved, phone) {
+                    Swipe::Next => if let Some(n) = next { *action = Action::Go(n.clone()); },
+                    Swipe::Previous => if let Some(p) = previous { *action = Action::Go(p.clone()); },
+                    Swipe::Close => *action = Action::Close,
+                    Swipe::None => {}
+                }
+            }
+        }
+        let rect = egui::Rect::from_center_size(area.center() + self.pan + if self.zoom == 1. { self.drag } else { egui::Vec2::ZERO }, shown);
+        ui.painter().with_clip_rect(area).image(tex.id(), rect, egui::Rect::from_min_max(egui::pos2(0., 0.), egui::pos2(1., 1.)), egui::Color32::WHITE);
+        if self.drag != egui::Vec2::ZERO { ui.ctx().request_repaint(); }
+    }
+}
+
+/// Opens `path` with the system's program for it; the answer (did it start) comes on the channel.
+/// iOS has no external opener process (and UIKit wants the main thread): the share sheet offers the file to other apps.
+pub fn open_external(path: PathBuf) -> std::sync::mpsc::Receiver<bool> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    #[cfg(target_os = "ios")]
+    {
+        crate::pick::share(&path);
+        let _ = tx.send(true);
+        return rx;
+    }
+    #[cfg(not(target_os = "ios"))]
+    std::thread::spawn(move || {
+        let program = std::env::var("GNOBBI_VIDEO_OPENER").unwrap_or_else(|_| if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" }.into());
+        let ok = std::process::Command::new(program).arg(path).status().is_ok_and(|s| s.success());
+        let _ = tx.send(ok);
+    });
+    rx
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use eframe::egui::vec2;
+
     #[test]
     fn fit_keeps_aspect_inside_both_dimensions() {
-        use eframe::egui::vec2;
-        assert_eq!(super::fit(vec2(400., 200.), vec2(100., 100.)), vec2(100., 50.));
-        assert_eq!(super::fit(vec2(200., 400.), vec2(100., 100.)), vec2(50., 100.));
+        assert_eq!(fit(vec2(400., 200.), vec2(100., 100.)), vec2(100., 50.));
+        assert_eq!(fit(vec2(200., 400.), vec2(100., 100.)), vec2(50., 100.));
+    }
+
+    #[test]
+    fn a_sideways_swipe_steps_and_a_long_vertical_one_closes_on_touch_only() {
+        assert_eq!(swipe(vec2(-80., 10.), false), Swipe::Next);
+        assert_eq!(swipe(vec2(80., -10.), true), Swipe::Previous);
+        assert_eq!(swipe(vec2(10., 120.), true), Swipe::Close);
+        assert_eq!(swipe(vec2(-10., -120.), true), Swipe::Close);
+        assert_eq!(swipe(vec2(10., 120.), false), Swipe::None);
+        assert_eq!(swipe(vec2(30., 30.), true), Swipe::None);
+        // A diagonal drag goes with its longer side.
+        assert_eq!(swipe(vec2(70., 95.), true), Swipe::Close);
+        assert_eq!(swipe(vec2(95., 70.), true), Swipe::Previous);
+    }
+
+    #[test]
+    fn neighbours_follow_the_chat_order_and_stop_at_both_ends() {
+        let item = |s: &str| Item { id: EventId::new(s), video: false, name: s.into() };
+        let items = [item("$a"), item("$b"), item("$c")];
+        assert_eq!(around(&items, &EventId::new("$b")), (Some(&items[0]), Some(&items[2])));
+        assert_eq!(around(&items, &EventId::new("$a")), (None, Some(&items[1])));
+        assert_eq!(around(&items, &EventId::new("$c")), (Some(&items[1]), None));
+        assert_eq!(around(&items, &EventId::new("$zz")), (None, None));
+        let v = Viewer::new(EventId::new("$b"), false, String::new());
+        assert!(v.near_start(&items));
+        assert!(!v.near_start(&[item("$1"), item("$2"), item("$3"), item("$4"), item("$b")]));
     }
 }

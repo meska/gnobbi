@@ -102,6 +102,14 @@ pub enum RoomAction {
     RemoveFrom(matrix_domain::RoomScope),
 }
 
+/// An attachment on its way out.
+pub struct Upload {
+    pub id: matrix_domain::TransactionId,
+    pub name: String,
+    pub sent: u64,
+    pub total: u64,
+}
+
 pub struct Session {
     pub form: SignInForm,
     reconnecting: bool,
@@ -163,6 +171,13 @@ pub struct Session {
     audio: Option<(EventId, matrix_desktop::audio_player::AudioOutput)>,
     /// Waveform of the decoded note in `audio`: what the bubble draws when the sender sent none.
     audio_wave: Vec<f32>,
+    /// Attachments going out, shown as cards with their progress until the server has them (or the user cancels).
+    pub uploads: Vec<Upload>,
+    /// Cancel and progress of the sends, filled once the worker's session is up.
+    send_control: matrix_engine::sending::ControlSlot,
+    /// The file a card asked to open: its download ends in the system opener, with no viewer in between.
+    opening_file: Option<EventId>,
+    opener: Option<std::sync::mpsc::Receiver<bool>>,
     /// A voice note being recorded (the microphone is open); `voice` is the note waiting to be sent with the next send.
     pub recorder: Option<matrix_desktop::voice_recorder::Recorder>,
     /// The recording was started from the thread's composer: its bar shows there and the note goes into the thread.
@@ -338,6 +353,7 @@ impl Session {
         crate::suspend::register(worker.control());
         let route = worker.take_history_route();
         let send = worker.take_send_route();
+        let send_control = worker.send_control();
         let op_route = worker.take_operation_route();
         let notify_worker = matrix_desktop::notifications::NotificationWorker::spawn().ok();
         let ver_route = worker.take_verification_route();
@@ -370,6 +386,10 @@ impl Session {
             info_open: false,
             audio: None,
             audio_wave: Vec::new(),
+            uploads: Vec::new(),
+            send_control,
+            opening_file: None,
+            opener: None,
             recorder: None,
             record_thread: false,
             reading: (false, false, true),
@@ -759,6 +779,23 @@ impl Session {
             self.media.mark_videos(videos);
             self.media.next_inline(scope.clone(), wanted);
         }
+        if !self.uploads.is_empty() {
+            if let Some(control) = self.send_control.lock().unwrap().as_ref() {
+                for (id, sent, total) in control.uploads() {
+                    if let Some(u) = self.uploads.iter_mut().find(|u| u.id == id) {
+                        (u.sent, u.total) = (sent, if total > 0 { total } else { u.total });
+                    }
+                }
+            }
+            changed = true;
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+        if self.media.transfer().is_some() { changed = true; }
+        if let Some(rx) = &self.opener && let Ok(ok) = rx.try_recv() {
+            self.opener = None;
+            if !ok { self.notice = Some(i18n::t("Cannot open the content").to_owned()); }
+            changed = true;
+        }
         if let Some(ok) = self.media.take_saved().map(|(_, r)| r.is_ok()) {
             if ok && cfg!(target_os = "ios") {
                 // iOS: the file sits in a private folder until the share sheet takes it; «Saved» waits for the sheet's answer.
@@ -825,7 +862,17 @@ impl Session {
             changed = true;
         }
         if let Some((id, result)) = self.media.take_video() {
-            if let Some(viewer) = &mut self.viewer && viewer.id == id {
+            if self.opening_file.as_ref() == Some(&id) {
+                self.opening_file = None;
+                match result {
+                    Ok(file) => {
+                        let path = file.path().to_owned();
+                        self.media.hold_playing(file);
+                        self.opener = Some(crate::viewer::open_external(path));
+                    }
+                    Err(_) => self.notice = Some(i18n::t("Cannot open the content").to_owned()),
+                }
+            } else if let Some(viewer) = &mut self.viewer && viewer.id == id {
                 match result {
                     Ok(file) => {
                         let path = file.path().to_owned();
@@ -890,8 +937,16 @@ impl Session {
         }
         changed |= self.drive_operations();
         if let Some((_, rx)) = &mut self.send {
-            // Outcomes show up as the message's own row once the live view refreshes (S5: no separate failure UI yet).
-            while rx.try_recv().is_ok() {}
+            // Outcomes show up as the message's own row once the live view refreshes (S5: no separate failure UI yet); an upload's card goes away.
+            while let Ok(event) = rx.try_recv() {
+                use matrix_engine::sending::{SendEvent, SendNotice};
+                let done = match event {
+                    SendEvent::Result(r) => Some(r.transaction_id),
+                    SendEvent::Notice { transaction_id, notice: SendNotice::Cancelled, .. } => Some(transaction_id),
+                    SendEvent::Notice { .. } => None,
+                };
+                if let Some(id) = done { self.uploads.retain(|u| u.id != id); changed = true; }
+            }
         }
         let mut pages = Vec::new();
         if !crate::loading::debug_hold(false) && let Some((_, rx)) = &mut self.route {
@@ -927,7 +982,7 @@ impl Session {
             }
         }
         if self.pending.is_none() && self.messages.is_some() {
-            self.pending = if self.unread_pending() { self.unread_history_step() } else { self.history.load_older_near_top(if self.search_jump.is_some() { 0 } else { self.first_visible }) };
+            self.pending = if self.unread_pending() { self.unread_history_step() } else { self.history.load_older_near_top(if self.search_jump.is_some() || self.viewer_wants_older() { 0 } else { self.first_visible }) };
         }
         if let (Some(request), Some((tx, _))) = (self.pending.take(), &mut self.route) {
             if let Err(e) = tx.try_send(request) {
@@ -1885,10 +1940,35 @@ impl Session {
         self.viewer = Some(crate::viewer::Viewer::new(id, video, name));
     }
 
+    /// The pictures and videos of the loaded chat, oldest first: what the viewer steps through.
+    fn viewer_items(&self) -> Vec<crate::viewer::Item> {
+        let Some(messages) = &self.messages else { return Vec::new() };
+        messages.events().iter().filter(|e| !e.redacted && !e.status).filter_map(|e| match (&e.media, &e.id.id) {
+            (Some(m), TimelineId::Server(id)) if matches!(m.kind, MediaKind::Image | MediaKind::Video) && m.label != "Sticker" => {
+                let video = m.kind == MediaKind::Video;
+                Some(crate::viewer::Item { id: id.clone(), video, name: e.attachment_name.clone().unwrap_or_else(|| i18n::t(if video { "video" } else { "image" }).into()) })
+            }
+            _ => None,
+        }).collect()
+    }
+
+    /// The viewer is near the oldest loaded picture: the chat may load an older page.
+    fn viewer_wants_older(&self) -> bool {
+        self.viewer.as_ref().is_some_and(|v| v.near_start(&self.viewer_items()))
+    }
+
     pub fn show_viewer(&mut self, ctx: &egui::Context) {
+        if self.viewer.is_none() { return; }
+        let items = self.viewer_items();
+        let transfer = self.media.transfer().filter(|t| self.viewer.as_ref().is_some_and(|v| v.id == t.0)).map(|(_, got, total)| (*got, *total));
         let Some(viewer) = &mut self.viewer else { return };
-        let action = viewer.show(ctx, self.pictures.get(&viewer.id));
+        let action = viewer.show(ctx, self.pictures.get(&viewer.id), &items, transfer);
         match action {
+            crate::viewer::Action::Go(item) => {
+                self.media.cancel_original();
+                viewer.go(&item);
+                if !item.video && let Some(scope) = self.draft_scope.clone() { self.media.request_original(scope, item.id); }
+            }
             crate::viewer::Action::Close => { self.media.cancel_original(); self.avatar_full = None; self.viewer = None; }
             crate::viewer::Action::Save(path) => {
                 if path.exists() {
@@ -2115,10 +2195,38 @@ impl Session {
                 poll: None,
                 mentions: if i == last { std::mem::take(&mut mentions) } else { Vec::new() },
             };
+            let card = request.attachment.as_ref().filter(|a| a.voice.is_none()).map(|a| Upload { id: request.transaction_id.clone(), name: a.filename.clone(), sent: 0, total: a.data.len() as u64 });
             if tx.try_send(request).is_ok() {
                 self.history.activity(&scope);
+                self.uploads.extend(card);
             }
         }
+    }
+
+    /// The download of a file now running, `(file, bytes received, declared size)`.
+    pub fn transfer(&self) -> Option<(EventId, u64, Option<u64>)> {
+        self.media.transfer().cloned()
+    }
+
+    pub fn cancel_transfer(&mut self) {
+        self.media.cancel_transfer();
+        self.opening_file = None;
+    }
+
+    /// Withdraws an upload: the one running stops, one waiting for its turn never starts.
+    pub fn cancel_upload(&mut self, id: &matrix_domain::TransactionId) {
+        if let Some(control) = self.send_control.lock().unwrap().as_ref() {
+            control.cancel(id);
+        }
+        self.uploads.retain(|u| &u.id != id);
+    }
+
+    /// Downloads the file of `event` and opens it with the system's program for it.
+    pub fn open_file(&mut self, event: EventId) {
+        let Some(scope) = self.draft_scope.clone() else { return };
+        self.media.cancel_original();
+        self.opening_file = Some(event.clone());
+        self.media.request_video(scope, event);
     }
 
     /// Hands the typed fields to the form and sends the command it builds, if it is ready.

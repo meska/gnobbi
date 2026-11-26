@@ -31,6 +31,7 @@ mod join;
 mod list;
 mod loading;
 mod members;
+mod media_cards;
 mod message_hits;
 mod metrics;
 mod mobile;
@@ -1691,7 +1692,7 @@ impl App {
             && let Some(mut th) = s.thread.take()
         {
             let (mut close, mut out) = (false, info::ThreadOut::default());
-            let mut acts = timeline::Acts { now_playing: s.audio_now(), wishes: s.ops.wishes().to_vec(), ..Default::default() };
+            let mut acts = timeline::Acts { now_playing: s.audio_now(), wishes: s.ops.wishes().to_vec(), transfer: s.transfer(), ..Default::default() };
             let members = s.sidebar.selected().map_or(3, |r| r.info.joined_members);
             let recording = s.recording(true);
             let w = self.prefs.thread_width.map_or(320., |w| w as f32);
@@ -1731,6 +1732,8 @@ impl App {
             if let Some(body) = out.send { s.send_thread(body); }
             if let Some((id, name)) = out.save { s.save(id, &name); }
             if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
+            if let Some(id) = acts.open_file.take() { s.open_file(id); }
+            if std::mem::take(&mut acts.cancel_transfer) { s.cancel_transfer(); }
             if let Some(user) = acts.profile.take() { s.open_profile_from_chat(user); }
             if let Some(id) = acts.play.take() { s.play_audio(id); }
             s.reaction_acts(std::mem::take(&mut acts.react), ui.ctx(), t);
@@ -1774,6 +1777,11 @@ impl App {
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
                 let recording = s.recording(false);
+                let mut stop = None;
+                for u in &s.uploads {
+                    if media_cards::upload_card(ui, &u.name, u.sent, u.total, t) { stop = Some(u.id.clone()); }
+                }
+                if let Some(id) = stop { s.cancel_upload(&id); }
                 to_send = composer::show(ui, "", &mut s.draft, mode, s.attachment.as_mut(), &mut cancel, &mut attach_acts, &mut open_poll, &mut picked_files, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)), t);
                 if let Some(image) = pasted_image {
                     s.attach_image(image, false);
@@ -1851,7 +1859,7 @@ impl App {
             {
                 s.flash = s.flash.take().filter(|(_, at)| at.elapsed() < std::time::Duration::from_millis(1500));
                 if s.flash.is_some() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(100)); }
-                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.as_ref().map(|(id, _)| id.clone()), lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), wishes: s.ops.wishes().to_vec(), ..Default::default() };
+                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.as_ref().map(|(id, _)| id.clone()), lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), wishes: s.ops.wishes().to_vec(), transfer: s.transfer(), ..Default::default() };
                 let jump = s.search_jump.as_ref().and_then(|(id, _)| messages.events().iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())));
                 let room = s.sidebar.selected();
                 let members = room.map_or(3, |r| r.info.joined_members);
@@ -1893,6 +1901,8 @@ impl App {
                     s.open_thread(root);
                 }
                 if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
+                if let Some(id) = acts.open_file.take() { s.open_file(id); }
+                if std::mem::take(&mut acts.cancel_transfer) { s.cancel_transfer(); }
                 if let Some(user) = acts.profile.take() { s.open_profile_from_chat(user); }
                 if let Some(id) = acts.play.take() {
                     s.play_audio(id);
