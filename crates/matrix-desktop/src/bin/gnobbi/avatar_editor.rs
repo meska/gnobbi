@@ -958,8 +958,16 @@ mod tests {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let url = format!("http://{}/", listener.local_addr().unwrap());
             std::thread::spawn(move || {
-                use std::io::Write;
+                use std::io::{Read, Write};
                 if let Ok((mut c, _)) = listener.accept() {
+                    // Closing with unread request data can reset the connection before the answer is received.
+                    let (mut seen, mut b) = (Vec::new(), [0u8; 512]);
+                    while !seen.ends_with(b"\r\n\r\n") {
+                        match c.read(&mut b) {
+                            Ok(n) if n > 0 => seen.extend_from_slice(&b[..n]),
+                            _ => break,
+                        }
+                    }
                     let _ = c.write_all(answer.as_bytes());
                 }
             });
