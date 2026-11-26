@@ -2363,3 +2363,135 @@ mod stale_tests {
         assert!(accept_user_answer(&mut gate, &S::NoResults));
     }
 }
+
+/// «Esci» of a room: the confirmation modal, the request only on confirm, the removal only on the server's ok.
+#[cfg(test)]
+mod leave_tests {
+    use super::*;
+    use eframe::egui;
+    use matrix_domain::{AccountId, RoomId, RoomScope};
+    use matrix_engine::operations::OperationError;
+    use matrix_engine::{RoomInfo, RoomListDiff, RoomSummary};
+
+    fn scope(id: &str) -> RoomScope { RoomScope { account_id: AccountId::new(1), room_id: RoomId::new(id) } }
+
+    /// A real session (its worker idles on the sign-in) with two rooms, «Bots» and «Other».
+    fn session() -> Session {
+        let dir = std::env::temp_dir().join(format!("gnobbi-leave-{}-{:?}", std::process::id(), std::thread::current().id()).replace(['(', ')'], ""));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dirs = AppDirs { config: dir.join("c"), data: dir.join("d"), cache: dir.join("k") };
+        let mut s = Session::start(&dirs, dir.join("root"), None).expect("session");
+        s.sidebar = matrix_desktop::Sidebar::connected(AccountId::new(1));
+        for (id, name) in [("!bots:t.invalid", "Bots"), ("!other:t.invalid", "Other")] {
+            s.sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary { scope: scope(id), name: name.into(), unread: 0, info: RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() } })));
+        }
+        s
+    }
+
+    fn bots() -> RoomScope { scope("!bots:t.invalid") }
+    fn has(s: &Session, sc: &RoomScope) -> bool { s.sidebar.rooms().iter().any(|r| r.scope == *sc) }
+    fn leaves(s: &Session) -> usize { s.op_queue.iter().chain(s.op_pending.iter()).filter(|c| matches!(c, OperationCommand::LeaveRoom { .. })).count() }
+
+    /// One frame of the modal; returns the texts drawn with their centre.
+    fn frame(ctx: &egui::Context, s: &mut Session, events: Vec<egui::Event>) -> Vec<(String, egui::Pos2)> {
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600., 500.))), events, ..Default::default() };
+        let mut out = ctx.run_ui(input, |ui| crate::list::leave_modal(ui.ctx(), s));
+        out.textures_delta.clear();
+        fn walk(shape: &egui::epaint::Shape, into: &mut Vec<(String, egui::Pos2)>) {
+            match shape {
+                egui::epaint::Shape::Text(t) => into.push((t.galley.text().to_owned(), t.pos + t.galley.rect.center().to_vec2())),
+                egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                _ => {}
+            }
+        }
+        let mut texts = Vec::new();
+        out.shapes.iter().for_each(|c| walk(&c.shape, &mut texts));
+        texts
+    }
+
+    /// What the modal draws once laid out (the first frame of an area only measures).
+    fn seen(ctx: &egui::Context, s: &mut Session) -> Vec<(String, egui::Pos2)> {
+        frame(ctx, s, vec![]);
+        frame(ctx, s, vec![])
+    }
+
+    /// Clicks the button with this label: move, press, release, one settling frame.
+    fn click(ctx: &egui::Context, s: &mut Session, label: &str) {
+        let at = seen(ctx, s).into_iter().find(|(t, _)| t == label).unwrap_or_else(|| panic!("no «{label}» on screen")).1;
+        let b = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        for events in [vec![egui::Event::PointerMoved(at)], vec![b(true)], vec![b(false)], vec![]] { frame(ctx, s, events); }
+    }
+
+    #[test]
+    fn exit_opens_the_modal_with_the_room_name_and_cancel_sends_nothing() {
+        let (ctx, mut s) = (crate::icons::test_context(), session());
+        s.room_action(bots(), RoomAction::Leave);
+        assert_eq!(s.leave_ask, Some(bots()));
+        assert_eq!(leaves(&s), 0, "picking «Esci» only asks");
+        let texts = seen(&ctx, &mut s);
+        assert!(texts.iter().any(|(t, _)| *t == crate::list::leave_question("Bots")), "the question names the room: {texts:?}");
+        click(&ctx, &mut s, &i18n::t("Cancel"));
+        assert!(s.leave_ask.is_none(), "Cancel closes the modal");
+        assert_eq!(leaves(&s), 0, "and sends no leave");
+        assert!(!s.sidebar.is_leaving(&bots()) && has(&s, &bots()));
+    }
+
+    #[test]
+    fn the_red_button_sends_one_leave_and_keeps_the_room_until_the_answer() {
+        let (ctx, mut s) = (crate::icons::test_context(), session());
+        s.room_action(bots(), RoomAction::Leave);
+        click(&ctx, &mut s, &i18n::t("Leave"));
+        assert!(s.leave_ask.is_none());
+        assert_eq!(leaves(&s), 1);
+        assert!(s.sidebar.is_leaving(&bots()) && has(&s, &bots()), "the row waits, nothing is removed before the ok");
+        s.leave_room(bots());
+        assert_eq!(leaves(&s), 1, "no second request while one is in flight");
+    }
+
+    #[test]
+    fn ok_removes_the_room_at_once_without_a_sync() {
+        let mut s = session();
+        assert!(s.sidebar.select(&scope("!other:t.invalid")), "another chat is the open one");
+        s.leave_room(bots());
+        assert!(has(&s, &bots()));
+        s.handle_result(OperationResult::RoomLeft { scope: bots(), result: Ok(()) });
+        assert!(!has(&s, &bots()) && has(&s, &scope("!other:t.invalid")));
+        assert!(!s.sidebar.is_leaving(&bots()) && s.room_error.is_none());
+        assert!(!s.left_open, "a room that was not open does not send the shell back to the list");
+    }
+
+    #[test]
+    fn an_error_keeps_the_room_and_shows_the_error() {
+        let mut s = session();
+        s.leave_room(bots());
+        s.handle_result(OperationResult::RoomLeft { scope: bots(), result: Err(OperationError::Forbidden) });
+        assert!(has(&s, &bots()), "the room stays");
+        assert!(!s.sidebar.is_leaving(&bots()), "and can be left again");
+        assert_eq!(s.room_error.as_deref(), Some(&*i18n::t("Not allowed by the server")));
+        assert!(!s.left_open);
+    }
+
+    #[test]
+    fn leaving_the_open_chat_goes_back_to_the_list_only_after_the_ok() {
+        let mut s = session();
+        assert!(s.sidebar.select(&bots()));
+        s.leave_room(bots());
+        assert!(!s.left_open, "not before the answer");
+        s.handle_result(OperationResult::RoomLeft { scope: bots(), result: Err(OperationError::Transport) });
+        assert!(!s.left_open && has(&s, &bots()));
+        s.leave_room(bots());
+        s.handle_result(OperationResult::RoomLeft { scope: bots(), result: Ok(()) });
+        assert!(s.left_open && !has(&s, &bots()));
+    }
+
+    /// The header «⋮», the long press and the right click all end in `room_action(Leave)`; the space window in `leave_space`.
+    #[test]
+    fn space_leave_waits_for_the_answer_too() {
+        let mut s = session();
+        let space = scope("!space:t.invalid");
+        s.leave_space(space.clone(), false);
+        assert!(s.sidebar.is_leaving(&space));
+        s.leave_space(space.clone(), false);
+        assert_eq!(s.op_queue.len(), 1, "one request only");
+    }
+}
