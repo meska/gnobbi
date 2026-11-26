@@ -118,7 +118,7 @@ pub struct MemberList {
     duplicate: Vec<bool>,
     /// Lowercase "name\nid" per row, for the search.
     keys: Vec<String>,
-    /// (events, last timestamp) of the timeline the order was computed with.
+    /// (events, last timestamp, receipts) of the timeline the order was computed with.
     mark: Mark,
     /// Last search asked and its answer (indices into `rows`).
     query: (String, Option<String>),
@@ -329,24 +329,24 @@ pub fn page(ui: &mut egui::Ui, list: &mut MemberList, query: &mut String, promot
     }
     // Rows are row_h() apart: `show_rows` takes its step from the spacing of the Ui it is called on, not the one inside.
     ui.scope(|ui| {
-    ui.spacing_mut().item_spacing.y = 0.;
-    egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, row_h(), hits.len(), |ui, range| {
-        for &i in &hits[range] {
-            let m = &rows[i as usize];
-            visible.push(m.avatar.clone());
-            if let Some(promote) = promote.as_deref_mut() {
-                ui.horizontal(|ui| {
-                    ui.set_min_height(row_h());
-                    ui.add(egui::Label::new(crate::list::clean_single_line(&m.name)).truncate());
-                    if ui.button(i18n::t("Make admin")).clicked() {
-                        *promote = Some(m.user_id.clone());
-                    }
-                });
-            } else {
-                out.act = row(ui, m, list.duplicate(i as usize), perms, me, &mut hook, avatars, t).or(out.act.take());
+        ui.spacing_mut().item_spacing.y = 0.;
+        egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, row_h(), hits.len(), |ui, range| {
+            for &i in &hits[range] {
+                let m = &rows[i as usize];
+                visible.push(m.avatar.clone());
+                if let Some(promote) = promote.as_deref_mut() {
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(row_h());
+                        ui.add(egui::Label::new(crate::list::clean_single_line(&m.name)).truncate());
+                        if ui.button(i18n::t("Make admin")).clicked() {
+                            *promote = Some(m.user_id.clone());
+                        }
+                    });
+                } else {
+                    out.act = row(ui, m, list.duplicate(i as usize), perms, me, &mut hook, avatars, t).or(out.act.take());
+                }
             }
-        }
-    });
+        });
     });
     publish_avatars(ui, visible.into_iter());
     out
@@ -746,9 +746,13 @@ mod tests {
 
     /// y of the first text shape that contains `needle`.
     fn text_y(shapes: &[egui::epaint::ClippedShape], needle: &str) -> Option<f32> {
-        fn walk(s: &egui::Shape, needle: &str) -> Option<f32> {
+        text_pos(shapes, needle).map(|p| p.y)
+    }
+
+    fn text_pos(shapes: &[egui::epaint::ClippedShape], needle: &str) -> Option<egui::Pos2> {
+        fn walk(s: &egui::Shape, needle: &str) -> Option<egui::Pos2> {
             match s {
-                egui::Shape::Text(t) if t.galley.text().contains(needle) => Some(t.pos.y),
+                egui::Shape::Text(t) if t.galley.text().contains(needle) => Some(t.pos),
                 egui::Shape::Vec(v) => v.iter().find_map(|s| walk(s, needle)),
                 _ => None,
             }
@@ -776,7 +780,7 @@ mod tests {
     }
 
     #[test]
-    fn the_space_window_shows_the_banned_and_unban_works() {
+    fn the_banned_section_shows_and_unban_is_pressed() {
         let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:x") };
         let mut admin = Admin::new(scope);
         admin.perms = MemberPermissions { can_kick: true, can_ban: true, ..Default::default() };
@@ -793,6 +797,12 @@ mod tests {
         };
         let shapes = run(&ctx, vec![], &mut act);
         assert!(text_y(&shapes, "Bad").is_some() && text_y(&shapes, i18n::t("Unban")).is_some());
+        // Press «Unban»: move, press, release over its label.
+        let pos = text_pos(&shapes, i18n::t("Unban")).unwrap() + egui::vec2(4., 4.);
+        let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        run(&ctx, vec![egui::Event::PointerMoved(pos), button(true)], &mut act);
+        run(&ctx, vec![button(false)], &mut act);
+        assert!(matches!(&act, Some(Act::Unban(u)) if u == "@bad:x"), "no Unban");
         admin.banned = Ok(vec![]);
         assert!(!has_banned(Some(&admin)));
     }

@@ -278,6 +278,8 @@ pub struct Session {
     /// Sender photos by mxc; `None` = asked and none came (initials stay).
     pub avatars: crate::avatar::Avatars,
     avatar_failed: std::collections::HashMap<String, std::time::Instant>,
+    /// Member pictures asked for through `MEMBER_AVATARS`, oldest first (see `avatar::trim_members`).
+    member_avatars: Vec<String>,
     avatar_slot: matrix_engine::avatar::AvatarSlot,
     avatar_chan: (std::sync::mpsc::Sender<matrix_engine::avatar::AvatarPicture>, std::sync::mpsc::Receiver<matrix_engine::avatar::AvatarPicture>),
     op_route: Option<(matrix_engine::Sender<OperationCommand>, Receiver<OperationResult>)>,
@@ -456,6 +458,7 @@ impl Session {
             pictures: Default::default(),
             avatars: Default::default(),
             avatar_failed: Default::default(),
+            member_avatars: Vec::new(),
             avatar_slot,
             avatar_chan: std::sync::mpsc::channel(),
             op_route,
@@ -723,10 +726,10 @@ impl Session {
         let mut budget = 6;
         let mut wanted: Vec<String> = ctx.data_mut(|d| d.remove_temp::<Vec<String>>(egui::Id::new(crate::avatar::MENTION_AVATARS))).unwrap_or_default();
         let on_screen = ctx.data_mut(|d| d.remove_temp::<Vec<String>>(egui::Id::new(crate::avatar::MEMBER_AVATARS))).unwrap_or_default();
-        if !on_screen.is_empty() {
-            let lists = self.members.iter().chain(self.space_view.iter().filter_map(|v| v.members.as_ref()));
-            crate::avatar::trim_members(&mut self.avatars, lists.flat_map(|l| l.rows()).filter_map(|m| m.avatar.as_deref()), &on_screen);
+        for m in &on_screen {
+            if !self.member_avatars.contains(m) { self.member_avatars.push(m.clone()); }
         }
+        crate::avatar::trim_members(&mut self.avatars, &mut self.member_avatars, &on_screen);
         wanted.extend(on_screen);
         wanted.extend(self.sidebar.rooms().iter().filter_map(|r| r.info.avatar.clone()));
         wanted.extend(self.sidebar.navigation_entries().into_iter().filter_map(|e| e.avatar));
