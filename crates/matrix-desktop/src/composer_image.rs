@@ -89,7 +89,12 @@ fn decoded(data: &[u8]) -> Result<image::DynamicImage, ImageError> {
     // Read dimensions before allowing any full image allocation.
     let (width, height) = reader().into_dimensions().map_err(|_| ImageError::Invalid)?;
     pixel_count(width as usize, height as usize)?;
-    reader().decode().map_err(|_| ImageError::Invalid)
+    // A phone photo is stored sideways with an orientation tag: show it the way the camera was held.
+    let mut decoder = reader().into_decoder().map_err(|_| ImageError::Invalid)?;
+    let orientation = image::ImageDecoder::orientation(&mut decoder).unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut picture = image::DynamicImage::from_decoder(decoder).map_err(|_| ImageError::Invalid)?;
+    picture.apply_orientation(orientation);
+    Ok(picture)
 }
 
 /// Decode the canonical PNG supplied by the platform image bridge with byte,

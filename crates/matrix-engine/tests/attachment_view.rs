@@ -23,7 +23,7 @@ use matrix_engine::{
         sliding_sync::VersionBuilder,
     },
     sdk_ui::sync_service::SyncService,
-    sending::{Album, Attachment, SendError, SendEvent, SendRequest, fresh_transaction_id, send_text},
+    sending::{Album, Attachment, Delivery, SendError, SendEvent, SendRequest, fresh_transaction_id, send_text},
     video_file::{download_video, save_attachment_with_progress},
 };
 use serde_json::Value;
@@ -240,8 +240,8 @@ fn attachment_view_plain_and_encrypted() {
                 async { (outbox.send(&big).await, outbox.send(&later).await) },
                 async {
                     until("the upload starts", || outbox.control().uploads().iter().any(|(id, ..)| *id == first)).await;
-                    assert!(outbox.control().cancel(&second), "a waiting upload can be withdrawn");
-                    assert!(outbox.control().cancel(&first));
+                    assert!(outbox.control().cancel_upload(&second), "a waiting upload can be withdrawn");
+                    assert!(outbox.control().cancel_upload(&first));
                 }
             );
             let outcome = |event: Option<SendEvent>| match event {
@@ -255,6 +255,25 @@ fn attachment_view_plain_and_encrypted() {
             tokio::time::sleep(Duration::from_secs(2)).await;
             let rows = read(&sync, &scope, &all).await;
             assert!(!rows.iter().any(|e| matches!(e.attachment_name.as_deref(), Some("grande.bin" | "dopo.bin")) && !e.redacted), "a cancelled upload reached the room");
+            // Cancel while the picture is still being compressed (before any echo exists): it must not go out afterwards.
+            let outbox = TestOutbox::new(a.clone(), acc());
+            let mut big_picture = request(&scope, "", "enorme.png", Vec::new(), None);
+            let noisy = image::RgbImage::from_fn(4000, 4000, |x, y| image::Rgb([(x * 7 + y) as u8, (x ^ y) as u8, (x * y >> 3) as u8]));
+            let mut png = Vec::new();
+            noisy.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+            if let Some(file) = big_picture.attachment.as_mut() {
+                (file.data, file.delivery) = (png, Delivery::Compressed);
+            }
+            let id = big_picture.transaction_id.clone();
+            let (result, ()) = tokio::join!(outbox.send(&big_picture), async {
+                until("the picture is in preparation", || outbox.control().uploads().iter().any(|(i, ..)| *i == id)).await;
+                assert!(outbox.control().cancel_upload(&id));
+            });
+            assert!(matches!(result, Some(SendEvent::Result(ref r)) if r.result == Err(SendError::Cancelled)), "encrypted={encrypted}: cancelled while preparing");
+            assert!(outbox.control().uploads().is_empty());
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            let rows = read(&sync, &scope, &all).await;
+            assert!(!rows.iter().any(|e| e.attachment_name.as_deref() == Some("enorme.png")), "encrypted={encrypted}: a picture cancelled while preparing reached the room");
             println!("[view] encrypted={encrypted}: album of 3, 5 MB PDF saved+opened with progress, upload cancelled");
         }
         for s in services {

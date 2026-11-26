@@ -171,9 +171,57 @@ pub enum SendError {
     Cancelled,
 }
 
-/// Upload progress of the attachments being sent, by transaction ID: `(bytes sent, bytes in all)`.
+/// The attachments on their way out, by transaction ID: progress `(bytes sent, bytes in all)` for the upload card, and
+/// the ones the user withdrew. One lock for both, so a cancel and the start of a send cannot miss each other.
+#[derive(Default)]
+pub struct UploadBook {
+    progress: std::collections::HashMap<String, (usize, usize)>,
+    withdrawn: std::collections::HashSet<String>,
+}
+
 /// Written by the send path, read by the window while it draws the upload card.
-pub type Uploads = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, (usize, usize)>>>;
+pub type Uploads = std::sync::Arc<std::sync::Mutex<UploadBook>>;
+
+impl UploadBook {
+    /// An attachment starts preparing; false when it was withdrawn while it waited for its turn.
+    pub(crate) fn begin(&mut self, id: &str) -> bool {
+        if self.withdrawn.remove(id) {
+            return false;
+        }
+        self.progress.insert(id.to_owned(), (0, 0));
+        true
+    }
+
+    /// The user withdrew it: true when it is in preparation or uploading now (the sender notices and stops).
+    /// An id not seen yet is remembered for its turn; the window only asks for its own, so the set stays small.
+    pub(crate) fn withdraw(&mut self, id: &str) -> bool {
+        let running = self.progress.contains_key(id);
+        // shortcut: a stale id is never dropped, 1024 ids cap the set; a window that asks for that many unknown ids is broken
+        if running || self.withdrawn.len() < 1024 {
+            self.withdrawn.insert(id.to_owned());
+        }
+        running
+    }
+
+    pub(crate) fn is_withdrawn(&self, id: &str) -> bool {
+        self.withdrawn.contains(id)
+    }
+
+    pub(crate) fn set(&mut self, id: &str, sent: usize, all: usize) {
+        if let Some(p) = self.progress.get_mut(id) {
+            *p = (sent, all);
+        }
+    }
+
+    pub(crate) fn finish(&mut self, id: &str) {
+        self.progress.remove(id);
+        self.withdrawn.remove(id);
+    }
+
+    pub(crate) fn running(&self) -> Vec<(String, usize, usize)> {
+        self.progress.iter().map(|(id, (sent, all))| (id.clone(), *sent, *all)).collect()
+    }
+}
 
 pub struct SendResult {
     pub scope: RoomScope,
@@ -216,6 +264,11 @@ impl SendEvent {
 pub trait SendControl: Send + Sync {
     fn retry(&self, transaction_id: &TransactionId) -> bool;
     fn cancel(&self, transaction_id: &TransactionId) -> bool;
+    /// Withdraw an attachment: it is stopped while it prepares or uploads, or never starts if it still waits for its turn
+    /// (a waiting one is not known here, so this answers true for any ID: the file will not go out).
+    fn cancel_upload(&self, _transaction_id: &TransactionId) -> bool {
+        false
+    }
     fn edit(&self, transaction_id: &TransactionId, body: &str, mentions: &[Mention]) -> bool;
     /// `(transaction ID, bytes sent, bytes in all)` of each attachment on its way out.
     fn uploads(&self) -> Vec<(TransactionId, u64, u64)> {
@@ -279,6 +332,21 @@ pub(crate) mod tests {
         assert!(super::downscale(&encode(100, 100, image::ImageFormat::Png)).is_none(), "small: untouched");
         assert!(super::downscale(&two_frame_gif(3000, 10)).is_none(), "GIF keeps its frames");
         assert!(super::downscale(b"not an image").is_none());
+    }
+
+    #[test]
+    fn downscale_applies_the_exif_orientation_to_the_pixels() {
+        use image::ImageEncoder;
+        // A landscape JPEG (3000x2000) that the camera marked «rotate 90°» (Orientation = 6): it must come out portrait.
+        let exif = [b'I', b'I', 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 1, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0].to_vec();
+        let mut jpeg = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new(&mut jpeg);
+        encoder.set_exif_metadata(exif).unwrap();
+        let rgb = image::RgbImage::new(3000, 2000);
+        encoder.write_image(rgb.as_raw(), 3000, 2000, image::ExtendedColorType::Rgb8).unwrap();
+        let (w, h) = super::image_size(&super::downscale(&jpeg).unwrap()).unwrap();
+        assert!(h > w, "rotated to portrait: {w}x{h}");
+        assert_eq!(h, super::COMPRESSED_SIDE);
     }
 
     /// A two-frame GIF, red then blue.
@@ -694,6 +762,28 @@ pub(crate) async fn send_attachment(
     file: &Attachment,
     uploads: Option<&Uploads>,
 ) -> Result<EventId, SendError> {
+    let id = request.transaction_id.as_str();
+    if let Some(u) = uploads
+        && !u.lock().unwrap().begin(id)
+    {
+        return Err(SendError::Cancelled);
+    }
+    let outcome = prepare_and_queue(client, room, timeline, request, file, uploads).await;
+    if let Some(u) = uploads {
+        u.lock().unwrap().finish(id);
+    }
+    outcome
+}
+
+#[cfg(feature = "sdk")]
+async fn prepare_and_queue(
+    client: &matrix_sdk::Client,
+    room: &matrix_sdk::Room,
+    timeline: &matrix_sdk_ui::timeline::Timeline,
+    request: &SendRequest,
+    file: &Attachment,
+    uploads: Option<&Uploads>,
+) -> Result<EventId, SendError> {
     use matrix_sdk::{
         attachment::{AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo},
     };
@@ -706,6 +796,9 @@ pub(crate) async fn send_attachment(
         && let Some(smaller) = compress_picture(&file.data).await
     {
         data = smaller.into();
+    }
+    if uploads.is_some_and(|u| u.lock().unwrap().is_withdrawn(request.transaction_id.as_str())) {
+        return Err(SendError::Cancelled);
     }
     // The SDK picks the message type from the content type alone; a generic one makes a picture or video a plain m.file.
     if file.delivery == Delivery::File && matches!(mime.type_().as_str(), "image" | "video" | "audio") {
@@ -777,15 +870,24 @@ fn downscale(data: &[u8]) -> Option<Vec<u8>> {
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(512 << 20);
     reader.limits(limits);
-    let small = reader.decode().ok()?.resize(COMPRESSED_SIDE, COMPRESSED_SIDE, image::imageops::FilterType::Triangle);
+    // The re-encoding drops the metadata, so the camera's orientation is applied to the pixels first.
+    let mut decoder = reader.into_decoder().ok()?;
+    let orientation = image::ImageDecoder::orientation(&mut decoder).unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut picture = image::DynamicImage::from_decoder(decoder).ok()?;
+    picture.apply_orientation(orientation);
+    let small = picture.resize(COMPRESSED_SIDE, COMPRESSED_SIDE, image::imageops::FilterType::Triangle);
     let mut out = Vec::new();
     small.write_to(&mut std::io::Cursor::new(&mut out), format).ok()?;
     (out.len() < data.len()).then_some(out)
 }
 
+/// An upload that makes no progress for this long has failed.
+#[cfg(feature = "sdk")]
+const UPLOAD_IDLE: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// An attachment through the room's SDK send queue (local echo, upload and event in the queue; the
 /// bytes live in the encrypted-capable SDK media cache, never in a temp file) and wait for the
-/// server to accept it. A failure or the 300 s deadline takes it out of the queue again, so an
+/// server to accept it. A failure or an idle upload takes it out of the queue again, so an
 /// error never leaves a file behind that would go out later.
 #[cfg(feature = "sdk")]
 pub(crate) async fn queue_attachment_waiting(
@@ -799,68 +901,77 @@ pub(crate) async fn queue_attachment_waiting(
 ) -> Result<EventId, SendError> {
     use matrix_sdk::{
         ruma::OwnedTransactionId,
-        send_queue::{LocalEchoContent, RoomSendQueueUpdate::{CancelledLocalEvent, MediaUpload, SendError as Failed, SentEvent}},
+        send_queue::{RoomSendQueueUpdate::{CancelledLocalEvent, MediaUpload, SendError as Failed, SentEvent}},
     };
     use tokio::sync::broadcast::error::RecvError;
     let txn: OwnedTransactionId = config.txn_id.get_or_insert_with(matrix_sdk::ruma::TransactionId::new).clone();
     // The room's own feed carries the upload progress, once the client reports it (off by default: the queue then only says «1 of 1» at the end).
     client.send_queue().enable_upload_progress(true);
     let (_, mut updates) = room.send_queue().subscribe().await.map_err(|_| SendError::Transport)?;
-    if let Some(u) = uploads {
-        u.lock().unwrap().insert(txn.to_string(), (0, 0));
-    }
+    let withdrawn = || uploads.is_some_and(|u| u.lock().unwrap().is_withdrawn(txn.as_str()));
     let queued = timeline
         .send_attachment(matrix_sdk_ui::timeline::AttachmentSource::Data { bytes, filename }, mime, config)
         .use_send_queue()
         .await
         .map_err(|_| SendError::Transport);
+    // A withdrawal that came while the echo was being made found nothing to abort: take it out now.
     let outcome = match queued {
         Err(error) => Err(error),
-        Ok(_) => tokio::time::timeout(std::time::Duration::from_secs(300), async {
-        loop {
-            let update = match updates.recv().await {
-                Ok(update) => update,
-                Err(RecvError::Lagged(_)) => continue,
-                Err(RecvError::Closed) => return Err(SendError::Transport),
-            };
-            match update {
-                MediaUpload { related_to, progress, .. } if related_to == txn => {
-                    if let Some(u) = uploads {
-                        u.lock().unwrap().insert(txn.to_string(), (progress.current, progress.total));
+        Ok(()) if withdrawn() => Err(SendError::Cancelled),
+        Ok(()) => {
+            // The deadline moves with the upload: only a transfer that stopped for UPLOAD_IDLE fails, never a slow big one.
+            let mut deadline = tokio::time::Instant::now() + UPLOAD_IDLE;
+            let mut last = 0;
+            loop {
+                let update = match tokio::time::timeout_at(deadline, updates.recv()).await {
+                    Err(_) => break Err(SendError::Transport),
+                    Ok(Ok(update)) => update,
+                    Ok(Err(RecvError::Lagged(_))) => continue,
+                    Ok(Err(RecvError::Closed)) => break Err(SendError::Transport),
+                };
+                match update {
+                    MediaUpload { related_to, progress, .. } if related_to == txn => {
+                        if progress.current > last {
+                            last = progress.current;
+                            deadline = tokio::time::Instant::now() + UPLOAD_IDLE;
+                        }
+                        if let Some(u) = uploads {
+                            u.lock().unwrap().set(txn.as_str(), progress.current, progress.total);
+                        }
                     }
+                    SentEvent { transaction_id, event_id } if transaction_id == txn => {
+                        break Ok(EventId::new(event_id.as_str()));
+                    }
+                    Failed { transaction_id, error, .. } if transaction_id == txn => {
+                        break Err(map_error(&error));
+                    }
+                    CancelledLocalEvent { transaction_id } if transaction_id == txn => {
+                        break Err(SendError::Cancelled);
+                    }
+                    _ => {}
                 }
-                SentEvent { transaction_id, event_id } if transaction_id == txn => {
-                    return Ok(EventId::new(event_id.as_str()));
-                }
-                Failed { transaction_id, error, .. } if transaction_id == txn => {
-                    return Err(map_error(&error));
-                }
-                CancelledLocalEvent { transaction_id } if transaction_id == txn => {
-                    return Err(SendError::Cancelled);
-                }
-                _ => {}
             }
         }
-        })
-        .await
-        .unwrap_or(Err(SendError::Transport)),
     };
-    if let Some(u) = uploads {
-        u.lock().unwrap().remove(txn.as_str());
-    }
-    if outcome.is_err()
-        && outcome != Err(SendError::Cancelled)
-        && let Ok(echoes) = client.send_queue().local_echoes().await
-        && let Some(echo) = echoes.into_values().flatten().find(|e| e.transaction_id == txn)
-        && let LocalEchoContent::Event { send_handle, .. } = echo.content
-    {
-        let _ = send_handle.abort().await;
-    }
     if outcome.is_err() {
+        // Whatever ended it, the echo must not stay in the queue to go out later (a withdrawn one is aborted again, which is harmless).
+        abort_echo(client, txn.as_str()).await;
         // A failed send switches every queue off; the offender is gone, so later sends must not stall.
         client.send_queue().set_enabled(true).await;
     }
     outcome
+}
+
+/// Abort the queue's local echo of a transaction, if there is one.
+#[cfg(feature = "sdk")]
+pub(crate) async fn abort_echo(client: &matrix_sdk::Client, txn: &str) {
+    use matrix_sdk::send_queue::LocalEchoContent;
+    let Ok(echoes) = client.send_queue().local_echoes().await else { return };
+    if let Some(echo) = echoes.into_values().flatten().find(|e| e.transaction_id.as_str() == txn)
+        && let LocalEchoContent::Event { send_handle, .. } = echo.content
+    {
+        let _ = send_handle.abort().await;
+    }
 }
 
 #[cfg(test)]
