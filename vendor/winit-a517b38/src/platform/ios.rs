@@ -218,6 +218,11 @@ pub fn take_autofill_credentials() -> Option<(Option<String>, Option<String>)> {
     crate::platform_impl::take_autofill_credentials()
 }
 
+/// Whether a trackpad or mouse pointer is over the view (and no finger is down): hover states make sense then.
+pub fn pointer_hover() -> bool {
+    crate::platform_impl::pointer_hover()
+}
+
 /// Text the keyboard asks to delete around the cursor, in bytes of UTF-8 text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ImeDeleteSurrounding {

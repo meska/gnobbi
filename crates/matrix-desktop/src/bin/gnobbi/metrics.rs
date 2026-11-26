@@ -132,7 +132,7 @@ pub fn emoji_cell(ui: &mut egui::Ui, size: egui::Vec2, glyph: f32, name: &str, e
     let disc = rect.width().min(rect.height()) / 2. - 1.;
     if on {
         ui.painter().circle_filled(rect.center(), disc, rgb(t.accent).gamma_multiply(0.3));
-    } else if resp.has_focus() || (resp.hovered() && !crate::mobile::touch()) {
+    } else if resp.has_focus() || (resp.hovered() && crate::mobile::hover(ui.ctx())) {
         ui.painter().rect_filled(rect.shrink(2.), 8., rgb(t.selected));
     }
     let hot = grow && (resp.is_pointer_button_down_on() || resp.hovered());

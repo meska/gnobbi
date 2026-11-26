@@ -40,8 +40,10 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, mut a
     // Two composers on screen: Enter belongs to the focused one; the room one also keeps it when nothing is focused.
     let focus = ui.memory(|m| m.focused());
     let mine = focus == Some(nid("composer-text")) || (!thread && focus != Some(egui::Id::new(format!("composer-text{THREAD}"))));
-    // On touch there is no Shift: Enter stays with the TextEdit (newline) and only the Send button sends.
-    let enter = mine && !shift_enter && !crate::mobile::touch() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+    // On touch the on-screen Return stays with the TextEdit (newline) and only the Send button sends; an Enter with a physical key
+    // is a hardware keyboard (the iOS view reports only those), which sends like on desktop.
+    let hardware = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, physical_key: Some(_), .. })));
+    let enter = mine && !shift_enter && (!crate::mobile::touch() || hardware) && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
     // The Enter that confirms an IME / dead-key composition must not send: ignore it while composing and in the frame of the IME event.
     let ime_id = nid("composer-ime");
     let ime_event = ui.input(|i| i.events.iter().find_map(|e| match e {
@@ -989,6 +991,17 @@ mod tests {
         let (sent, draft, ..) = run("ab", enter(false));
         crate::mobile::FORCE_TOUCH.set(false);
         assert_eq!((sent, draft.as_str()), (None, "ab\n"));
+    }
+
+    #[test]
+    fn on_touch_a_hardware_enter_sends_and_hardware_shift_enter_adds_a_line() {
+        let hw = |shift| { let mut e = enter(shift); if let Some(eframe::egui::Event::Key { physical_key, .. }) = e.first_mut() { *physical_key = Some(eframe::egui::Key::Enter); } e };
+        crate::mobile::FORCE_TOUCH.set(true);
+        let (sent, ..) = run("ab", hw(false));
+        let (none, draft, ..) = run("ab", hw(true));
+        crate::mobile::FORCE_TOUCH.set(false);
+        assert_eq!(sent.as_deref(), Some("ab"));
+        assert_eq!((none, draft.as_str()), (None, "ab\n"));
     }
 
     #[test]

@@ -15,7 +15,7 @@ use objc2_ui_kit::{
     UILongPressGestureRecognizer, UIPanGestureRecognizer, UIPasteboard, UIImage,
     UIGraphicsImageRenderer, UIGraphicsImageRendererContext, UIGraphicsImageRendererFormat,
     UIGraphicsImageRendererFormatRange,
-    UIPinchGestureRecognizer, UIResponder, UIRotationGestureRecognizer, UITapGestureRecognizer,
+    UIPinchGestureRecognizer, UIPress, UIPressesEvent, UIEventButtonMask, UIResponder, UIRotationGestureRecognizer, UITapGestureRecognizer,
     UIReturnKeyType, UITextAutocapitalizationType, UITextAutocorrectionType, UITextSmartDashesType, UITextSmartInsertDeleteType, UITextSmartQuotesType, UITextInput, UITextInputDelegate, UITextInputStringTokenizer,
     UITextInputTokenizer, UITextInputTraits, UITextLayoutDirection, UITextPosition, UITextRange,
     UITextContentTypePassword, UITextContentTypeURL, UITextContentTypeUsername, UITextSelectionRect, UITextSpellCheckingType, UITouch, UITouchPhase, UITouchType,
@@ -37,7 +37,7 @@ use super::ime_traits::{split_autofill, traits, Credential, Traits};
 use super::image_insertion::{ImageInsertions, MAX_BYTES, valid_dimensions};
 use super::window::WinitUIWindow;
 use crate::dpi::PhysicalPosition;
-use crate::event::{ElementState, Event, Force, Ime, KeyEvent, Modifiers, Touch, TouchPhase, WindowEvent};
+use crate::event::{ElementState, Event, Force, Ime, KeyEvent, Modifiers, MouseButton, Touch, TouchPhase, WindowEvent};
 use crate::keyboard::ModifiersState;
 use crate::keyboard::{Key, KeyCode, KeyLocation, NamedKey, NativeKeyCode, PhysicalKey};
 use crate::platform_impl::platform::DEVICE_ID;
@@ -680,6 +680,48 @@ declare_class!(
             self.present_edit_menu(at);
         }
 
+        // Trackpad / mouse (iPadOS): hovering moves the cursor, a secondary click (right button or two-finger tap on the trackpad) is a right click.
+        #[method(pointerHover:)]
+        fn pointer_hover_gesture(&self, recognizer: &UIGestureRecognizer) {
+            let state = recognizer.state();
+            if state == UIGestureRecognizerState::Began || state == UIGestureRecognizerState::Changed {
+                POINTER_HOVER.store(true, std::sync::atomic::Ordering::Relaxed);
+                let at = self.physical_at(recognizer);
+                self.emit_window_event(WindowEvent::CursorMoved { device_id: DEVICE_ID, position: at });
+            } else if state == UIGestureRecognizerState::Ended || state == UIGestureRecognizerState::Cancelled {
+                POINTER_HOVER.store(false, std::sync::atomic::Ordering::Relaxed);
+                self.emit_window_event(WindowEvent::CursorLeft { device_id: DEVICE_ID });
+            }
+        }
+
+        #[method(secondaryClick:)]
+        fn secondary_click(&self, recognizer: &UIGestureRecognizer) {
+            if recognizer.state() != UIGestureRecognizerState::Ended {
+                return;
+            }
+            let at = self.physical_at(recognizer);
+            self.emit_window_event(WindowEvent::CursorMoved { device_id: DEVICE_ID, position: at });
+            for state in [ElementState::Pressed, ElementState::Released] {
+                self.emit_window_event(WindowEvent::MouseInput { device_id: DEVICE_ID, state, button: MouseButton::Right });
+            }
+        }
+
+        // Hardware keyboard: Return / keypad Enter (with Shift if held) arrive as a key with a physical code, so the app can tell
+        // them from the on-screen Return, which only inserts text. Other keys keep UIKit's own path (insertText:).
+        #[method(pressesBegan:withEvent:)]
+        fn presses_began(&self, presses: &NSSet<UIPress>, event: Option<&UIPressesEvent>) {
+            if !self.handle_return(presses, true) {
+                let _: () = unsafe { msg_send![super(self), pressesBegan: presses, withEvent: event] };
+            }
+        }
+
+        #[method(pressesEnded:withEvent:)]
+        fn presses_ended(&self, presses: &NSSet<UIPress>, event: Option<&UIPressesEvent>) {
+            if !self.handle_return(presses, false) {
+                let _: () = unsafe { msg_send![super(self), pressesEnded: presses, withEvent: event] };
+            }
+        }
+
         #[method(canBecomeFirstResponder)]
         fn can_become_first_responder(&self) -> bool {
             true
@@ -1115,6 +1157,13 @@ declare_class!(
 );
 
 /// What AutoFill put into the sign-in fields: (username, password), `None` for a field it left empty.
+/// A trackpad or mouse pointer is over the view and no finger is down.
+static POINTER_HOVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn pointer_hover() -> bool {
+    POINTER_HOVER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 static LAST_USER: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 static AUTOFILL: std::sync::Mutex<Option<(Option<String>, Option<String>)>> = std::sync::Mutex::new(None);
 
@@ -1217,12 +1266,31 @@ impl WinitView {
         this.setMultipleTouchEnabled(true);
         this.update_paste_configuration(false);
         this.install_edit_menu(mtm);
+        this.install_pointer(mtm);
 
         if let Some(scale_factor) = window_attributes.platform_specific.scale_factor {
             this.setContentScaleFactor(scale_factor as _);
         }
 
         this
+    }
+
+    /// iPadOS pointer: hover (the cursor moves) and secondary click. A finger triggers neither.
+    fn install_pointer(&self, mtm: MainThreadMarker) {
+        unsafe {
+            let hover: Retained<UIGestureRecognizer> = msg_send_id![msg_send_id![class!(UIHoverGestureRecognizer), alloc], initWithTarget: self, action: sel!(pointerHover:)];
+            let click = UITapGestureRecognizer::initWithTarget_action(mtm.alloc(), Some(self), Some(sel!(secondaryClick:)));
+            click.setButtonMaskRequired(UIEventButtonMask::Secondary);
+            // UITouchTypeIndirectPointer
+            let indirect: Retained<NSArray<objc2_foundation::NSNumber>> = NSArray::from_vec(vec![objc2_foundation::NSNumber::new_isize(3)]);
+            let _: () = msg_send![&*click, setAllowedTouchTypes: &*indirect];
+            for r in [&*hover, &**click as &UIGestureRecognizer] {
+                r.setCancelsTouchesInView(false);
+                r.setDelaysTouchesEnded(false);
+                r.setDelegate(Some(ProtocolObject::from_ref(self)));
+                self.addGestureRecognizer(r);
+            }
+        }
     }
 
     /// Long press and double tap open the system edit menu (the interaction is shown by `showEditMenu:`).
@@ -1272,6 +1340,48 @@ impl WinitView {
                 is_synthetic: false,
             });
         }
+    }
+
+    /// Where the gesture is, in physical pixels like the touches.
+    fn physical_at(&self, recognizer: &UIGestureRecognizer) -> PhysicalPosition<f64> {
+        let at = unsafe { recognizer.locationInView(Some(self)) };
+        PhysicalPosition::from_logical::<(f64, f64), f64>((at.x as _, at.y as _), self.contentScaleFactor() as f64)
+    }
+
+    /// Emits Return / keypad Enter presses as a key event; false when `presses` holds no such key (nothing is emitted then).
+    fn handle_return(&self, presses: &NSSet<UIPress>, down: bool) -> bool {
+        let mtm = MainThreadMarker::from(self);
+        let mut shift = None;
+        for press in presses {
+            let Some(key) = (unsafe { press.key(mtm) }) else { continue };
+            let (code, flags): (isize, isize) = unsafe { (msg_send![&*key, keyCode], msg_send![&*key, modifierFlags]) };
+            // UIKeyboardHIDUsage: 0x28 Return, 0x58 keypad Enter. UIKeyModifierShift = 1 << 17.
+            if code == 0x28 || code == 0x58 {
+                shift = Some(flags & (1 << 17) != 0);
+            }
+        }
+        let Some(shift) = shift else { return false };
+        let state = if down { ElementState::Pressed } else { ElementState::Released };
+        if down && shift {
+            self.emit_window_event(WindowEvent::ModifiersChanged(Modifiers::from(ModifiersState::SHIFT)));
+        }
+        self.emit_window_event(WindowEvent::KeyboardInput {
+            device_id: DEVICE_ID,
+            event: KeyEvent {
+                state,
+                logical_key: Key::Named(NamedKey::Enter),
+                physical_key: PhysicalKey::Code(KeyCode::Enter),
+                platform_specific: KeyEventExtra {},
+                repeat: false,
+                location: KeyLocation::Standard,
+                text: None,
+            },
+            is_synthetic: false,
+        });
+        if !down {
+            self.emit_window_event(WindowEvent::ModifiersChanged(Modifiers::default()));
+        }
+        true
     }
 
     fn emit_named_key(&self, key: NamedKey) {
@@ -1379,6 +1489,9 @@ impl WinitView {
         for touch in touches {
             let logical_location = touch.locationInView(None);
             let touch_type = touch.r#type();
+            if touch_type == UITouchType::Direct {
+                POINTER_HOVER.store(false, std::sync::atomic::Ordering::Relaxed);
+            }
             let force = if os_supports_force {
                 let trait_collection = self.traitCollection();
                 let touch_capability = trait_collection.forceTouchCapability();

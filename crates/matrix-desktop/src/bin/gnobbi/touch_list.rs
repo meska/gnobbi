@@ -45,7 +45,7 @@ pub fn tapped(resp: &egui::Response) -> bool {
 /// Whether the row shows as pressed. Desktop: under the pointer. Touch: finger down on it, still within the slop,
 /// for `DELAY`, and not the one that stopped a fling.
 pub fn pressed(ui: &Ui, resp: &egui::Response) -> bool {
-    if !touch() {
+    if crate::mobile::hover(ui.ctx()) {
         return resp.hovered();
     }
     let (start, now, tap) = ui.input(|i| (i.pointer.press_start_time(), i.time, i.pointer.could_any_button_be_click()));

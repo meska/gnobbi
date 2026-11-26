@@ -2090,6 +2090,10 @@ impl State {
             self.egui_ctx.data_mut(|data| data.insert_temp(egui::Id::new("winit_autofill_credentials"), credentials));
         }
 
+        // iPadOS: a trackpad/mouse pointer is over the view (hover states apply), under `Id::new("winit_pointer_hover")` as `bool`.
+        #[cfg(target_os = "ios")]
+        self.egui_ctx.data_mut(|data| data.insert_temp(egui::Id::new("winit_pointer_hover"), winit::platform::ios::pointer_hover()));
+
         // All events for this batch have been dispatched by now, including any click-to-focus
         // keyboard enter. Capture the final claimable input origin exactly once, using the
         // generation current at preparation. The slot is consumed by platform output below.

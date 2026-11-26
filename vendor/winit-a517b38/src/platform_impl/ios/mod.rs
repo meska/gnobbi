@@ -21,7 +21,7 @@ pub(crate) use self::event_loop::{
     ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle,
     PlatformSpecificEventLoopAttributes,
 };
-pub(crate) use self::view::take_autofill_credentials;
+pub(crate) use self::view::{pointer_hover, take_autofill_credentials};
 pub(crate) use self::monitor::{MonitorHandle, VideoModeHandle};
 pub(crate) use self::window::{PlatformSpecificWindowAttributes, Window, WindowId};
 pub(crate) use crate::cursor::{

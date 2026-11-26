@@ -232,6 +232,11 @@ pub fn touch() -> bool {
     *TOUCH_ON.get_or_init(|| cfg!(any(target_os = "ios", target_os = "android")) || matrix_desktop::hooks::var_os("GNOBBI_EGUI_TOUCH").is_some())
 }
 
+/// Hover states apply: a desktop, or an iPad with a trackpad/mouse pointer over the window (never a finger). egui-winit reports the pointer.
+pub fn hover(ctx: &egui::Context) -> bool {
+    !touch() || ctx.data(|d| d.get_temp::<bool>(egui::Id::new("winit_pointer_hover"))).unwrap_or(false)
+}
+
 /// Side of a tappable target: `desktop` as it is, at least 44 pt on touch.
 pub fn target(desktop: f32) -> f32 {
     if touch() { desktop.max(TOUCH) } else { desktop }
