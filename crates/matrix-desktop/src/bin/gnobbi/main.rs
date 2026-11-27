@@ -2996,13 +2996,14 @@ fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::S
                 ui.painter().circle_stroke(d, 2.5, egui::Stroke::new(1., rgb(t.secondary)));
             }
         }
-        // Test hook: GNOBBI_EGUI_VIEW=account-menu shows the menu without a click.
-        if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
-            egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
-        }
-        egui::Popup::menu(&resp).align(if dir::rtl() { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START }).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| crate::dir::popup(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.;
-            if !others.is_empty() {
+        // One account: nothing to switch to, so no menu.
+        if !others.is_empty() {
+            // Test hook: GNOBBI_EGUI_VIEW=account-menu shows the menu without a click.
+            if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
+                egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
+            }
+            egui::Popup::menu(&resp).align(if dir::rtl() { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START }).width(280.).frame(egui::Frame::popup(ui.style()).inner_margin(8).corner_radius(10).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| crate::dir::popup(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.;
                 if accounts::switch_row(ui, name, active_id, &session.own_avatar(), true, 0, t).clicked() {
                     rail_state.one_account = true;
                     ui.close();
@@ -3013,12 +3014,8 @@ fn rail_panel(ui: &mut egui::Ui, session: &mut Session, rail_state: &mut rail::S
                         ui.close();
                     }
                 }
-            }
-            if ui.button(i18n::t("Send feedback")).clicked() {
-                rail_state.feedback = true;
-                ui.close();
-            }
-        }));
+            }));
+        }
         resp.on_hover_text(name);
         let placed = session.space_placed.take();
         rail::show(ui, &mut session.sidebar, &session.avatars, rail_state, account, placed, totals, t);
