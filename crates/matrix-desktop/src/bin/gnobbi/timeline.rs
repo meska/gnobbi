@@ -296,7 +296,7 @@ pub struct Heights {
     paging: crate::loading::Clock,
     /// «Retry» was pressed on a failed load.
     pub retry: bool,
-    /// A jump landed on this row: it is held at the middle of the view while the rows around it are measured (they were guessed), until the heights stop changing, an older page arrives or the reader scrolls. (id, frames laid out, still frames)
+    /// A jump landed on this row: it is held at the middle of the view while the rows around it are measured (they were guessed), until the heights stop changing or the reader scrolls (an older page arriving does not release it). (id, frames laid out, still frames)
     pin: Option<(matrix_domain::EventId, u8, u8)>,
 }
 
@@ -827,6 +827,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     }
     let hidden = |i: usize| roles[i] == Role::Hidden;
     let jump = jump.map(|j| (j..events.len()).find(|k| !hidden(*k)).unwrap_or(j));
+    // Only server ids are looked up by the callers (main.rs resolves a jump from a server id): a local echo is not pinned.
     if let Some(j) = jump && let matrix_domain::TimelineId::Server(id) = &events[j].id.id {
         heights.pin = Some((id.clone(), 0, 0));
     }
@@ -988,6 +989,8 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         (*frames, *still) = (*frames + 1, if changed { 0 } else { *still + 1 });
         if *still >= 3 || *frames >= 60 { heights.pin = None; }
     }
+    // The offset is corrected at the start of the next frame: ask for it, or the loop sleeps with the target off screen.
+    if heights.pin.is_some() { ui.ctx().request_repaint(); }
     // Nothing to read yet: ghosts while it loads, else «empty» or the failure with its retry.
     let waited = heights.opening.elapsed(pane == crate::loading::Pane::Loading, now).unwrap_or_default();
     heights.retry |= crate::loading::pane_overlay(ui, out.inner_rect, crate::chat_background(t), pane, waited, 20., motion, t);

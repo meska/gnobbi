@@ -47,11 +47,14 @@ struct Rig {
     avatars: Avatars,
     time: f64,
     jump: Option<usize>,
+    /// egui asked for another frame soon (what the real event loop obeys).
+    wants_frame: bool,
+    size: egui::Vec2,
 }
 
 impl Rig {
     fn new(rows: usize) -> Self {
-        let mut rig = Rig { ctx: egui::Context::default(), events: (0..rows).map(|i| msg(&format!("m{i}"), 2)).collect(), heights: Heights::default(), pictures: Pictures::default(), avatars: Avatars::default(), time: 0., jump: None };
+        let mut rig = Rig { ctx: egui::Context::default(), events: (0..rows).map(|i| msg(&format!("m{i}"), 2)).collect(), heights: Heights::default(), pictures: Pictures::default(), avatars: Avatars::default(), time: 0., jump: None, wants_frame: false, size: egui::vec2(400., 400.) };
         rig.settle();
         assert!(rig.heights.ready, "the room never finished opening");
         rig
@@ -62,12 +65,21 @@ impl Rig {
         let history = DemoHistory::new(scope(), self.events.len());
         let tokens = matrix_desktop::Theme::Dark.tokens();
         self.time += 0.05;
-        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400., 400.))), events: input, time: Some(self.time), ..Default::default() };
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, self.size)), events: input, time: Some(self.time), ..Default::default() };
         let (events, heights, pictures, avatars, jump) = (&self.events, &mut self.heights, &self.pictures, &self.avatars, self.jump);
         let mut out = self.ctx.run_ui(raw, |ui| {
             show(ui, 0, events, &history, heights, pictures, avatars, &mut Acts::default(), 3, &Default::default(), &tokens, jump, None);
         });
         out.textures_delta.clear();
+        self.wants_frame = out.viewport_output.values().any(|v| v.repaint_delay < std::time::Duration::from_millis(200));
+    }
+
+    /// Only the frames egui asks for, like the event loop (a bounded 60).
+    fn run_requested(&mut self) {
+        for _ in 0..60 {
+            if !self.wants_frame { break; }
+            self.frame(vec![]);
+        }
     }
 
     fn settle(&mut self) {
@@ -308,4 +320,44 @@ fn a_jump_to_an_old_message_ends_with_it_in_view() {
         let rows: Vec<usize> = rig.heights.visible.iter().map(|(i, _)| *i).collect();
         assert!(rows.contains(&target), "jump to {target}: rows in view are {rows:?}");
     }
+}
+
+/// Same room, same jump, but only the frames egui asks for are run: the pin must keep asking until the target is placed.
+fn requested_jump(target: usize, size: egui::Vec2) -> Rig {
+    let mut rig = Rig::new(2);
+    rig.size = size;
+    rig.events = (0..200).map(|i| msg(&format!("m{i}"), 6)).collect();
+    rig.settle();
+    rig.wants_frame = false;
+    rig.jump = Some(target);
+    rig.frame(vec![]);
+    rig.jump = None;
+    rig.run_requested();
+    rig
+}
+
+#[test]
+fn a_jump_ends_in_view_with_only_the_requested_frames() {
+    for size in [egui::vec2(400., 400.), egui::vec2(436., 900.), egui::vec2(1200., 800.)] {
+        for target in [20, 77, 150] {
+            let rig = requested_jump(target, size);
+            let rows: Vec<usize> = rig.heights.visible.iter().map(|(i, _)| *i).collect();
+            assert!(rows.contains(&target), "jump to {target} at {size:?}: rows in view are {rows:?}");
+        }
+    }
+}
+
+#[test]
+fn the_wheel_right_after_a_jump_lets_go_of_the_target() {
+    let mut rig = Rig::new(2);
+    rig.events = (0..200).map(|i| msg(&format!("m{i}"), 6)).collect();
+    rig.settle();
+    rig.jump = Some(100);
+    rig.frame(vec![]);
+    rig.jump = None;
+    rig.frame(vec![egui::Event::PointerMoved(egui::pos2(200., 200.))]);
+    rig.frame(vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0., 300.), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Wheel, modifiers: Default::default() }]);
+    rig.settle();
+    let top = rig.heights.visible.first().map(|(i, _)| *i).unwrap();
+    assert!(top < 100 && rig.heights.pin.is_none(), "the pin held after the wheel: top row {top}");
 }
