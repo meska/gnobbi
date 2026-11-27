@@ -1737,6 +1737,7 @@ fn latest_event_text(latest: &matrix_sdk_ui::timeline::LatestEventValue) -> Opti
     let message = content.as_message()?;
     Some(match message.msgtype() {
         MessageType::Image(_) => "Image".to_owned(),
+        MessageType::Audio(a) if a.voice.is_some() => "Voice message".to_owned(),
         _ => message.body().to_owned(),
     })
 }

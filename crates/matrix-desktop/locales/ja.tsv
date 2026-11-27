@@ -37,7 +37,7 @@ banner	Reply	返信
 	Sticker	ステッカー
 	Poll	投票
 	Attach a file	ファイルを添付
-	Voice message	ボイスメモ
+	Voice message	ボイスメッセージ
 	Send	送信
 	Grinning face	にっこり笑った顔
 	Beaming face	目が笑っている満面の笑顔
@@ -220,7 +220,7 @@ banner	Reply	返信
 	Sticker not sent	ステッカーを送信できませんでした
 	Still joining…	まだ参加中…
 	Sync interrupted	同期が中断されました
-	Voice message cannot be played	ボイスメモを再生できません
+	Voice message cannot be played	ボイスメッセージを再生できません
 	You are offline	オフラインです
 	The name cannot be empty.	名前を空にすることはできません。
 	The name is too long (256 characters at most).	名前が長すぎます（最大256文字）。

@@ -324,6 +324,7 @@ pub fn quote_preview(text: &str, media: Option<&Media>, max: usize) -> String {
         return media.map_or_else(String::new, |m| match m.kind {
             MediaKind::Image => "Photo".into(),
             MediaKind::Video => "Video".into(),
+            MediaKind::Audio if m.label.starts_with("Voice message") => "Voice message".into(), // label chosen by message_label
             MediaKind::Audio => "Audio".into(),
             MediaKind::File => "File".into(),
         });
@@ -347,6 +348,9 @@ mod quote_tests {
         assert_eq!(quote_preview("", Some(&m(MediaKind::Image)), 40), "Photo");
         assert_eq!(quote_preview("didascalia", Some(&m(MediaKind::Image)), 40), "didascalia");
         assert_eq!(quote_preview("", None, 40), "");
+        let a = |label: &str| Media { kind: MediaKind::Audio, label: label.into(), animated: false, dims: None, album: None };
+        assert_eq!(quote_preview("", Some(&a("Voice message · 0:04")), 40), "Voice message");
+        assert_eq!(quote_preview("", Some(&a("Audio · 0:04")), 40), "Audio");
     }
 
     #[test]

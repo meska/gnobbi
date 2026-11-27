@@ -37,6 +37,7 @@ pub fn redacted_name(name: &str) -> String {
 pub fn engine_placeholder(text: &str) -> &str {
     match text {
         "Image" => i18n::t("Image"),
+        "Voice message" => i18n::t("Voice message"),
         "Location" => i18n::t("Location"),
         "Verification request" => i18n::t("Verification request"),
         "Message without text" => i18n::t("Message without text"),
