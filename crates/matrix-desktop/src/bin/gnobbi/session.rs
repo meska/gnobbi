@@ -264,6 +264,8 @@ pub struct Session {
     /// Set by the app each frame: the window has focus, the newest message is in view, the «Conferme di lettura» setting.
     pub reading: (bool, bool, bool),
     read_dirty: bool,
+    /// Debounce for the receipt after a new event: nothing goes out before this.
+    read_after: Option<std::time::Instant>,
     /// Rooms seen with unread messages: when one reaches zero its delivered alerts are removed.
     alerted_unread: std::collections::HashSet<String>,
     /// The shown room was opened with unread messages: first-unread anchor and progressive reading.
@@ -406,6 +408,9 @@ pub struct Session {
     pub phrase: String,
 }
 
+/// A new message in the open room is read after this quiet time, so a burst sends one receipt.
+const READ_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
+
 impl Session {
     /// Opens the default profile under the app data directory; a saved account unlocks by itself through the OS vault.
     /// Remote to end this account's worker with a server logout («Esci»).
@@ -488,6 +493,7 @@ impl Session {
             record_thread: false,
             reading: (false, false, true),
             read_dirty: true,
+            read_after: None,
             alerted_unread: Default::default(),
             unread_open: None,
             unread_notice: None,
@@ -677,7 +683,7 @@ impl Session {
                     if let Some(th) = &mut self.thread {
                         th.activity(&scope, self.draft_scope.as_ref());
                     }
-                    self.read_dirty |= self.sidebar.selected().is_some_and(|r| r.scope == scope);
+                    self.room_activity(&scope);
                     if self.roles_stale.as_ref() == Some(&scope) {
                         self.roles_stale = None;
                         self.members_requested = None;
@@ -743,6 +749,10 @@ impl Session {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         changed |= self.drive_history();
+        // The debounced receipt wakes the app once when it falls due (no frame is otherwise asked for).
+        if self.read_dirty && let Some(left) = self.read_after.and_then(|at| at.checked_duration_since(std::time::Instant::now())) {
+            ctx.request_repaint_after(left);
+        }
         if let Some(thread) = self.mic_pending && matrix_desktop::voice_recorder::permission_granted() {
             self.mic_pending = None;
             self.start_recording(thread, ctx);
@@ -1014,6 +1024,7 @@ impl Session {
         if let Some(request) = self.history.select(scope.clone()) {
             self.remember_scroll();
             self.read_dirty = true;
+            self.read_after = None;
             self.messages = Some(DemoHistory::new(request.tag.scope().clone(), 0));
             self.media.clear();
             self.viewer = None;
@@ -1226,6 +1237,15 @@ impl Session {
         changed
     }
 
+    /// A new event in `scope`: when it is the room on screen, its receipt is owed again after the debounce.
+    /// shortcut: trailing debounce only, a message every <500 ms without a pause never sends the receipt; upgrade with a maximum wait if that room shows up.
+    fn room_activity(&mut self, scope: &matrix_domain::RoomScope) {
+        if self.sidebar.selected().is_some_and(|r| &r.scope == scope) {
+            self.read_dirty = true;
+            self.read_after = Some(std::time::Instant::now() + READ_DEBOUNCE);
+        }
+    }
+
     /// Queues the read marker for the room on screen once it is read.
     fn queue_read_marker(&mut self) {
         let (focused, at_bottom, public) = self.reading;
@@ -1238,7 +1258,14 @@ impl Session {
             && let Some(scope) = self.sidebar.selected().map(|r| r.scope.clone())
             && self.messages.is_some()
         {
+            // A burst of messages sends one receipt: wait until it has been quiet for the debounce (the next frame is asked for).
+            if self.read_after.is_some_and(|at| std::time::Instant::now() < at) {
+                return;
+            }
             self.read_dirty = false;
+            self.read_after = None;
+            // The tracker of an open with unread rows counts from its own read id: move it, or the badge lights up again next frame.
+            self.unread_follow_read(&scope);
             self.op_pending = Some(OperationCommand::MarkRoom { scope, read: true, public, main_only: true });
         }
     }
@@ -1405,7 +1432,15 @@ impl Session {
                 if let Err(e) = result { self.room_error = Some(i18n::t(matrix_engine::operations::space_error_line(*e)).into()); }
                 return Some(true);
             }
-            OperationResult::RoomMarked { result: Err(_), .. } => { self.room_error = Some(i18n::t("Operation failed").into()); return Some(true); }
+            OperationResult::RoomMarked { scope, result: Err(_) } => {
+                // The receipt did not get through: owed again, or the badge stays off here while the room is unread elsewhere.
+                if self.sidebar.selected().is_some_and(|r| &r.scope == scope) {
+                    self.read_dirty = true;
+                    self.read_after = Some(std::time::Instant::now() + unread::RETRY);
+                }
+                self.room_error = Some(i18n::t("Operation failed").into());
+                return Some(true);
+            }
             _ => {}
         }
         None
