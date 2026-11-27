@@ -355,7 +355,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
                 match more {
                     matrix_engine::operations::MoreHits::Available | matrix_engine::operations::MoreHits::Failed => {
                         let label = if matches!(more, matrix_engine::operations::MoreHits::Failed) { i18n::t("Retry") } else { i18n::t("More results") };
-                        if ui.button(label).clicked() { *more_clicked = true; }
+                        if crate::touch_list::tapped(&ui.button(label)) { *more_clicked = true; }
                     }
                     matrix_engine::operations::MoreHits::Loading => { ui.spinner(); }
                     _ => {}

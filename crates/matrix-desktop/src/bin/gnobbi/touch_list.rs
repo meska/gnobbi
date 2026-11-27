@@ -4,7 +4,7 @@
 //! - the pressed look of a row shows only after `DELAY` with the finger still, so scrolling never flashes the rows (`pressed`).
 //!
 //! Every tappable row of a scrolling list uses `tapped`/`pressed` instead of `clicked`/`hovered`, and calls `after` on the area's output.
-//! Desktop keeps `clicked` and `hovered` as they are.
+//! Desktop keeps `clicked` and `hovered` as they are. A touch build driven by a mouse or trackpad (iPad, Android) shows no hover on rows: `pressed` is a finger-down look only.
 use crate::mobile::touch;
 use eframe::egui::{self, Context, Id, Ui, scroll_area::ScrollAreaOutput};
 
@@ -48,9 +48,10 @@ pub fn pressed(ui: &Ui, resp: &egui::Response) -> bool {
     if !touch() {
         return resp.hovered();
     }
-    let (origin, start, now, tap) = ui.input(|i| (i.pointer.press_origin(), i.pointer.press_start_time(), i.time, i.pointer.primary_down() && i.pointer.could_any_button_be_click()));
-    let (Some(p), Some(t0), true) = (origin, start, tap) else { return false };
-    if !resp.rect.contains(p) || !ui.clip_rect().contains(p) || stopped(ui.ctx()) {
+    let (start, now, tap) = ui.input(|i| (i.pointer.press_start_time(), i.time, i.pointer.could_any_button_be_click()));
+    let (Some(t0), true) = (start, tap) else { return false };
+    // egui's own "the press began on this widget": it knows the layers (a window over the row) and the clip.
+    if !resp.is_pointer_button_down_on() || stopped(ui.ctx()) {
         return false;
     }
     if now - t0 < DELAY {
@@ -133,14 +134,18 @@ pub(crate) mod pad {
             out.textures_delta.clear();
         }
 
+        fn touch(&self, phase: egui::TouchPhase, pos: Pos2) -> Event {
+            Event::Touch { device_id: egui::TouchDeviceId(0), id: egui::TouchId(0), phase, pos, force: None }
+        }
+
         pub fn down(&mut self, p: Pos2) {
-            let touch = Event::Touch { device_id: egui::TouchDeviceId(0), id: egui::TouchId(0), phase: egui::TouchPhase::End, pos: p, force: None };
-            self.frame(0.016, vec![touch, Event::PointerMoved(p)]);
+            // A real finger: the touch is active while it is down, so egui's own long press (`secondary_clicked` after 0.8 s) runs here too.
+            self.frame(0.016, vec![self.touch(egui::TouchPhase::Start, p), Event::PointerMoved(p)]);
             self.frame(0.016, vec![Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
         }
 
         pub fn up(&mut self, p: Pos2) {
-            self.frame(0.016, vec![Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }]);
+            self.frame(0.016, vec![self.touch(egui::TouchPhase::End, p), Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }]);
             self.frame(0.016, vec![Event::PointerGone]);
             self.frame(0.016, vec![]);
         }
@@ -154,7 +159,7 @@ pub(crate) mod pad {
         pub fn drag(&mut self, from: Pos2, to: Pos2, steps: usize) {
             for k in 1..=steps {
                 let p = from + (to - from) * (k as f32 / steps as f32);
-                self.frame(0.016, vec![Event::PointerMoved(p)]);
+                self.frame(0.016, vec![self.touch(egui::TouchPhase::Move, p), Event::PointerMoved(p)]);
             }
         }
 
@@ -234,13 +239,9 @@ mod tests {
         let mut pad = Pad::bare();
         let p = pos2(100., 100.);
         pad.down(p);
-        pad.drag(p, p + Vec2::new(0., touch_menu_slop() + 2.), 2);
-        pad.up(p + Vec2::new(0., touch_menu_slop() + 2.));
+        pad.drag(p, p + Vec2::new(0., crate::touch_menu::SLOP + 2.), 2);
+        pad.up(p + Vec2::new(0., crate::touch_menu::SLOP + 2.));
         assert!(!pad.seen.tapped.get(), "just past the slop is a drag");
-    }
-
-    fn touch_menu_slop() -> f32 {
-        crate::touch_menu::SLOP
     }
 
     #[test]
@@ -328,6 +329,24 @@ mod tests {
         pad.down(pos2(20., 100.));
         pad.up(pos2(20., 100.));
         assert_ne!(chosen.get(), 0, "a plain tap chooses");
+    }
+
+    #[test]
+    fn button_in_a_list_is_pressed_by_a_tap_not_by_the_catch_of_a_fling() {
+        let mut pad = Pad::new(|ui, range, seen| {
+            for _ in range {
+                let b = ui.add_sized([ui.available_width(), ROW_H], egui::Button::new("b"));
+                seen.tapped.set(seen.tapped.get() | tapped(&b));
+            }
+        });
+        pad.fling();
+        pad.down(pos2(100., 100.));
+        pad.up(pos2(100., 100.));
+        assert!(!pad.seen.tapped.get(), "the finger that catches a fling presses no button");
+        pad.wait(3.);
+        pad.down(pos2(100., 100.));
+        pad.up(pos2(100., 100.));
+        assert!(pad.seen.tapped.get(), "a plain tap does");
     }
 
     #[test]

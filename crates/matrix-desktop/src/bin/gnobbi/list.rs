@@ -395,7 +395,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             if crate::touch_list::tapped(&resp) && !swallow {
                 pick = Some(room.scope.clone());
             }
-            if (resp.secondary_clicked() && !crate::touch_list::stopped(ui.ctx())) || long {
+            if opens_menu(&resp, long) {
                 session.confirm_leave = None;
                 action = Some((room.scope.clone(), crate::session::RoomAction::Spaces));
             }
@@ -473,11 +473,17 @@ fn released_after_press(ctx: &egui::Context) -> bool {
     up
 }
 
+/// The room menu opens by our long press (`long`, which already honours the finger that stops a fling) or, off touch, by a right click:
+/// on touch egui turns a finger held 0.8 s into `secondary_clicked()` too, late and without the haptic tick.
+fn opens_menu(resp: &egui::Response, long: bool) -> bool {
+    long || (!crate::mobile::touch() && resp.secondary_clicked())
+}
+
 /// The room-menu popup of a row: opened by a right click, or by `long`. Its id belongs to the room, not to the row's place in the list:
 /// a sync that moves the row (new message, pin) must not strand the open menu on a row that is no longer drawn there.
 fn row_popup(resp: &egui::Response, long: bool, room: &matrix_domain::RoomScope) -> egui::Popup<'static> {
     // Not `Popup::context_menu`: that one closes the menu when its own row is clicked, and the release of a long press shorter than egui's click time is such a click.
-    egui::Popup::menu(resp).id(egui::Id::new(("room-menu", room))).open_memory((long || resp.secondary_clicked()).then_some(egui::SetOpenCommand::Bool(true))).at_pointer_fixed()
+    egui::Popup::menu(resp).id(egui::Id::new(("room-menu", room))).open_memory(opens_menu(resp, long).then_some(egui::SetOpenCommand::Bool(true))).at_pointer_fixed()
 }
 
 /// The room menu on `menu` (a context menu or a pinned one); what the user picked. Shared by the single list and the multi-account list.
@@ -729,7 +735,8 @@ mod tests {
         pad.fling();
         let q = egui::pos2(100., 100.);
         pad.down(q);
-        pad.wait(crate::touch_menu::HOLD + 0.2);
+        pad.wait(1.); // past egui's own long press (0.8 s), which must not open the menu either
+        assert!(!pad.seen.menu.get(), "no menu while the finger is held");
         pad.up(q);
         assert!(!pad.seen.menu.get() && !pad.seen.tapped.get());
     }

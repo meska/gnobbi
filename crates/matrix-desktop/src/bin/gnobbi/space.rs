@@ -264,7 +264,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
                         for m in admin_candidates(members, &session.user) {
                             ui.horizontal(|ui| {
                                 ui.add(egui::Label::new(crate::list::clean_single_line(&m.name)).truncate());
-                                if ui.button(i18n::t("Make admin")).clicked() {
+                                if crate::touch_list::tapped(&ui.button(i18n::t("Make admin"))) {
                                     promote = Some(m.user_id.clone());
                                 }
                             });

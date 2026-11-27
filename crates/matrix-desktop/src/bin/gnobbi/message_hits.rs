@@ -148,7 +148,7 @@ pub(crate) fn show<'a>(ui: &mut egui::Ui, section: &Section<'_>, room: impl Fn(&
                     let text = if matches!(more, MoreHits::Failed) { i18n::t("Retry") } else { i18n::t("More results") };
                     ui.horizontal(|ui| {
                         ui.add_space(12.);
-                        if ui.button(text).clicked() {
+                        if crate::touch_list::tapped(&ui.button(text)) {
                             out = Some(Out::More);
                         }
                     });

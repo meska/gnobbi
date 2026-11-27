@@ -101,7 +101,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                     if menu {
                         ui.add_space(8.);
                         let resp = crate::space::dots(ui, t, &i18n::t("Actions for {name}").replace("{name}", &m.name));
-                        let mut popup = egui::Popup::menu(&resp);
+                        let mut popup = egui::Popup::menu(&resp).open_memory(crate::touch_list::tapped(&resp).then_some(egui::SetOpenCommand::Toggle));
                         if std::mem::take(&mut hook) {
                             popup = popup.open(true);
                         }
