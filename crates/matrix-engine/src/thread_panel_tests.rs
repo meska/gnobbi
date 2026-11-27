@@ -104,39 +104,28 @@ fn disposable_thread_panel_root_at_first_paint_and_thread_without_replies() {
     });
 }
 
-/// The first reply in a thread that had none (ours, then the other user's) is read at once: the cache holds as many
-/// replies as the root declares, so there is nothing to page (the SDK would wait 3 s for a first pagination token,
-/// and a 1 s cut of that wait used to cost 2.2 s and then 1.2 s). Measured before the fix: 2154-2157 ms, then 1155-1158 ms.
+/// A thread opened empty, then 60 replies arrive while alice does not sync (a sleeping laptop, a backgrounded phone): the SDK
+/// keeps only the newest chunk of a limited sync and counts the summary locally, so only a page reaches the others. The panel
+/// must end with all 60, asking 50, 100, 150 as the UI does (an earlier "read empty, so live only" shortcut showed 1 of 60).
 #[test]
 #[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
-fn disposable_thread_panel_first_reply_in_an_empty_thread_reads_at_once() {
+fn disposable_thread_panel_opened_empty_then_a_sync_gap_shows_every_reply() {
     runtime().block_on(async {
         let mut room = PanelRoom::new(false, 0, 335).await;
         assert!(room.open(50).await.0.replies.is_empty());
-        room.alice.send_in_thread(&room.scope, &room.root, None, "mine", None).await.unwrap();
-        let mut times = Vec::new();
-        let mut page = room.open(50).await;
-        for _ in 0..50 {
-            times.push(page.1.as_millis() as u64);
-            if page.0.replies.len() == 1 { break; }
+        room.reply(0..60).await;
+        for _ in 0..3 { let _ = room.alice.sliding_round().await; }
+        let mut seen = Vec::new();
+        let mut page = crate::threads::ThreadPage { root: None, replies: Vec::new(), reactions: Default::default(), at_start: false };
+        for want in [50, 100, 150] {
+            page = room.open(want).await.0;
+            seen.push((want, page.replies.len()));
+            if page.replies.len() == 60 { break; }
             let _ = room.alice.sliding_round().await;
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            page = room.open(50).await;
         }
-        println!("PANEL_FIRST_REPLY {}", serde_json::json!({"own_ms": times}));
-        assert_eq!(panel_bodies(&page.0), ["mine"]);
-        assert!(times.iter().all(|t| *t < 100), "a read after our first reply took {times:?} ms");
-        room.reply(0..1).await;
-        let mut times = Vec::new();
-        for _ in 0..50 {
-            let page = room.open(50).await;
-            times.push(page.1.as_millis() as u64);
-            if page.0.replies.len() == 2 { break; }
-            let _ = room.alice.sliding_round().await;
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        println!("PANEL_FIRST_REPLY {}", serde_json::json!({"other_ms": times}));
-        assert!(times.iter().all(|t| *t < 100), "a read after the other user's reply took {times:?} ms");
+        println!("PANEL_GAP {}", serde_json::json!({"server": room.config["server"], "seen": seen}));
+        assert_eq!(page.replies.len(), 60, "every reply after a sync gap: {seen:?}");
+        assert_eq!(page.replies.first().map(|r| r.body.as_str()), Some("reply 000"));
     });
 }
 
