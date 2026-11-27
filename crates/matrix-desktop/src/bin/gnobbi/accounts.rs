@@ -65,6 +65,11 @@ fn draft(profile: &std::path::Path) -> PathBuf {
     profile.join("avatar-draft.png")
 }
 
+/// «Salva» is offered only with something to write and no picture on its way: a save would drop a busy editor and rewrite its draft file mid-upload.
+fn save_offered(f: &Form, dirty: bool) -> bool {
+    dirty && !f.editor.as_ref().is_some_and(Editor::busy)
+}
+
 /// The card of the account on screen. False until the profile has arrived (the plain row is drawn instead).
 fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::Path, logout: &mut bool, t: &DesignTokens) -> bool {
     let Some(v) = &mut s.verification else { return false };
@@ -156,6 +161,9 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
             ui.add_enabled_ui(!f.editor.as_ref().is_some_and(Editor::busy), |ui| {
                 ui.horizontal_wrapped(|ui| {
                     gnome |= ui.button(i18n::t("Generate gnome")).clicked();
+                    if f.editor.as_ref().is_some_and(Editor::busy) {
+                        ui.spinner();
+                    }
                     ui.selectable_value(&mut f.female, false, i18n::t("Male gnome"));
                     ui.selectable_value(&mut f.female, true, i18n::t("Female gnome"));
                 });
@@ -181,7 +189,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
                     if busy {
                         ui.spinner();
                     } else {
-                        save |= ui.add_enabled(dirty, egui::Button::new(i18n::t("Save"))).clicked();
+                        save |= ui.add_enabled(save_offered(f, dirty), egui::Button::new(i18n::t("Save"))).clicked();
                     }
                 });
             });
@@ -211,7 +219,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         }
         _ => {}
     }
-    if save && dirty && !busy && !f.editing() {
+    if save && save_offered(f, dirty) && !busy && !f.editing() {
         let avatar = match &f.photo {
             Photo::Keep => ProfileAvatar::Keep,
             Photo::Remove => ProfileAvatar::Remove,
@@ -512,6 +520,20 @@ fn wipe_with(dir: &std::path::Path, cache: Option<PathBuf>, mut forget: impl FnM
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn save_waits_while_a_picture_is_on_its_way() {
+        let ctx = crate::icons::test_context();
+        let dir = std::env::temp_dir().join(format!("gnobbi-save-busy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut f = super::Form::default();
+        assert!(super::save_offered(&f, true) && !super::save_offered(&f, false));
+        // A picture on its way (here a file being read, as for a downloading gnome) keeps «Salva» off; `busy` holds until the editor is shown.
+        f.editor = Some(crate::avatar_editor::Editor::from_file(dir.join("photo.png"), dir.join("draft.png"), &ctx));
+        assert!(f.editor.as_ref().is_some_and(crate::avatar_editor::Editor::busy));
+        assert!(!super::save_offered(&f, true), "«Salva» stays off while the editor is busy");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn wipe_only_forgets_stores_under_the_selected_catalog_profile() {
         let base = std::env::temp_dir().join(format!("gnobbi-wipe-stores-{}", std::process::id()));

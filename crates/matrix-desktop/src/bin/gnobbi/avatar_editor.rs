@@ -241,7 +241,7 @@ const GNOME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 /// A 512 px PNG is far below this; the cap is counted while the bytes arrive.
 const GNOME_MAX_BYTES: usize = 2 * 1024 * 1024;
 
-/// The address of the gnome of `user_id`. Only the md5 of the id leaves the machine; `counter` 0 is the first gnome, then each «Un altro» asks for the next.
+/// The address of the gnome of `user_id`. Only the md5 of the id leaves the machine; `counter` 0 is the first gnome, each next press asks for another.
 pub fn gnome_url(user_id: &str, counter: u32, female: bool) -> String {
     let seed = if counter == 0 { user_id.to_owned() } else { format!("{user_id}{counter}") };
     format!("{GNOME_BASE_URL}/v1/{:x}.png?size={OUT_SIDE}&g={}", md5::compute(seed), if female { 'f' } else { 'm' })
