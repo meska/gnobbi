@@ -527,6 +527,7 @@ menu	Bring All to Front	Lägg alla överst
 	System keychain unavailable or locked. Unlock it and try again.	Systemets nyckelring är inte tillgänglig eller är låst. Lås upp den och försök igen.
 	The profile key is not in the system keychain. The profile was not changed.	Profilnyckeln finns inte i systemets nyckelring. Profilen ändrades inte.
 	Profile already open in another instance. Close it and restart.	Profilen är redan öppen i en annan instans. Stäng den och starta om.
+	Local profile unavailable.	Den lokala profilen är inte tillgänglig.
 	Local profile unavailable. Close and check the profile path.	Den lokala profilen är inte tillgänglig. Stäng och kontrollera profilsökvägen.
 	Enter the Matrix password.	Ange Matrix-lösenordet.
 

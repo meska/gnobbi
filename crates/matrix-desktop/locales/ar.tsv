@@ -485,6 +485,7 @@ menu	Bring All to Front	إحضار الكل إلى المقدمة
 	System keychain unavailable or locked. Unlock it and try again.	سلسلة مفاتيح النظام غير متاحة أو مقفلة. افتحها وحاول مجددًا.
 	The profile key is not in the system keychain. The profile was not changed.	مفتاح الملف الشخصي غير موجود في سلسلة مفاتيح النظام. لم يتغير الملف الشخصي.
 	Profile already open in another instance. Close it and restart.	الملف الشخصي مفتوح بالفعل في نسخة أخرى. أغلقها وأعد التشغيل.
+	Local profile unavailable.	الملف الشخصي المحلي غير متاح.
 	Local profile unavailable. Close and check the profile path.	الملف الشخصي المحلي غير متاح. أغلق التطبيق وتحقق من مساره.
 	Enter the Matrix password.	أدخل كلمة مرور Matrix.
 	Creating the recovery and backup…	جارٍ إنشاء الاسترداد والنسخة الاحتياطية…

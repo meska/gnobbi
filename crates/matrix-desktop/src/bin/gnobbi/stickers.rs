@@ -349,12 +349,13 @@ fn take_paste(ui: &egui::Ui, panel: &mut Panel) {
 
 fn error_line(ui: &mut egui::Ui, panel: &mut Panel) {
     if let Some(error) = panel.error {
-        ui.horizontal(|ui| {
-            ui.colored_label(ui.visuals().error_fg_color, error);
+        // Icon first, right-aligned: the wrapping text takes what is left and never pushes it off the edge.
+        ui.horizontal(|ui| ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if crate::info::close_icon(ui, i18n::t("Close")).clicked() {
                 panel.error = None;
             }
-        });
+            ui.add(egui::Label::new(egui::RichText::new(error).color(ui.visuals().error_fg_color)).wrap());
+        }));
     }
 }
 

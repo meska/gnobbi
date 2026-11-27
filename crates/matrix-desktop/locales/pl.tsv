@@ -487,6 +487,7 @@ menu	Bring All to Front	Przesuń wszystko na wierzch
 	System keychain unavailable or locked. Unlock it and try again.	Systemowy pęk kluczy niedostępny lub zablokowany. Odblokuj go i spróbuj ponownie.
 	The profile key is not in the system keychain. The profile was not changed.	Klucza profilu nie ma w systemowym pęku kluczy. Profil nie został zmieniony.
 	Profile already open in another instance. Close it and restart.	Profil jest już otwarty w innym wystąpieniu. Zamknij je i uruchom ponownie.
+	Local profile unavailable.	Profil lokalny niedostępny.
 	Local profile unavailable. Close and check the profile path.	Profil lokalny niedostępny. Zamknij aplikację i sprawdź ścieżkę profilu.
 	Enter the Matrix password.	Wpisz hasło Matrix.
 	Creating the recovery and backup…	Tworzenie odzyskiwania i kopii zapasowej…

@@ -487,6 +487,7 @@ menu	Bring All to Front	Všechna okna do popředí
 	System keychain unavailable or locked. Unlock it and try again.	Systémová klíčenka je nedostupná nebo zamčená. Odemkněte ji a zkuste to znovu.
 	The profile key is not in the system keychain. The profile was not changed.	Klíč profilu není v systémové klíčence. Profil nebyl změněn.
 	Profile already open in another instance. Close it and restart.	Profil je už otevřený v jiné instanci. Zavřete ji a spusťte aplikaci znovu.
+	Local profile unavailable.	Místní profil není dostupný.
 	Local profile unavailable. Close and check the profile path.	Místní profil není dostupný. Zavřete aplikaci a zkontrolujte cestu k profilu.
 	Enter the Matrix password.	Zadejte heslo k Matrix.
 	Creating the recovery and backup…	Vytváření obnovení a zálohy…

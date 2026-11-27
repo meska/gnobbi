@@ -527,6 +527,7 @@ menu	Bring All to Front	Alle nach vorne bringen
 	System keychain unavailable or locked. Unlock it and try again.	System-Schlüsselbund nicht verfügbar oder gesperrt. Entsperre ihn und versuche es erneut.
 	The profile key is not in the system keychain. The profile was not changed.	Der Profilschlüssel ist nicht im System-Schlüsselbund. Das Profil wurde nicht geändert.
 	Profile already open in another instance. Close it and restart.	Profil bereits in einer anderen Instanz geöffnet. Schließe sie und starte neu.
+	Local profile unavailable.	Lokales Profil nicht verfügbar.
 	Local profile unavailable. Close and check the profile path.	Lokales Profil nicht verfügbar. Schließe und prüfe den Profilpfad.
 	Enter the Matrix password.	Gib das Matrix-Passwort ein.
 

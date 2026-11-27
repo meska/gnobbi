@@ -485,6 +485,7 @@ menu	Bring All to Front	העברת הכול לחזית
 	System keychain unavailable or locked. Unlock it and try again.	צרור המפתחות של המערכת אינו זמין או נעול. יש לבטל את נעילתו ולנסות שוב.
 	The profile key is not in the system keychain. The profile was not changed.	מפתח הפרופיל אינו בצרור המפתחות של המערכת. הפרופיל לא שונה.
 	Profile already open in another instance. Close it and restart.	הפרופיל כבר פתוח במופע אחר. יש לסגור אותו ולהפעיל מחדש.
+	Local profile unavailable.	הפרופיל המקומי אינו זמין.
 	Local profile unavailable. Close and check the profile path.	הפרופיל המקומי אינו זמין. יש לסגור ולבדוק את נתיב הפרופיל.
 	Enter the Matrix password.	יש להזין את סיסמת Matrix.
 	Creating the recovery and backup…	יוצר שחזור וגיבוי…

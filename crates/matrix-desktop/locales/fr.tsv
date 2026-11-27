@@ -488,6 +488,7 @@ menu	Bring All to Front	Tout ramener au premier plan
 	System keychain unavailable or locked. Unlock it and try again.	Trousseau du système indisponible ou verrouillé. Déverrouillez-le et réessayez.
 	The profile key is not in the system keychain. The profile was not changed.	La clé du profil n’est pas dans le trousseau du système. Le profil n’a pas été modifié.
 	Profile already open in another instance. Close it and restart.	Profil déjà ouvert dans une autre instance. Fermez-la et redémarrez.
+	Local profile unavailable.	Profil local indisponible.
 	Local profile unavailable. Close and check the profile path.	Profil local indisponible. Fermez et vérifiez le chemin du profil.
 	Enter the Matrix password.	Saisissez le mot de passe Matrix.
 	Creating the recovery and backup…	Création de la récupération et de la sauvegarde…

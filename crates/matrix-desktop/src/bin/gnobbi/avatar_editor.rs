@@ -482,7 +482,7 @@ impl Editor {
                 });
             });
             if let Some(line) = self.error {
-                ui.add(egui::Label::new(RichText::new(i18n::t(line)).color(ui.visuals().error_fg_color)).truncate());
+                ui.add(egui::Label::new(RichText::new(i18n::t(line)).color(ui.visuals().error_fg_color)).wrap());
             }
             ui.horizontal(|ui| {
                 reset = ui.add_enabled(ready, egui::Button::new(icons::with_label(Icon::ArrowUUpLeft, i18n::t("Reset")))).clicked();

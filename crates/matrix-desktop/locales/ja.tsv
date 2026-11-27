@@ -487,6 +487,7 @@ menu	Bring All to Front	すべてを手前に移動
 	System keychain unavailable or locked. Unlock it and try again.	システムのキーチェーンが利用できないか、ロックされています。ロックを解除してもう一度お試しください。
 	The profile key is not in the system keychain. The profile was not changed.	プロフィールキーがシステムのキーチェーンにありません。プロフィールは変更されていません。
 	Profile already open in another instance. Close it and restart.	プロフィールはすでに別のインスタンスで開かれています。閉じてから再起動してください。
+	Local profile unavailable.	ローカルプロフィールを利用できません。
 	Local profile unavailable. Close and check the profile path.	ローカルプロフィールを利用できません。閉じて、プロフィールのパスを確認してください。
 	Enter the Matrix password.	Matrix のパスワードを入力してください。
 	Creating the recovery and backup…	リカバリーとバックアップを作成中…

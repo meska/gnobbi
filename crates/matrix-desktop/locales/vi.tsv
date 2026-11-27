@@ -527,6 +527,7 @@ menu	Bring All to Front	Đưa tất cả lên trước
 	System keychain unavailable or locked. Unlock it and try again.	Chuỗi khóa hệ thống không khả dụng hoặc đã khóa. Hãy mở khóa và thử lại.
 	The profile key is not in the system keychain. The profile was not changed.	Khóa hồ sơ không có trong chuỗi khóa hệ thống. Hồ sơ không bị thay đổi.
 	Profile already open in another instance. Close it and restart.	Hồ sơ đang mở ở một phiên bản khác. Hãy đóng nó và khởi động lại.
+	Local profile unavailable.	Hồ sơ cục bộ không khả dụng.
 	Local profile unavailable. Close and check the profile path.	Hồ sơ cục bộ không khả dụng. Hãy đóng và kiểm tra đường dẫn hồ sơ.
 	Enter the Matrix password.	Nhập mật khẩu Matrix.
 

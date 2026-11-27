@@ -795,22 +795,22 @@ impl SignInProfile {
     /// Backend-only filesystem work. The explicitly selected parent must exist.
     pub fn open(root: PathBuf) -> Result<Self, SignInError> {
         if !root.is_absolute() {
-            return Err(SignInError::InvalidStorePath);
+            return Err(fail_path(line!()));
         }
         match std::fs::symlink_metadata(&root) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 crate::fsx::create_private_dir(&root)
-                    .map_err(|_| SignInError::Storage)?;
+                    .map_err(|_| fail(line!()))?;
             }
-            Err(_) => return Err(SignInError::Storage),
+            Err(_) => return Err(fail(line!())),
             Ok(_) => (),
         }
-        AccountStore::private_directory(&root).map_err(|_| SignInError::InvalidStorePath)?;
+        AccountStore::private_directory(&root).map_err(|_| fail_path(line!()))?;
         let lock_path = root.join(".profile-lock");
         match std::fs::symlink_metadata(&lock_path) {
             Ok(_) => profile_regular_file(&lock_path, 0)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-            Err(_) => return Err(SignInError::Storage),
+            Err(_) => return Err(fail(line!())),
         }
         let lock = crate::fsx::private_file(
             std::fs::OpenOptions::new()
@@ -820,26 +820,26 @@ impl SignInProfile {
                 .truncate(false),
         )
         .open(lock_path)
-            .map_err(|_| SignInError::Storage)?;
+            .map_err(|_| fail(line!()))?;
         lock.try_lock().map_err(|_| SignInError::ProfileBusy)?;
         match std::fs::symlink_metadata(root.join("active-account.pending")) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-            _ => return Err(SignInError::Storage),
+            _ => return Err(fail(line!())),
         }
         let active_path = root.join("active-account");
         let active = match std::fs::symlink_metadata(&active_path) {
             Ok(_) => {
                 profile_regular_file(&active_path, 3)?;
                 let text =
-                    std::fs::read_to_string(active_path).map_err(|_| SignInError::Storage)?;
-                let id: u64 = text.parse().map_err(|_| SignInError::Storage)?;
+                    std::fs::read_to_string(active_path).map_err(|_| fail(line!()))?;
+                let id: u64 = text.parse().map_err(|_| fail(line!()))?;
                 if !(1..=128).contains(&id) || text != id.to_string() {
-                    return Err(SignInError::Storage);
+                    return Err(fail(line!()));
                 }
                 Some(AccountId::new(id))
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(_) => return Err(SignInError::Storage),
+            Err(_) => return Err(fail(line!())),
         };
         if active.is_none() {
             ensure_no_sealed_attempt(&root)?;
@@ -849,13 +849,13 @@ impl SignInProfile {
         let vault_mode = match std::fs::symlink_metadata(&mode_path) {
             Ok(_) => {
                 profile_regular_file(&mode_path, 8)?;
-                if std::fs::read(&mode_path).map_err(|_| SignInError::Storage)? != b"vault-v1" {
-                    return Err(SignInError::Storage);
+                if std::fs::read(&mode_path).map_err(|_| fail(line!()))? != b"vault-v1" {
+                    return Err(fail(line!()));
                 }
                 true
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-            Err(_) => return Err(SignInError::Storage),
+            Err(_) => return Err(fail(line!())),
         };
         Ok(Self {
             root,
@@ -1070,14 +1070,24 @@ fn ensure_no_sealed_attempt(root: &std::path::Path) -> Result<(), SignInError> {
     Ok(())
 }
 
+/// The failing check goes to the log (no path, no secret): the screen only says "local profile unavailable".
+fn fail(line: u32) -> SignInError {
+    eprintln!("Gnobbi: profile open failed (signin.rs:{line}, Storage)");
+    SignInError::Storage
+}
+fn fail_path(line: u32) -> SignInError {
+    eprintln!("Gnobbi: profile open failed (signin.rs:{line}, InvalidStorePath)");
+    SignInError::InvalidStorePath
+}
+
 fn profile_regular_file(path: &std::path::Path, max_len: u64) -> Result<(), SignInError> {
-    let meta = std::fs::symlink_metadata(path).map_err(|_| SignInError::Storage)?;
+    let meta = std::fs::symlink_metadata(path).map_err(|_| fail(line!()))?;
     if !meta.is_file()
         || !crate::fsx::mode_is(&meta, 0o600)
         || !crate::fsx::single_link(&meta)
         || meta.len() > max_len
     {
-        return Err(SignInError::Storage);
+        return Err(fail(line!()));
     }
     Ok(())
 }
