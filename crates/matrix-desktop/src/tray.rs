@@ -252,7 +252,7 @@ pub fn mac_menubar() -> Menu {
     let app = Submenu::new("Gnobbi", true);
     let quit = item("quit", t_ctx("menu", "Quit Gnobbi"), cmd(Code::KeyQ));
     app.append_items(&[
-        &PredefinedMenuItem::about(Some(t_ctx("menu", "About Gnobbi")), None),
+        &item("about", t_ctx("menu", "About Gnobbi"), None),
         &sep(),
         &item("settings", t_ctx("menu", "Settings…"), cmd(Code::Comma)),
         &sep(),
@@ -312,6 +312,11 @@ impl Tray {
         let (tx, rx): (Sender<TrayAction>, _) = crate::tray_menu::channel_pair();
         let click_tx = tx.clone();
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+            // Menu actions run on the main thread on macOS, where the panel must be opened.
+            #[cfg(target_os = "macos")]
+            if event.id.as_ref() == "about" {
+                return about_panel();
+            }
             if let Some(action) = decode(event.id.as_ref()) {
                 let _ = tx.send(action);
             }
@@ -437,6 +442,16 @@ impl Tray {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn about_credits_lines() {
+        let html = about_credits("abc1234", "01/02/2026 03:04", "© 2026 A & B");
+        assert!(html.is_ascii());
+        let (build, copyright, link) = (html.find(">abc1234 &#183; 01/02/2026 03:04<").unwrap(), html.find("color:#6e6e73\">&#169; 2026 A &#38; B<").unwrap(), html.find("<a href=\"https://gnobbi.chat\">gnobbi.chat</a>").unwrap());
+        assert!(build < copyright && copyright < link);
+        // Outside a bundle there is no plist value: only the link is left.
+        assert_eq!(about_credits("", "", "").matches("<p").count(), 1);
+    }
 
     #[test]
     fn menu_ids_round_trip() {
@@ -566,6 +581,58 @@ mod tests {
         let mut capped = base.clone();
         draw_badge(&mut capped, side, 99);
         assert_eq!(some, capped);
+    }
+}
+
+/// Credits of the macOS About panel, under the version: build line, dimmed copyright, site link; an empty value drops its line.
+/// ASCII only (entities), since the HTML reader assumes no charset.
+#[cfg(any(target_os = "macos", test))]
+fn about_credits(commit: &str, built: &str, copyright: &str) -> String {
+    let esc = |s: &str| s.chars().map(|c| if c.is_ascii() && !"&<>".contains(c) { c.to_string() } else { format!("&#{};", c as u32) }).collect::<String>();
+    let build = [commit, built].iter().filter(|s| !s.is_empty()).map(|s| esc(s)).collect::<Vec<_>>().join(" &#183; ");
+    let mut html = String::from(r#"<div style="text-align:center;font:11px -apple-system">"#);
+    for (text, color) in [(build, ""), (esc(copyright), ";color:#6e6e73")] {
+        if !text.is_empty() {
+            html.push_str(&format!(r#"<p style="margin:0 0 4px{color}">{text}</p>"#));
+        }
+    }
+    html + r#"<p style="margin:0 0 8px"><a href="https://gnobbi.chat">gnobbi.chat</a></p></div>"#
+}
+
+/// macOS: the standard About panel with our credits. Everything is read from the bundle's Info.plist (packaging/macos/info-plist.sh),
+/// so a bundle needs no other file; NSHumanReadableCopyright is shown inside the credits, dimmed and above the link.
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)] // objc 0.2 macros test a `cargo-clippy` feature
+fn about_panel() {
+    use cocoa::{appkit::NSApp, base::{id, nil}, foundation::NSString};
+    use objc::{class, msg_send, sel, sel_impl};
+    // SAFETY: called from the menu item's main-thread action with a live NSApplication; every object is autoreleased or owned by
+    // the bundle, the strings are copied before the pool drains.
+    unsafe {
+        let ns = |s: &str| -> id { msg_send![NSString::alloc(nil).init_str(s), autorelease] };
+        let bundle: id = msg_send![class!(NSBundle), mainBundle];
+        let info = |key: &str| -> String {
+            let v: id = msg_send![bundle, objectForInfoDictionaryKey: ns(key)];
+            let is_str: bool = v != nil && msg_send![v, isKindOfClass: class!(NSString)];
+            if !is_str {
+                return String::new();
+            }
+            let c: *const std::os::raw::c_char = msg_send![v, UTF8String];
+            std::ffi::CStr::from_ptr(c).to_string_lossy().into_owned()
+        };
+        let html = about_credits(&info("GnobbiCommit"), &info("GnobbiBuilt"), &info("NSHumanReadableCopyright"));
+        let data: id = msg_send![class!(NSData), dataWithBytes: html.as_ptr() length: html.len()];
+        let credits: id = msg_send![class!(NSAttributedString), alloc];
+        let credits: id = msg_send![credits, initWithHTML: data documentAttributes: nil];
+        if credits == nil {
+            let _: () = msg_send![NSApp(), orderFrontStandardAboutPanel: nil];
+            return;
+        }
+        let credits: id = msg_send![credits, autorelease];
+        // An empty "Copyright" keeps the panel from drawing the plist line a second time, last and at full colour.
+        let (objects, keys) = ([credits, ns("")], [ns("Credits"), ns("Copyright")]);
+        let options: id = msg_send![class!(NSDictionary), dictionaryWithObjects: objects.as_ptr() forKeys: keys.as_ptr() count: 2usize];
+        let _: () = msg_send![NSApp(), orderFrontStandardAboutPanelWithOptions: options];
     }
 }
 
