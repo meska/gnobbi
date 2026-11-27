@@ -1,6 +1,7 @@
 //! Real macOS Keychain API against a DISPOSABLE keychain file; owner keychains are never opened.
 use crate::{
-    keychain::{AccountKeychain, Keychain, VaultError},
+    signin::ProtectionSource,
+    keychain::{AccountKeychain, Keychain, MacKeychain, VaultError},
     persistence::AccountStore,
 };
 use matrix_domain::AccountId;
@@ -90,6 +91,41 @@ fn create_then_read_returns_the_same_secret_and_delete_removes_it() {
     kc.delete().unwrap();
     assert!(matches!(kc.read(), Err(VaultError::Missing)));
     assert!(matches!(kc.delete(), Err(VaultError::Missing)));
+}
+
+/// The login path end to end: an orphan item for account-1 makes `pick_account` take account-2,
+/// through `MacKeychain::available`; the orphan stays readable and unchanged.
+#[test]
+fn an_orphan_item_moves_the_pick_to_the_next_account_and_stays_intact() {
+    let kc_file = Disposable::new("avail");
+    let root = private_dir("avail-root");
+    let orphan = AccountStore::create(&root, AccountId::new(1)).unwrap();
+    let kc = Keychain::in_keychain(&orphan, kc_file.keychain());
+    let made = kc.create().unwrap();
+    drop(orphan);
+    std::fs::remove_dir_all(root.join("account-1")).unwrap(); // uninstall: folder gone, item stays
+    let source = MacKeychain::in_keychain(kc_file.keychain());
+    assert_eq!(super::pick_account(&root, None, Some(&source)), Ok(AccountId::new(2)));
+    let again = AccountStore::create(&root, AccountId::new(1)).unwrap();
+    let kc = Keychain::in_keychain(&again, kc_file.keychain());
+    assert_eq!(kc.read().unwrap().0.as_str(), made.0.as_str());
+}
+
+/// An item written by another signature (no trusted app) is still seen: the search never loads the secret.
+#[test]
+fn an_item_with_a_foreign_acl_counts_as_an_orphan() {
+    let kc_file = Disposable::new("acl");
+    let account = "/nonexistent/gnobbi-acl/account-1";
+    assert!(
+        Command::new("security")
+            .args(["add-generic-password", "-s", "gnobbi.sdk-protection-v1", "-a", account, "-w", "x", "-T", ""])
+            .arg(&kc_file.path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let source = MacKeychain::in_keychain(kc_file.keychain());
+    assert_eq!(source.available(Path::new(account)), Ok(false));
 }
 
 #[test]

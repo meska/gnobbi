@@ -523,8 +523,11 @@ menu	Bring All to Front	Đưa tất cả lên trước
 	Credentials not accepted. Try again.	Thông tin đăng nhập không được chấp nhận. Hãy thử lại.
 	Too many attempts: try again in a moment.	Quá nhiều lần thử: hãy thử lại sau ít phút.
 	Sign-in/unlock failed. Check the credentials and try again.	Đăng nhập/mở khóa thất bại. Hãy kiểm tra thông tin và thử lại.
-	System keychain unavailable or locked. Unlock it and try again.	Chuỗi khóa hệ thống không khả dụng hoặc đã khóa. Hãy mở khóa và thử lại.
-	The profile key is not in the system keychain. The profile was not changed.	Khóa hồ sơ không có trong chuỗi khóa hệ thống. Hồ sơ không bị thay đổi.
+	System keychain is locked. Unlock it and try again.	Chuỗi khóa hệ thống đã khóa. Hãy mở khóa và thử lại.
+	System keychain unavailable.	Chuỗi khóa hệ thống không khả dụng.
+	A key for this profile already exists in the system keychain. The profile was not changed.	Đã có khóa cho hồ sơ này trong chuỗi khóa hệ thống. Hồ sơ không bị thay đổi.
+	The profile key is not in the system keychain.	Khóa hồ sơ không có trong chuỗi khóa hệ thống.
+	The profile key in the system keychain is not valid.	Khóa hồ sơ trong chuỗi khóa hệ thống không hợp lệ.
 	Profile already open in another instance. Close it and restart.	Hồ sơ đang mở ở một phiên bản khác. Hãy đóng nó và khởi động lại.
 	Local profile unavailable.	Hồ sơ cục bộ không khả dụng.
 	Local profile unavailable. Close and check the profile path.	Hồ sơ cục bộ không khả dụng. Hãy đóng và kiểm tra đường dẫn hồ sơ.

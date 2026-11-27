@@ -93,7 +93,7 @@ impl FormStatus {
         };
         use matrix_engine::signin::{
             SignInError::*,
-            VaultError::{Locked, Unavailable},
+            VaultError::{AlreadyExists, InvalidItem, Locked, Missing, Unavailable},
         };
         Some(match error {
             InvalidHomeserver => t("Enter a server name or a valid HTTPS address."),
@@ -118,12 +118,13 @@ impl FormStatus {
             Authentication(_) => {
                 t("Sign-in/unlock failed. Check the credentials and try again.")
             }
-            Vault(Unavailable | Locked) => {
-                t("System keychain unavailable or locked. Unlock it and try again.")
+            Vault(Locked) => t("System keychain is locked. Unlock it and try again."),
+            Vault(Unavailable) => t("System keychain unavailable."),
+            Vault(AlreadyExists) => {
+                t("A key for this profile already exists in the system keychain. The profile was not changed.")
             }
-            Vault(_) => {
-                t("The profile key is not in the system keychain. The profile was not changed.")
-            }
+            Vault(Missing) => t("The profile key is not in the system keychain."),
+            Vault(InvalidItem) => t("The profile key in the system keychain is not valid."),
             ProfileBusy => t("Profile already open in another instance. Close it and restart."),
             // Mobile (also an iPhone app on a Mac): the user chose no path, so «check the path» is no action; neither is reopening the same folder.
             #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -419,6 +420,16 @@ mod classification_tests {
 
     fn message(error: E) -> Option<&'static str> {
         FormStatus::Failed(error).error_message()
+    }
+
+    #[test]
+    fn each_vault_failure_has_its_own_message() {
+        use matrix_engine::signin::VaultError as V;
+        let texts: std::collections::HashSet<_> = [V::Unavailable, V::Locked, V::AlreadyExists, V::Missing, V::InvalidItem]
+            .into_iter()
+            .map(|v| message(E::Vault(v)).unwrap())
+            .collect();
+        assert_eq!(texts.len(), 5);
     }
 
     #[test]

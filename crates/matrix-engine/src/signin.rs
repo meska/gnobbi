@@ -486,7 +486,7 @@ pub fn platform_source() -> Option<Box<dyn ProtectionSource + Send + Sync>> {
     #[cfg(all(feature = "linux-vault", target_os = "linux"))]
     return Some(Box::new(crate::vault::SecretService));
     #[cfg(all(feature = "mac-vault", target_os = "macos"))]
-    return Some(Box::new(crate::keychain::MacKeychain));
+    return Some(Box::new(crate::keychain::MacKeychain::default()));
     #[cfg(all(feature = "ios-vault", target_os = "ios"))]
     return Some(Box::new(crate::keychain::IosKeychain));
     #[cfg(all(feature = "android-vault", target_os = "android"))]
@@ -931,22 +931,7 @@ impl SignInProfile {
         if !replace || self.active.is_none() {
             ensure_no_sealed_attempt(&self.root)?;
         }
-        let mut available = None;
-        let ids = self.fixed.map_or(1..=128, |a| a.as_u64()..=a.as_u64());
-        for id in ids {
-            match std::fs::symlink_metadata(self.root.join(format!("account-{id}"))) {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    if let Some(source) = source
-                        && !source.available(&self.root.join(format!("account-{id}"))).map_err(SignInError::Vault)?
-                    { continue; }
-                    available = Some(AccountId::new(id));
-                    break;
-                }
-                Err(_) => return Err(SignInError::Storage),
-                Ok(_) => (),
-            }
-        }
-        let account = available.ok_or(SignInError::AttemptLimit)?;
+        let account = pick_account(&self.root, self.fixed, source)?;
         let login = match phrase {
             Some(phrase) => PasswordSignIn::new(
                 self.root.clone(),
@@ -1109,6 +1094,61 @@ fn validate_store(
         return Err(SignInError::InvalidTrustRoot);
     }
     Ok(())
+}
+
+/// First `account-N` with neither a folder nor a vault item (an item outlives an uninstall).
+fn pick_account(
+    root: &std::path::Path,
+    fixed: Option<AccountId>,
+    source: Option<&dyn ProtectionSource>,
+) -> Result<AccountId, SignInError> {
+    for id in fixed.map_or(1..=128, |a| a.as_u64()..=a.as_u64()) {
+        let path = root.join(format!("account-{id}"));
+        match std::fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if let Some(source) = source
+                    && !source.available(&path).map_err(SignInError::Vault)?
+                {
+                    continue;
+                }
+                return Ok(AccountId::new(id));
+            }
+            Err(_) => return Err(SignInError::Storage),
+            Ok(_) => (),
+        }
+    }
+    Err(SignInError::AttemptLimit)
+}
+
+#[cfg(test)]
+mod pick_account_tests {
+    use super::*;
+
+    /// Reports an item already present for the listed ids.
+    struct Orphans(Vec<u64>);
+    impl ProtectionSource for Orphans {
+        fn create(&self, _: &AccountStore) -> Result<Secret, VaultError> {
+            unreachable!("picking an account never creates")
+        }
+        fn read(&self, _: &AccountStore) -> Result<Secret, VaultError> {
+            unreachable!()
+        }
+        fn available(&self, path: &std::path::Path) -> Result<bool, VaultError> {
+            Ok(!self.0.iter().any(|id| path.ends_with(format!("account-{id}"))))
+        }
+    }
+
+    #[test]
+    fn an_orphan_vault_item_makes_the_id_unavailable() {
+        let root = std::path::Path::new("/nonexistent/gnobbi-pick-account");
+        let pick = |orphans: Vec<u64>, fixed| pick_account(root, fixed, Some(&Orphans(orphans)));
+        assert_eq!(pick(vec![], None), Ok(AccountId::new(1)));
+        assert_eq!(pick(vec![1], None), Ok(AccountId::new(2)));
+        assert_eq!(pick(vec![1, 2], None), Ok(AccountId::new(3)));
+        assert_eq!(pick((1..=128).collect(), None), Err(SignInError::AttemptLimit));
+        // shortcut: a fixed id with an orphan reports AttemptLimit; no caller fixes an id yet, give it its own error when one does.
+        assert_eq!(pick(vec![5], Some(AccountId::new(5))), Err(SignInError::AttemptLimit));
+    }
 }
 
 #[cfg(test)]

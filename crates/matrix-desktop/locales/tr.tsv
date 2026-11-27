@@ -484,8 +484,11 @@ menu	Bring All to Front	Tümünü öne getir
 	Credentials not accepted. Try again.	Kimlik bilgileri kabul edilmedi. Tekrar deneyin.
 	Too many attempts: try again in a moment.	Çok fazla deneme: biraz sonra tekrar deneyin.
 	Sign-in/unlock failed. Check the credentials and try again.	Giriş/kilit açma başarısız. Kimlik bilgilerini kontrol edip tekrar deneyin.
-	System keychain unavailable or locked. Unlock it and try again.	Sistem anahtar zinciri kullanılamıyor veya kilitli. Kilidini açıp tekrar deneyin.
-	The profile key is not in the system keychain. The profile was not changed.	Profil anahtarı sistem anahtar zincirinde yok. Profil değiştirilmedi.
+	System keychain is locked. Unlock it and try again.	Sistem anahtar zinciri kilitli. Kilidini açıp tekrar deneyin.
+	System keychain unavailable.	Sistem anahtar zinciri kullanılamıyor.
+	A key for this profile already exists in the system keychain. The profile was not changed.	Bu profil için sistem anahtar zincirinde zaten bir anahtar var. Profil değiştirilmedi.
+	The profile key is not in the system keychain.	Profil anahtarı sistem anahtar zincirinde yok.
+	The profile key in the system keychain is not valid.	Sistem anahtar zincirindeki profil anahtarı geçerli değil.
 	Profile already open in another instance. Close it and restart.	Profil başka bir örnekte zaten açık. Onu kapatıp yeniden başlatın.
 	Local profile unavailable.	Yerel profil kullanılamıyor.
 	Local profile unavailable. Close and check the profile path.	Yerel profil kullanılamıyor. Kapatıp profil yolunu kontrol edin.

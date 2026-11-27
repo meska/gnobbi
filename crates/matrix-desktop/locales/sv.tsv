@@ -523,8 +523,11 @@ menu	Bring All to Front	Lägg alla överst
 	Credentials not accepted. Try again.	Inloggningsuppgifterna godtogs inte. Försök igen.
 	Too many attempts: try again in a moment.	För många försök: försök igen om en stund.
 	Sign-in/unlock failed. Check the credentials and try again.	Inloggning/upplåsning misslyckades. Kontrollera uppgifterna och försök igen.
-	System keychain unavailable or locked. Unlock it and try again.	Systemets nyckelring är inte tillgänglig eller är låst. Lås upp den och försök igen.
-	The profile key is not in the system keychain. The profile was not changed.	Profilnyckeln finns inte i systemets nyckelring. Profilen ändrades inte.
+	System keychain is locked. Unlock it and try again.	Systemets nyckelring är låst. Lås upp den och försök igen.
+	System keychain unavailable.	Systemets nyckelring är inte tillgänglig.
+	A key for this profile already exists in the system keychain. The profile was not changed.	Det finns redan en nyckel för den här profilen i systemets nyckelring. Profilen ändrades inte.
+	The profile key is not in the system keychain.	Profilnyckeln finns inte i systemets nyckelring.
+	The profile key in the system keychain is not valid.	Profilnyckeln i systemets nyckelring är ogiltig.
 	Profile already open in another instance. Close it and restart.	Profilen är redan öppen i en annan instans. Stäng den och starta om.
 	Local profile unavailable.	Den lokala profilen är inte tillgänglig.
 	Local profile unavailable. Close and check the profile path.	Den lokala profilen är inte tillgänglig. Stäng och kontrollera profilsökvägen.

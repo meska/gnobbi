@@ -483,8 +483,11 @@ menu	Bring All to Front	Všechna okna do popředí
 	Credentials not accepted. Try again.	Přihlašovací údaje nebyly přijaty. Zkuste to znovu.
 	Too many attempts: try again in a moment.	Příliš mnoho pokusů: zkuste to za chvíli znovu.
 	Sign-in/unlock failed. Check the credentials and try again.	Přihlášení/odemknutí se nezdařilo. Zkontrolujte přihlašovací údaje a zkuste to znovu.
-	System keychain unavailable or locked. Unlock it and try again.	Systémová klíčenka je nedostupná nebo zamčená. Odemkněte ji a zkuste to znovu.
-	The profile key is not in the system keychain. The profile was not changed.	Klíč profilu není v systémové klíčence. Profil nebyl změněn.
+	System keychain is locked. Unlock it and try again.	Systémová klíčenka je zamčená. Odemkněte ji a zkuste to znovu.
+	System keychain unavailable.	Systémová klíčenka je nedostupná.
+	A key for this profile already exists in the system keychain. The profile was not changed.	Klíč pro tento profil již v systémové klíčence existuje. Profil nebyl změněn.
+	The profile key is not in the system keychain.	Klíč profilu není v systémové klíčence.
+	The profile key in the system keychain is not valid.	Klíč profilu v systémové klíčence není platný.
 	Profile already open in another instance. Close it and restart.	Profil je už otevřený v jiné instanci. Zavřete ji a spusťte aplikaci znovu.
 	Local profile unavailable.	Místní profil není dostupný.
 	Local profile unavailable. Close and check the profile path.	Místní profil není dostupný. Zavřete aplikaci a zkontrolujte cestu k profilu.

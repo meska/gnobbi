@@ -484,8 +484,11 @@ menu	Bring All to Front	모두 앞으로 가져오기
 	Credentials not accepted. Try again.	자격 증명이 허용되지 않았습니다. 다시 시도하세요.
 	Too many attempts: try again in a moment.	시도 횟수가 너무 많습니다. 잠시 후 다시 시도하세요.
 	Sign-in/unlock failed. Check the credentials and try again.	로그인/잠금 해제에 실패했습니다. 자격 증명을 확인하고 다시 시도하세요.
-	System keychain unavailable or locked. Unlock it and try again.	시스템 키체인을 사용할 수 없거나 잠겨 있습니다. 잠금을 해제하고 다시 시도하세요.
-	The profile key is not in the system keychain. The profile was not changed.	프로필 키가 시스템 키체인에 없습니다. 프로필은 변경되지 않았습니다.
+	System keychain is locked. Unlock it and try again.	시스템 키체인이 잠겨 있습니다. 잠금을 해제하고 다시 시도하세요.
+	System keychain unavailable.	시스템 키체인을 사용할 수 없습니다.
+	A key for this profile already exists in the system keychain. The profile was not changed.	이 프로필의 키가 이미 시스템 키체인에 있습니다. 프로필은 변경되지 않았습니다.
+	The profile key is not in the system keychain.	프로필 키가 시스템 키체인에 없습니다.
+	The profile key in the system keychain is not valid.	시스템 키체인의 프로필 키가 올바르지 않습니다.
 	Profile already open in another instance. Close it and restart.	프로필이 다른 인스턴스에서 이미 열려 있습니다. 닫고 다시 시작하세요.
 	Local profile unavailable.	로컬 프로필을 사용할 수 없습니다.
 	Local profile unavailable. Close and check the profile path.	로컬 프로필을 사용할 수 없습니다. 닫고 프로필 경로를 확인하세요.

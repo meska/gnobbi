@@ -484,8 +484,11 @@ menu	Bring All to Front	Traer todo al frente
 	Credentials not accepted. Try again.	Credenciales no aceptadas. Inténtalo de nuevo.
 	Too many attempts: try again in a moment.	Demasiados intentos: inténtalo de nuevo en un momento.
 	Sign-in/unlock failed. Check the credentials and try again.	Error al iniciar sesión o desbloquear. Comprueba las credenciales e inténtalo de nuevo.
-	System keychain unavailable or locked. Unlock it and try again.	Llavero del sistema no disponible o bloqueado. Desbloquéalo e inténtalo de nuevo.
-	The profile key is not in the system keychain. The profile was not changed.	La clave del perfil no está en el llavero del sistema. El perfil no se modificó.
+	System keychain is locked. Unlock it and try again.	Llavero del sistema bloqueado. Desbloquéalo e inténtalo de nuevo.
+	System keychain unavailable.	Llavero del sistema no disponible.
+	A key for this profile already exists in the system keychain. The profile was not changed.	Ya existe una clave para este perfil en el llavero del sistema. El perfil no se modificó.
+	The profile key is not in the system keychain.	La clave del perfil no está en el llavero del sistema.
+	The profile key in the system keychain is not valid.	La clave del perfil en el llavero del sistema no es válida.
 	Profile already open in another instance. Close it and restart.	Perfil ya abierto en otra instancia. Ciérrala y reinicia.
 	Local profile unavailable.	Perfil local no disponible.
 	Local profile unavailable. Close and check the profile path.	Perfil local no disponible. Cierra y comprueba la ruta del perfil.
