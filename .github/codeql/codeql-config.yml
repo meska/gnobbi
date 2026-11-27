@@ -1,0 +1,4 @@
+# Vendored third-party crates are not ours to triage.
+paths-ignore:
+  - vendor/**
+  - target/**

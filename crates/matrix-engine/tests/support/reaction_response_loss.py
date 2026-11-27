@@ -70,6 +70,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 # Threaded: a sync long poll must not block the other requests.
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.minimum_version = ssl.TLSVersion.TLSv1_2
 context.load_cert_chain(root / "server.pem", root / "server.key")
 server.socket = context.wrap_socket(server.socket, server_side=True)
 print(f"https://localhost:{server.server_port}/", flush=True)
