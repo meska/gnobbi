@@ -563,6 +563,9 @@ impl Editor {
             }
             mesh.indices = vec![0, 1, 2, 0, 2, 3];
             ui.painter().add(egui::Shape::mesh(mesh));
+            let stroke = egui::Stroke::new(2., if resp.has_focus() { rgb(t.accent) } else { rgb(t.surface) });
+            // egui draws circle strokes outside the radius, not centered on it.
+            let radius = r - stroke.width;
             // What the round avatar leaves out is veiled: a ring from the circle to the square, in the window's own colour.
             let mut veil = egui::Mesh::default();
             let fill = rgb(t.surface).gamma_multiply(0.7);
@@ -570,7 +573,7 @@ impl Editor {
             for i in 0..=STEPS {
                 let (sin, cos) = (i as f32 / STEPS as f32 * std::f32::consts::TAU).sin_cos();
                 let d = Vec2::new(cos, sin);
-                veil.colored_vertex(c + d * r, fill);
+                veil.colored_vertex(c + d * radius, fill);
                 veil.colored_vertex(c + d * r / cos.abs().max(sin.abs()), fill);
             }
             for k in (0..STEPS).map(|i| i * 2) {
@@ -580,7 +583,7 @@ impl Editor {
             ui.painter().add(egui::Shape::mesh(veil));
             // Rounds the square's corners like the filter pictures: a band in the window's colour just outside a rounded outline.
             ui.painter().rect_stroke(rect, 12., egui::Stroke::new(6., rgb(t.surface)), egui::StrokeKind::Outside);
-            ui.painter().circle_stroke(c, r - 1., egui::Stroke::new(2., if resp.has_focus() { rgb(t.accent) } else { rgb(t.surface) }));
+            ui.painter().circle_stroke(c, radius, stroke);
         } else {
             ui.painter().circle_filled(c, r, rgb(t.input));
             if self.error.is_none() {
