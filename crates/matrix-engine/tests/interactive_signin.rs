@@ -253,7 +253,7 @@ impl matrix_engine::signin::ProtectionSource for NoVault {
         Err(matrix_engine::signin::VaultError::Unavailable)
     }
 }
-fn first_mode(binding: Option<&[u8]>, with_source: bool) -> SignInMode {
+fn first_mode(binding: Option<&[u8]>, with_source: bool, store: bool) -> SignInMode {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let root = Root::new();
     std::fs::DirBuilder::new()
@@ -271,6 +271,9 @@ fn first_mode(binding: Option<&[u8]>, with_source: bool) -> SignInMode {
             .write_all(bytes)
             .unwrap();
     };
+    if store {
+        std::fs::DirBuilder::new().mode(0o700).create(root.0.join("account-1")).unwrap();
+    }
     write("active-account", b"1");
     if let Some(binding) = binding {
         write("protection-mode", binding);
@@ -293,9 +296,16 @@ fn first_mode(binding: Option<&[u8]>, with_source: bool) -> SignInMode {
 }
 #[test]
 fn restoring_a_vault_profile_prompts_without_a_phrase_but_legacy_profiles_keep_unlock() {
-    assert_eq!(first_mode(Some(b"vault-v1"), true), SignInMode::UnlockVault);
-    assert_eq!(first_mode(None, true), SignInMode::Unlock);
-    assert_eq!(first_mode(None, false), SignInMode::Unlock);
+    assert_eq!(first_mode(Some(b"vault-v1"), true, true), SignInMode::UnlockVault);
+    assert_eq!(first_mode(None, true, true), SignInMode::Unlock);
+    assert_eq!(first_mode(None, false, true), SignInMode::Unlock);
+}
+
+#[test]
+fn a_selector_without_a_store_goes_to_the_sign_in_form_not_to_unlock() {
+    // Zero accounts left in the folder (the app container was reset, the App Group kept the selector).
+    assert_eq!(first_mode(Some(b"vault-v1"), true, false), SignInMode::Password);
+    assert_eq!(first_mode(None, false, false), SignInMode::Password);
 }
 
 mod auto_unlock {
