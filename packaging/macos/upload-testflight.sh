@@ -18,7 +18,7 @@ ACT=--validate-app; [ "$MODE" = upload ] && ACT=--upload-package
 BUILD="${GNOBBI_BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 0)}"
 rc=0
 xcrun altool $ACT -f "$PKG" -t macos --apple-id "${GNOBBI_APPLE_ID:-6826654528}" --bundle-id net.meskatech.gnobbi \
-  --bundle-version "$BUILD" --bundle-short-version-string "${GNOBBI_VERSION:-0.1.0}" \
+  --bundle-version "$BUILD" --bundle-short-version-string "${GNOBBI_VERSION:-0.2.0}" \
   --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" 2>&1 || rc=$?
 [ "$rc" = 0 ] || exit "$rc"
 # What to Test: elenco commit visibili (crates/matrix-desktop|matrix-domain)

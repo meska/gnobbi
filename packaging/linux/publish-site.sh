@@ -117,7 +117,7 @@ URL_BASE="${PUBLISH_URL_BASE%/}"
 if [[ -z "${VERSION:-}" ]]; then
   root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -n1)"
-  VERSION="${VERSION:-0.1.0}"
+  VERSION="${VERSION:-0.2.0}"
 fi
 
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }

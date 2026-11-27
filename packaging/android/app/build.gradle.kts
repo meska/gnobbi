@@ -17,7 +17,7 @@ android {
         targetSdk = 36
         // tools/android-build.sh passes the real values: code = git rev-list --count (same build number as iOS), name = workspace version.
         versionCode = (findProperty("gnobbiVersionCode") as String?)?.toInt() ?: 1
-        versionName = (findProperty("gnobbiVersionName") as String?) ?: "0.1"
+        versionName = (findProperty("gnobbiVersionName") as String?) ?: "0.2"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     // Optional: sign bundleRelease here when the upload key is given by env (path, password file, alias), never from the repo.

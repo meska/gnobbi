@@ -2546,7 +2546,7 @@ dependencies = [
 
 [[package]]
 name = "gnobbi-nse"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "matrix-sdk",
  "matrix-sdk-store-encryption",
@@ -3568,7 +3568,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "android-activity",
  "android_logger",
@@ -3619,14 +3619,14 @@ dependencies = [
 
 [[package]]
 name = "matrix-domain"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "unicode-segmentation",
 ]
 
 [[package]]
 name = "matrix-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eyeball-im",
  "futures-util",

@@ -10,7 +10,7 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 OUT=${1:-$root/artifacts/macos}
 TEAM=T4RJLVSR79; BID=net.meskatech.gnobbi; APPID="$TEAM.$BID"
-VERSION=${GNOBBI_VERSION:-0.1.0}
+VERSION=${GNOBBI_VERSION:-0.2.0}
 BUILD=${GNOBBI_BUILD:-$(git -C "$root" rev-list --count HEAD)}
 bin="${CARGO_TARGET_DIR:-$root/target}/dist/gnobbi"
 [ -x "$bin" ] || { echo "build first: cargo build --locked -p matrix-desktop --features mac-vault --profile dist" >&2; exit 1; }
