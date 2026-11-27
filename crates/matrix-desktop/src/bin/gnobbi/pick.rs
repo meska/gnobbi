@@ -322,6 +322,9 @@ mod tests {
         assert_eq!(done("Allega un file"), None, "taken once");
         store("Allega un file", None); // dialog closed
         assert_eq!(done("Allega un file"), None);
+        // Same test: it is the only one that writes or takes the DONE slot.
+        answer("Image", false, vec!["/tmp/a.png".into(), "/tmp/b.png".into()]);
+        assert_eq!(done("Image"), Some("/tmp/a.png".into()), "a single pick takes the first");
     }
 
     #[test]
@@ -332,8 +335,6 @@ mod tests {
         assert!(done_many("Photo or video").is_empty(), "taken once");
         answer("Photo or video", true, Vec::new()); // closed without a choice
         assert!(done_many("Photo or video").is_empty());
-        answer("Image", false, vec!["/tmp/a.png".into(), "/tmp/b.png".into()]);
-        assert_eq!(done("Image"), Some("/tmp/a.png".into()), "a single pick takes the first");
     }
 
     #[test]

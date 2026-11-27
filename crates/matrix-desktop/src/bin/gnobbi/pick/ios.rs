@@ -83,7 +83,16 @@ define_class!(
         #[allow(non_snake_case)]
         unsafe fn documentPicker_didPickDocumentsAtURLs(&self, _: &UIDocumentPickerViewController, urls: &NSArray<NSURL>) {
             if let Some(done) = self.ivars().done.take() {
-                done(urls.iter().filter_map(|url| copy_in(&url, true)).collect());
+                // One past the cap, so the preview can say "At most 10 files"; the copies beyond it are deleted unread.
+                let mut files = Vec::new();
+                for (i, url) in urls.iter().enumerate() {
+                    if i <= crate::attach::MAX_ITEMS {
+                        files.extend(copy_in(&url, true));
+                    } else if let Some(path) = url.path() {
+                        let _ = std::fs::remove_file(path.to_string());
+                    }
+                }
+                done(files);
             }
         }
 
@@ -174,11 +183,13 @@ impl Gather {
 
 /// Loads every chosen item to a temp file (the system deletes its own file when the handler returns).
 fn load_all(results: &NSArray<PHPickerResult>, done: Done) {
-    if results.is_empty() {
+    // One past the cap, so the preview can say "At most 10 files"; the rest is never exported nor read.
+    let n = results.len().min(crate::attach::MAX_ITEMS + 1);
+    if n == 0 {
         return done(Vec::new());
     }
-    let gather = Arc::new(Gather { files: Mutex::new(vec![None; results.len()]), left: AtomicUsize::new(results.len()), done: Mutex::new(Some(done)) });
-    for (i, result) in results.iter().enumerate() {
+    let gather = Arc::new(Gather { files: Mutex::new(vec![None; n]), left: AtomicUsize::new(n), done: Mutex::new(Some(done)) });
+    for (i, result) in results.iter().take(n).enumerate() {
         let provider = unsafe { result.itemProvider() };
         // A Live Photo comes as its still picture.
         let kind = unsafe { if provider.hasItemConformingToTypeIdentifier(&UTTypeImage.identifier()) { UTTypeImage } else { UTTypeMovie } };
