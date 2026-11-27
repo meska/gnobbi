@@ -27,6 +27,9 @@ pub struct Form {
     photo: Photo,
     /// The retouch window; kept (closed) after «Applica» so the same picture can be adjusted again.
     editor: Option<Editor>,
+    /// «Genera gnomo»: the gender chosen and how many gnomes were asked (the first is the account's own, each next one is another).
+    female: bool,
+    gnomes: u32,
     /// A «Salva» is on its way: a good answer drops the chosen picture (the server's one is shown again).
     sent: bool,
     /// Test hook state (see `card`).
@@ -72,6 +75,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         f.name = shown.1.clone().unwrap_or_default();
         f.seeded = Some(shown.clone());
     }
+    let mut gnome = false;
     // Test hook: GNOBBI_EGUI_NAME=<text> and GNOBBI_EGUI_PHOTO=<file>|remove fill the card once; GNOBBI_EGUI_CONFIRM presses «Salva».
     if !f.hooked && s.profile_caps.is_some() {
         f.hooked = true;
@@ -83,6 +87,8 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
             Ok(p) => f.pick(p.into(), profile, ui.ctx()),
             Err(_) => {}
         }
+        // GNOBBI_EGUI_GNOME presses «Genera gnomo» once.
+        gnome = matrix_desktop::hooks::var_os("GNOBBI_EGUI_GNOME").is_some();
         f.hook_save = matrix_desktop::hooks::var_os("GNOBBI_EGUI_CONFIRM").is_some();
         // With the confirm hook the retouch window applies the picture as it is.
         if let Some(e) = f.editor.as_mut().filter(|_| f.hook_save) {
@@ -90,7 +96,6 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         }
     }
     if let Some(e) = &mut f.editor {
-        e.user_id.clone_from(&shown.0);
         if let Some((path, preview)) = e.show(ui.ctx(), t) {
             f.photo = Photo::Set(path, preview);
         }
@@ -147,6 +152,15 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         // `Sides` names its halves left and right: in RTL picture and name go to the right one.
         let sides = egui::containers::Sides::new().height(72.);
         if crate::dir::rtl() { sides.shrink_right().show(ui, |ui| *logout = sign_out_button(ui), main); } else { sides.shrink_left().show(ui, main, |ui| *logout = sign_out_button(ui)); }
+        if can_photo {
+            ui.add_enabled_ui(!f.editor.as_ref().is_some_and(Editor::busy), |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    gnome |= ui.button(i18n::t("Generate gnome")).clicked();
+                    ui.selectable_value(&mut f.female, false, i18n::t("Male gnome"));
+                    ui.selectable_value(&mut f.female, true, i18n::t("Female gnome"));
+                });
+            });
+        }
         if can_name || can_photo {
             ui.add_space(4.);
             ui.horizontal(|ui| {
@@ -173,7 +187,11 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
             });
         }
     });
-    if f.hook_save && !f.editing() {
+    if gnome {
+        f.editor = Some(Editor::from_gnome(&id, f.gnomes, f.female, draft(profile), ui.ctx()));
+        f.gnomes += 1;
+    }
+    if f.hook_save && !f.editing() && !f.editor.as_ref().is_some_and(Editor::busy) {
         f.hook_save = false;
         save = true;
     }

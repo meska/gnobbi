@@ -299,11 +299,6 @@ fn pixels(picture: &RgbaImage) -> egui::ColorImage {
 pub struct Editor {
     pub open: bool,
     loading: Option<mpsc::Receiver<Result<Loaded, &'static str>>>,
-    /// The account's Matrix id: the seed of its gnome (set by the card).
-    pub user_id: String,
-    gnome: Option<mpsc::Receiver<Result<Loaded, &'static str>>>,
-    female: bool,
-    counter: u32,
     picture: Option<Loaded>,
     /// The preview with the colours of that look.
     texture: Option<(Look, egui::TextureHandle)>,
@@ -344,9 +339,24 @@ impl Editor {
         })
     }
 
+    /// The gnome of `user_id` (see `gnome_url`), applied as it comes and shown only if it cannot be had: the card's «Genera gnomo».
+    pub fn from_gnome(user_id: &str, counter: u32, female: bool, out: PathBuf, ctx: &egui::Context) -> Self {
+        let url = gnome_url(user_id, counter, female);
+        Self::gnome_with(out, ctx, move || fetch_gnome(&url).and_then(|bytes| matrix_engine::profile::decode_bytes(&bytes).map(|p| p.into_rgba8()).map_err(|_| "Could not get the gnome. Try again later.")))
+    }
+
+    fn gnome_with(out: PathBuf, ctx: &egui::Context, picture: impl FnOnce() -> Result<RgbaImage, &'static str> + Send + 'static) -> Self {
+        Self { open: false, auto_apply: true, ..Self::start(out, ctx, picture) }
+    }
+
+    /// A picture is on its way (download or save): the editor is not to be dropped yet.
+    pub fn busy(&self) -> bool {
+        self.loading.is_some() || self.saving.is_some()
+    }
+
     /// Closed without ever pressing «Applica»: nothing of it is in use.
     pub fn unused(&self) -> bool {
-        !self.open && self.applied.is_none()
+        !self.open && self.applied.is_none() && !self.busy()
     }
 
     /// Test hook, debug builds only: GNOBBI_EGUI_AVATAR_EDIT="<filter 0-7> <zoom> <degrees> <brightness>".
@@ -359,23 +369,6 @@ impl Editor {
             self.pose.fine = n.next().unwrap_or(0.);
             self.look.brightness = n.next().unwrap_or(0.);
         }
-    }
-
-    /// Downloads the gnome for the current choice and, when it arrives, puts it in the editor as a freshly chosen picture.
-    fn fetch(&mut self, ctx: &egui::Context) {
-        let url = gnome_url(&self.user_id, self.counter, self.female);
-        let (tx, rx) = mpsc::channel();
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let loaded = fetch_gnome(&url).and_then(|bytes| {
-                let picture = matrix_engine::profile::decode_bytes(&bytes).map_err(|_| i18n::t("Could not get the gnome. Try again later."))?;
-                Ok(Loaded::new(&picture.into_rgba8()))
-            });
-            let _ = tx.send(loaded);
-            ctx.request_repaint();
-        });
-        self.gnome = Some(rx);
-        self.error = None;
     }
 
     fn install(&mut self, ctx: &egui::Context, p: Loaded) {
@@ -413,7 +406,7 @@ impl Editor {
 
     /// Draws the window while open. «Applica» closes it and hands back the file written and its small preview.
     pub fn show(&mut self, ctx: &egui::Context, t: &DesignTokens) -> Option<(PathBuf, egui::TextureHandle)> {
-        if !self.open {
+        if !self.open && !self.busy() {
             return None;
         }
         if let Some(Ok(done)) = self.loading.as_ref().map(|rx| rx.try_recv()) {
@@ -427,18 +420,8 @@ impl Editor {
                         self.apply(ctx);
                     }
                 }
-                Err(line) => self.error = Some(line),
-            }
-        }
-        if let Some(Ok(done)) = self.gnome.as_ref().map(|rx| rx.try_recv()) {
-            self.gnome = None;
-            match done {
-                Ok(p) => {
-                    self.install(ctx, p);
-                    (self.pose, self.look, self.texture) = Default::default();
-                }
-                // The picture in the editor stays as it was.
-                Err(line) => self.error = Some(line),
+                // A gnome that cannot be had opens the window to say so.
+                Err(line) => (self.error, self.open) = (Some(line), true),
             }
         }
         if let Some(Ok(done)) = self.saving.as_ref().map(|rx| rx.try_recv()) {
@@ -450,8 +433,11 @@ impl Editor {
                     let small = egui::ColorImage::from_rgba_unmultiplied([128, 128], &small);
                     return Some((self.out.clone(), ctx.load_texture("own-avatar-preview", small, Default::default())));
                 }
-                None => self.error = Some("Could not prepare the photo."),
+                None => (self.error, self.open) = (Some("Could not prepare the photo."), true),
             }
+        }
+        if !self.open {
+            return None;
         }
         if let Some(p) = &self.picture {
             let (w, h) = (p.preview.width() as f32, p.preview.height() as f32);
@@ -468,7 +454,6 @@ impl Editor {
         // On touch the column takes the whole width.
         let column = if touch && !wide { screen.x - 72. } else { COLUMN.min(screen.x - 72.) };
         let (mut close, mut apply, mut reset) = (false, false, false);
-        let mut gnome = None;
         let frame = egui::Frame::popup(&ctx.style_of(ctx.theme())).fill(rgb(t.surface)).stroke(egui::Stroke::NONE).corner_radius(12).inner_margin(20);
         let modal = egui::Modal::new(egui::Id::new("avatar-editor")).frame(frame).show(ctx, |ui| crate::dir::scope(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 8.;
@@ -483,22 +468,6 @@ impl Editor {
             let line = if self.error.is_some() { ui.text_style_height(&egui::TextStyle::Body) + 8. } else { 0. };
             let room = (screen.y - 72. - 3. * crate::metrics::button() - 32. - line).max(120.);
             egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
-                // The gnome rows scroll with the rest (first, so a phone shows them at once): fixed, they pushed the window off a short screen.
-                ui.add_enabled_ui(self.saving.is_none() && self.gnome.is_none(), |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.selectable_value(&mut self.female, false, i18n::t("Male gnome"));
-                        ui.selectable_value(&mut self.female, true, i18n::t("Female gnome"));
-                        if ui.button(i18n::t("Generate gnome")).clicked() {
-                            gnome = Some(0);
-                        }
-                        if ui.button(i18n::t("Another one")).clicked() {
-                            gnome = Some(self.counter + 1);
-                        }
-                        if self.gnome.is_some() {
-                            ui.spinner();
-                        }
-                    });
-                });
                 ui.add_enabled_ui(ready && self.saving.is_none(), |ui| {
                     if wide {
                         ui.horizontal_top(|ui| {
@@ -527,10 +496,6 @@ impl Editor {
                 });
             });
         }));
-        if let Some(counter) = gnome {
-            self.counter = counter;
-            self.fetch(ctx);
-        }
         if reset {
             (self.pose, self.look) = Default::default();
         }
@@ -1067,6 +1032,40 @@ mod tests {
         }
     }
 
+    /// The card's «Genera gnomo» with no photo at all: the editor is never shown, the preview and the file come out by themselves.
+    #[test]
+    fn a_gnome_with_no_photo_goes_to_the_preview_and_the_file_without_opening_the_window() {
+        let ctx = crate::icons::test_context();
+        let out = std::env::temp_dir().join(format!("gnome-state-{}.png", std::process::id()));
+        let _ = std::fs::remove_file(&out);
+        let mut ed = Editor::gnome_with(out.clone(), &ctx, || Ok(RgbaImage::from_pixel(300, 300, image::Rgba([10, 200, 30, 255]))));
+        assert!(!ed.open && ed.busy() && !ed.unused(), "while the gnome comes the editor must be kept, not shown");
+        let mut done = None;
+        for _ in 0..300 {
+            ctx.run_ui(Default::default(), |ui| done = done.take().or(ed.show(ui.ctx(), &matrix_desktop::LIGHT))).textures_delta.clear();
+            assert!(!ed.open || done.is_some(), "the window opened for a good gnome");
+            if done.is_some() { break; }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let (path, _preview) = done.expect("no preview");
+        assert_eq!(path, out);
+        assert_eq!(image::open(&out).unwrap().to_rgba8().dimensions(), (OUT_SIDE, OUT_SIDE));
+        assert!(!ed.open && !ed.unused(), "applied: kept closed so the circle can reopen it");
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn a_gnome_that_cannot_be_had_opens_the_window_with_the_error() {
+        let ctx = crate::icons::test_context();
+        let mut ed = Editor::gnome_with(PathBuf::from("/nonexistent/x.png"), &ctx, || Err("Could not get the gnome. Try again later."));
+        for _ in 0..300 {
+            ctx.run_ui(Default::default(), |ui| { ed.show(ui.ctx(), &matrix_desktop::LIGHT); }).textures_delta.clear();
+            if ed.open { break; }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(ed.open && ed.error.is_some() && !ed.busy());
+    }
+
     /// Headless egui with forced touch: real touch and pointer events, positions read from the accessibility tree.
     use eframe::egui::{Event, Modifiers, PointerButton, Pos2, Rect, TouchDeviceId, TouchId, TouchPhase};
     use std::collections::HashMap;
@@ -1144,8 +1143,8 @@ mod tests {
     #[test]
     fn vertical_swipe_from_a_colour_slider_scrolls_the_page() {
         for key in ["Brightness", "Sepia", "Mirror"] {
-            // Tall enough to show the sliders under the gnome rows, short enough to leave more than the swipe to scroll.
-            let mut rig = Rig::new(Vec2::new(291., 700.));
+            // Tall enough to show the sliders, short enough to leave more than the swipe to scroll.
+            let mut rig = Rig::new(Vec2::new(291., 650.));
             let map = rig.frame(vec![]);
             let (target, mark, title) = (Rig::find(&map, key), Rig::find(&map, "Mirror"), Rig::find(&map, "Profile").top());
             assert!(target.bottom() < Rig::find(&map, "Reset").top(), "{key} is not in view: the swipe would start outside the scroll area");
