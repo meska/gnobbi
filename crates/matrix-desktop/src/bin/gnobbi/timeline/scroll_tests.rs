@@ -46,11 +46,12 @@ struct Rig {
     pictures: Pictures,
     avatars: Avatars,
     time: f64,
+    jump: Option<usize>,
 }
 
 impl Rig {
     fn new(rows: usize) -> Self {
-        let mut rig = Rig { ctx: egui::Context::default(), events: (0..rows).map(|i| msg(&format!("m{i}"), 2)).collect(), heights: Heights::default(), pictures: Pictures::default(), avatars: Avatars::default(), time: 0. };
+        let mut rig = Rig { ctx: egui::Context::default(), events: (0..rows).map(|i| msg(&format!("m{i}"), 2)).collect(), heights: Heights::default(), pictures: Pictures::default(), avatars: Avatars::default(), time: 0., jump: None };
         rig.settle();
         assert!(rig.heights.ready, "the room never finished opening");
         rig
@@ -62,9 +63,9 @@ impl Rig {
         let tokens = matrix_desktop::Theme::Dark.tokens();
         self.time += 0.05;
         let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400., 400.))), events: input, time: Some(self.time), ..Default::default() };
-        let (events, heights, pictures, avatars) = (&self.events, &mut self.heights, &self.pictures, &self.avatars);
+        let (events, heights, pictures, avatars, jump) = (&self.events, &mut self.heights, &self.pictures, &self.avatars, self.jump);
         let mut out = self.ctx.run_ui(raw, |ui| {
-            show(ui, 0, events, &history, heights, pictures, avatars, &mut Acts::default(), 3, &Default::default(), &tokens, None, None);
+            show(ui, 0, events, &history, heights, pictures, avatars, &mut Acts::default(), 3, &Default::default(), &tokens, jump, None);
         });
         out.textures_delta.clear();
     }
@@ -286,4 +287,25 @@ fn scrolled_up_an_older_page_does_not_move_the_view() {
     rig.events.splice(0..0, (0..10).map(|i| msg(&format!("old{i}"), 3)));
     rig.settle();
     rig.assert_still(&before);
+}
+
+/// Rows far taller than the guess, never drawn before: the target sits at a guessed place and the rows around it are measured only once it is on screen.
+fn jumps_to(target: usize) -> Rig {
+    let mut rig = Rig::new(2);
+    rig.events = (0..200).map(|i| msg(&format!("m{i}"), 6)).collect();
+    rig.settle();
+    rig.jump = Some(target);
+    rig.frame(vec![]);
+    rig.jump = None; // the session takes the jump after one frame
+    rig.settle();
+    rig
+}
+
+#[test]
+fn a_jump_to_an_old_message_ends_with_it_in_view() {
+    for target in [20, 77, 150] {
+        let rig = jumps_to(target);
+        let rows: Vec<usize> = rig.heights.visible.iter().map(|(i, _)| *i).collect();
+        assert!(rows.contains(&target), "jump to {target}: rows in view are {rows:?}");
+    }
 }

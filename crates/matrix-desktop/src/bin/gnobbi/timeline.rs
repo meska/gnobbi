@@ -296,6 +296,8 @@ pub struct Heights {
     paging: crate::loading::Clock,
     /// «Retry» was pressed on a failed load.
     pub retry: bool,
+    /// A jump landed on this row: it is held at the middle of the view while the rows around it are measured (they were guessed), until the heights stop changing, an older page arrives or the reader scrolls. (id, frames laid out, still frames)
+    pin: Option<(matrix_domain::EventId, u8, u8)>,
 }
 
 impl Heights {
@@ -825,6 +827,13 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     }
     let hidden = |i: usize| roles[i] == Role::Hidden;
     let jump = jump.map(|j| (j..events.len()).find(|k| !hidden(*k)).unwrap_or(j));
+    if let Some(j) = jump && let matrix_domain::TimelineId::Server(id) = &events[j].id.id {
+        heights.pin = Some((id.clone(), 0, 0));
+    }
+    // The reader took over (wheel, drag, touch scroll): let go.
+    if ui.input(|i| i.smooth_scroll_delta != Vec2::ZERO || i.pointer.is_decidedly_dragging()) && jump.is_none() {
+        heights.pin = None;
+    }
     let mut first = 0;
     let hide = !heights.ready && jump.is_none() && !events.is_empty();
     let mut changed = false;
@@ -860,8 +869,13 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
             }
         }
     }
+    let pinned = heights.pin.as_ref().and_then(|(id, ..)| position(id));
+    if let Some(at) = pinned {
+        // Same origin as the rows' real offsets, recomputed from the heights known this frame: the jump lands on guessed heights and the target would drift out of view as the rows above are measured.
+        area = area.vertical_scroll_offset((top_of(&heights.rows, at) + heights.rows[at] / 2. - ui.available_height() / 2.).max(0.));
+    }
     // `at_bottom` has 200 px of slack but egui only follows the end from the exact end: re-glue by hand when new rows arrive.
-    let follow = follows_bottom(heights.at_bottom, events.len() > heights.len, prepended, hide || restoring);
+    let follow = follows_bottom(heights.at_bottom, events.len() > heights.len, prepended, hide || restoring || pinned.is_some());
     heights.len = events.len();
     let go_bottom = heights.go_bottom;
     let now = std::time::Instant::now();
@@ -870,7 +884,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     let paging = heights.paging.elapsed(pane == crate::loading::Pane::Rows && heights.fetch != crate::loading::Fetch::Done, now);
     let mut anchor = None;
     let mut visible = Vec::new();
-    let out = area.stick_to_bottom(!restoring).show_viewport(ui, |ui, view| {
+    let out = area.stick_to_bottom(!restoring && pinned.is_none()).show_viewport(ui, |ui, view| {
         ui.spacing_mut().item_spacing = Vec2::new(0., 0.);
         if hide {
             ui.set_invisible();
@@ -952,10 +966,6 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
                 let measured = ui.cursor().top() - top;
                 changed |= (measured - heights.rows[i]).abs() > 0.5;
                 heights.rows[i] = measured;
-                if jump == Some(i) {
-                    let rect = egui::Rect::from_min_max(egui::pos2(ui.min_rect().left(), top), egui::pos2(ui.min_rect().right(), ui.cursor().top()));
-                    ui.scroll_to_rect(rect, Some(Align::Center));
-                }
                 ui.add_space(gap);
             }
             if !seen_first && y + h >= view.min.y {
@@ -969,11 +979,15 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
             y += heights.rows[i] + gap;
         }
         ui.add_space(GAP);
-        if go_bottom || follow || (changed && heights.at_bottom && !hide && !restoring) {
+        if pinned.is_none() && (go_bottom || follow || (changed && heights.at_bottom && !hide && !restoring)) {
             ui.scroll_to_cursor(Some(Align::BOTTOM));
         }
     });
     heights.visible = visible;
+    if let Some((_, frames, still)) = &mut heights.pin {
+        (*frames, *still) = (*frames + 1, if changed { 0 } else { *still + 1 });
+        if *still >= 3 || *frames >= 60 { heights.pin = None; }
+    }
     // Nothing to read yet: ghosts while it loads, else «empty» or the failure with its retry.
     let waited = heights.opening.elapsed(pane == crate::loading::Pane::Loading, now).unwrap_or_default();
     heights.retry |= crate::loading::pane_overlay(ui, out.inner_rect, crate::chat_background(t), pane, waited, 20., motion, t);
@@ -1016,6 +1030,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         }
         if resp.clicked() {
             heights.go_bottom = true;
+            heights.pin = None;
             ui.ctx().request_repaint();
         }
     }
