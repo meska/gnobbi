@@ -34,6 +34,7 @@ const MEDIA: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "heic", "mp4", "mo
 /// Pickers for the attach menu: any number of files, or only pictures and videos.
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn start_many(ctx: &eframe::egui::Context, title: &str, media_only: bool) {
+    if cfg!(test) { return; } // a test click on the paperclip must not open a real dialog
     let mut dialog = rfd::AsyncFileDialog::new().set_title(title);
     if media_only {
         dialog = dialog.add_filter(i18n::t("Photo or video"), MEDIA);
