@@ -656,6 +656,7 @@ impl PendingSignIn {
     }
 
     pub async fn run(mut self) -> Result<AccountSession, SignInError> {
+        set_aside_orphans(&self.root);
         let mut profile = match SignInProfile::open(self.root.clone()) {
             Ok(profile) => profile,
             Err(error) => {
@@ -1042,6 +1043,38 @@ impl SignInProfile {
         )?
         .run()
         .await
+    }
+}
+
+/// A selector that points to no store (leftover of an app-container reset: the App Group outlives it) blocks every
+/// start with «profile unavailable». Provable orphans are renamed `*.orphan-<ts>`, never deleted; a store, a sealed
+/// session or a pending selector is never touched. Failures are only logged: `open` then reports what it finds.
+pub fn set_aside_orphans(root: &std::path::Path) {
+    let exists = |name: String| std::fs::symlink_metadata(root.join(name)).is_ok();
+    let stores = (1..=128).any(|id| exists(format!("account-{id}")));
+    let selector = root.join("active-account");
+    let orphan_selector = match std::fs::symlink_metadata(&selector) {
+        Ok(meta) if meta.is_file() => match std::fs::read_to_string(&selector).ok().and_then(|t| t.parse::<u64>().ok()) {
+            Some(id) if (1..=128).contains(&id) => !exists(format!("account-{id}")),
+            _ => !stores,
+        },
+        _ => false,
+    };
+    let mode = root.join("protection-mode");
+    let orphan_mode = !stores
+        && std::fs::symlink_metadata(&mode).is_ok()
+        && (profile_regular_file(&mode, 8).is_err() || std::fs::read(&mode).ok().as_deref() != Some(b"vault-v1"));
+    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    for (orphan, path) in [(orphan_selector, selector), (orphan_mode, mode)] {
+        if !orphan {
+            continue;
+        }
+        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let target = (0..).map(|n| root.join(format!("{name}.orphan-{ts}{}", if n == 0 { String::new() } else { format!("-{n}") }))).find(|t| std::fs::symlink_metadata(t).is_err()).unwrap();
+        match std::fs::rename(&path, &target) {
+            Ok(()) => eprintln!("Gnobbi: set aside orphan {name}"),
+            Err(_) => eprintln!("Gnobbi: could not set aside orphan {name}"),
+        }
     }
 }
 

@@ -60,7 +60,6 @@ fn sign_in_validates_the_exact_endpoint_and_user_before_network_or_storage() {
         "http://example.invalid",
         "https://user:pass@example.invalid",
         "https://example.invalid/?token=x",
-        " https://example.invalid",
     ] {
         let result = PasswordSignIn::new(
             root.0.clone(),
@@ -73,22 +72,25 @@ fn sign_in_validates_the_exact_endpoint_and_user_before_network_or_storage() {
         );
         assert!(matches!(result, Err(SignInError::InvalidHomeserver)));
     }
-    for user in [
-        "alice",
-        "alice:example.invalid",
-        "@alice",
-        " @alice:example.invalid",
-    ] {
-        let result = PasswordSignIn::new(
+    // Lenient input is deliberate: surrounding whitespace is trimmed, and a short user name
+    // ("alice", "alice:host") is completed to a full Matrix ID; only unparsable IDs are rejected.
+    let new = |endpoint: &str, user: &str| {
+        PasswordSignIn::new(
             root.0.clone(),
             AccountId::new(1),
-            "https://example.invalid".into(),
+            endpoint.into(),
             user.into(),
             Secret::new("fixture".into()).unwrap(),
             Secret::new("local unlock phrase".into()).unwrap(),
             None,
-        );
-        assert!(matches!(result, Err(SignInError::InvalidUserId)));
+        )
+    };
+    assert!(new(" https://example.invalid ", "@alice:example.invalid").is_ok());
+    for user in ["alice", "alice:example.invalid", " @alice:example.invalid"] {
+        assert!(new("https://example.invalid", user).is_ok(), "{user}");
+    }
+    for user in ["@alice", ""] {
+        assert!(matches!(new("https://example.invalid", user), Err(SignInError::InvalidUserId)), "{user}");
     }
     assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 0);
 }
@@ -283,4 +285,60 @@ fn bare_server_name_is_accepted_but_schemes_and_junk_are_not() {
     for bad in ["gnobbi.chat/path", "gnobbi chat", "", "ftp://x.invalid"] {
         assert!(matches!(new(bad), Err(SignInError::InvalidHomeserver)), "{bad}");
     }
+}
+
+fn orphans(root: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(root)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.contains(".orphan-"))
+        .collect();
+    names.sort();
+    names
+}
+
+fn private_file(root: &std::path::Path, name: &str, text: &str) {
+    std::fs::write(root.join(name), text).unwrap();
+    std::fs::set_permissions(root.join(name), std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+#[test]
+fn selector_of_a_missing_account_is_set_aside_and_the_profile_opens_empty() {
+    let root = PrivateRoot::new();
+    private_file(&root.0, "active-account", "1");
+    private_file(&root.0, "protection-mode", "vault-v1");
+    assert!(SignInProfile::open(root.0.clone()).unwrap().active_account().is_some());
+    matrix_engine::signin::set_aside_orphans(&root.0);
+    assert!(!root.0.join("active-account").exists());
+    assert_eq!(orphans(&root.0).len(), 1, "set aside, not deleted");
+    assert!(root.0.join("protection-mode").exists(), "a valid vault flag stays");
+    assert!(SignInProfile::open(root.0.clone()).unwrap().active_account().is_none());
+}
+
+#[test]
+fn damaged_selector_and_mode_without_any_store_are_set_aside() {
+    for selector in ["", "0", "129", "01", "1\n", "x"] {
+        let root = PrivateRoot::new();
+        private_file(&root.0, "active-account", selector);
+        private_file(&root.0, "protection-mode", "legacy");
+        assert!(matches!(SignInProfile::open(root.0.clone()), Err(SignInError::Storage)));
+        matrix_engine::signin::set_aside_orphans(&root.0);
+        assert_eq!(orphans(&root.0).len(), 2, "{selector:?}");
+        assert!(SignInProfile::open(root.0.clone()).is_ok());
+    }
+}
+
+#[test]
+fn set_aside_never_touches_a_store_a_sealed_session_or_a_pending_selector() {
+    let root = PrivateRoot::new();
+    std::fs::DirBuilder::new().mode(0o700).create(root.0.join("account-2")).unwrap();
+    private_file(&root.0, "active-account", "1");
+    private_file(&root.0, "protection-mode", "legacy");
+    private_file(&root.0, "active-account.pending", "2");
+    matrix_engine::signin::set_aside_orphans(&root.0);
+    // id 1 has no folder, so its selector is an orphan; the damaged mode is kept because a store exists.
+    let set_aside = orphans(&root.0);
+    assert!(set_aside.len() == 1 && set_aside[0].starts_with("active-account.orphan-"), "{set_aside:?}");
+    assert!(root.0.join("account-2").is_dir() && root.0.join("protection-mode").exists());
+    assert!(root.0.join("active-account.pending").exists());
 }

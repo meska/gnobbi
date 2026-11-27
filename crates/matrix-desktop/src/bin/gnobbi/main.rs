@@ -2213,6 +2213,7 @@ impl App {
     }
 
     fn sign_in(&mut self, ui: &mut egui::Ui, t: &DesignTokens) {
+        let mut retry = false;
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
             let room = ui.available_height();
             // Scrolls when the keyboard (it shrinks the content rect) or a large text size leaves too little room.
@@ -2235,7 +2236,7 @@ impl App {
                 let top = ui.cursor().top();
                 ui.vertical_centered(|ui| {
                     ui.allocate_ui_with_layout(egui::vec2(width, 0.), dir::col(), |ui| match &mut self.session {
-                        Some(session) => sign_in_form(ui, session, t, self.prefs.icon),
+                        Some(session) => retry = sign_in_form(ui, session, t, self.prefs.icon),
                         None if self.reopening.is_some() => { ui.spinner(); }
                         None => { ui.label(i18n::t("Start failed")); }
                     });
@@ -2252,6 +2253,10 @@ impl App {
             });
             ui.data_mut(|d| d.insert_temp(scroll_id, out.state.offset().y));
         });
+        if retry {
+            let control = self.session.take().map(|s| { let c = s.control(); c.stop(); c });
+            self.reopening = Some((control, false));
+        }
     }
 }
 
@@ -2405,13 +2410,21 @@ fn keep_in_view(offset: f32, top: f32, bottom: f32, height: f32) -> f32 {
     if bottom - top >= height || top < offset { top.max(0.) } else if bottom > offset + height { bottom - height } else { offset }
 }
 
-fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens, icon: matrix_desktop::IconChoice) {
+/// True when «Retry» was clicked: the profile failed to open for good (the worker is gone), so the session restarts.
+fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens, icon: matrix_desktop::IconChoice) -> bool {
     use matrix_engine::signin::SignInMode;
     if s.recovering() {
         recovery_form(ui, s, t);
-        return;
+        return false;
     }
     let status = s.status();
+    // A failed open is final: no «Unlocking…» spinner on a dead worker, the error and the one action that works.
+    if let (FormStatus::Failed(_), Some(message)) = (status, status.error_message()) {
+        ui.label(RichText::new(message).color(rgb(t.error)));
+        ui.add_space(crate::metrics::get().gap * 1.5);
+        let retry = egui::Button::new(RichText::new(i18n::t("Retry")).strong().color(rgb(t.on_accent))).fill(rgb(t.accent)).corner_radius(CornerRadius::same(crate::metrics::get().radius.max(12.) as u8));
+        return ui.add_sized([ui.available_width(), crate::metrics::button() + 4.], retry).clicked();
+    }
     let prompt = match status {
         FormStatus::Prompt(p) => Some(p),
         _ => None,
@@ -2552,6 +2565,7 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens, icon: matr
         let both = field.union(r.rect);
         if both.height() <= ui.clip_rect().height() { ui.scroll_to_rect(both, None); }
     }
+    false
 }
 
 /// «Cronologia cifrata»: the recovery key restores old encrypted messages; it can be skipped.
