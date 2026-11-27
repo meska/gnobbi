@@ -231,6 +231,8 @@ pub struct Session {
     pub profile_saved: Option<Result<(), &'static str>>,
     /// The file the running save writes; on iOS it goes to the share sheet when the save is done.
     share_after: std::path::PathBuf,
+    /// Where each file saved this session went (memory only), for «Show in folder».
+    saved_files: std::collections::HashMap<EventId, std::path::PathBuf>,
     sharing: bool,
     /// Composer (thread or room) that asked for the microphone while the permission prompt was up.
     mic_pending: Option<bool>,
@@ -438,6 +440,7 @@ impl Session {
             profile_busy: false,
             profile_saved: None,
             share_after: std::path::PathBuf::new(),
+            saved_files: Default::default(),
             sharing: false,
             mic_pending: None,
             new_open: false,
@@ -818,7 +821,9 @@ impl Session {
             if !ok { self.notice = Some(i18n::t("Cannot open the content").to_owned()); }
             changed = true;
         }
-        if let Some(ok) = self.media.take_saved().map(|(_, r)| r.is_ok()) {
+        if let Some((id, result)) = self.media.take_saved() {
+            let ok = result.is_ok();
+            if ok && !cfg!(any(target_os = "ios", target_os = "android")) { self.saved_files.insert(id, self.share_after.clone()); }
             if ok && cfg!(target_os = "ios") {
                 // iOS: the file sits in a private folder until the share sheet takes it; «Saved» waits for the sheet's answer.
                 crate::pick::share(&crate::pick::with_extension(&std::mem::take(&mut self.share_after)));
@@ -2330,6 +2335,19 @@ impl Session {
         // One that never reached the send route is simply dropped.
         self.outgoing.retain(|r| &r.transaction_id != id);
         self.uploads.retain(|u| &u.id != id);
+    }
+
+    /// The files saved this session: only these have «Show in folder».
+    pub fn saved_ids(&self) -> std::collections::HashSet<EventId> {
+        self.saved_files.keys().cloned().collect()
+    }
+
+    /// Shows the file saved from `event` selected in the file manager.
+    pub fn reveal_file(&mut self, event: &EventId) {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        if let Some(path) = self.saved_files.get(event) { self.opener = Some(crate::viewer::reveal(path.clone())); }
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        let _ = event;
     }
 
     /// Downloads the file of `event` and opens it with the system's program for it.

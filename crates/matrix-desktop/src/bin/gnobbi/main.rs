@@ -1030,7 +1030,9 @@ impl App {
                 static SHEET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
                 if !SHEET.swap(true, std::sync::atomic::Ordering::Relaxed) { ctx.data_mut(|d| d.insert_temp(egui::Id::new("attach-sheet-open"), true)); }
             }
-            if s.messages.is_some() && let Ok(path) = matrix_desktop::hooks::var("GNOBBI_EGUI_ATTACH") {
+            // With GNOBBI_EGUI_ROOM the hooks wait for that room: the list may open another one first.
+            let in_room = target.as_ref().is_none_or(|t| s.sidebar.selected().map(|r| &r.scope) == Some(t));
+            if s.messages.is_some() && in_room && let Ok(path) = matrix_desktop::hooks::var("GNOBBI_EGUI_ATTACH") {
                 static ATTACHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
                 if !ATTACHED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     let files: Vec<_> = path.split(':').map(std::path::PathBuf::from).collect();
@@ -1044,6 +1046,7 @@ impl App {
             }
             // GNOBBI_EGUI_SEND=<text>: sends it once into the open room (disposable servers only).
             if !self.hook_sent
+                && in_room
                 && s.messages.as_ref().is_some_and(|m| !m.events().is_empty())
                 && (matrix_desktop::hooks::var_os("GNOBBI_EGUI_ATTACH").is_none() || s.attachment.is_some()) // the files are read in the background: wait for the card
                 && let Ok(text) = matrix_desktop::hooks::var("GNOBBI_EGUI_SEND")
@@ -1708,7 +1711,7 @@ impl App {
             && let Some(mut th) = s.thread.take()
         {
             let (mut close, mut out) = (false, info::ThreadOut::default());
-            let mut acts = timeline::Acts { now_playing: s.audio_now(), wishes: s.ops.wishes().to_vec(), transfer: s.transfer(), ..Default::default() };
+            let mut acts = timeline::Acts { now_playing: s.audio_now(), wishes: s.ops.wishes().to_vec(), transfer: s.transfer(), saved: s.saved_ids(), ..Default::default() };
             let members = s.sidebar.selected().map_or(3, |r| r.info.joined_members);
             let recording = s.recording(true);
             let w = self.prefs.thread_width.map_or(320., |w| w as f32);
@@ -1749,6 +1752,7 @@ impl App {
             if let Some((id, name)) = out.save { s.save(id, &name); }
             if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
             if let Some(id) = acts.open_file.take() { s.open_file(id); }
+            if let Some(id) = acts.reveal_file.take() { s.reveal_file(&id); }
             if std::mem::take(&mut acts.cancel_transfer) { s.cancel_transfer(); }
             if let Some(user) = acts.profile.take() { s.open_profile_from_chat(user); }
             if let Some(id) = acts.play.take() { s.play_audio(id); }
@@ -1875,7 +1879,7 @@ impl App {
             {
                 s.flash = s.flash.take().filter(|(_, at)| at.elapsed() < std::time::Duration::from_millis(1500));
                 if s.flash.is_some() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(100)); }
-                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.as_ref().map(|(id, _)| id.clone()), lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), wishes: s.ops.wishes().to_vec(), transfer: s.transfer(), ..Default::default() };
+                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.as_ref().map(|(id, _)| id.clone()), lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), wishes: s.ops.wishes().to_vec(), transfer: s.transfer(), saved: s.saved_ids(), ..Default::default() };
                 let jump = s.search_jump.as_ref().and_then(|(id, _)| messages.events().iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())));
                 let room = s.sidebar.selected();
                 let members = room.map_or(3, |r| r.info.joined_members);
@@ -1918,6 +1922,7 @@ impl App {
                 }
                 if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
                 if let Some(id) = acts.open_file.take() { s.open_file(id); }
+                if let Some(id) = acts.reveal_file.take() { s.reveal_file(&id); }
                 if std::mem::take(&mut acts.cancel_transfer) { s.cancel_transfer(); }
                 if let Some(user) = acts.profile.take() { s.open_profile_from_chat(user); }
                 if let Some(id) = acts.play.take() {

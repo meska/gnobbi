@@ -29,6 +29,14 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- Received files offered to the share sheet: only the engine's private temp folders, one URI per share. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="net.meskatech.gnobbi.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_provider_paths" />
+        </provider>
         <service android:name=".GnobbiPushService" android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />

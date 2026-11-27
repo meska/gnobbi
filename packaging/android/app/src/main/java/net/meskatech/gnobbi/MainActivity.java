@@ -4,13 +4,18 @@ import android.Manifest;
 import android.app.NativeActivity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.webkit.MimeTypeMap;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsetsController;
+import androidx.core.content.FileProvider;
 import com.google.firebase.messaging.FirebaseMessaging;
+import java.io.File;
+import java.util.Locale;
 
 public class MainActivity extends NativeActivity {
     /** True between onResume and onPause: after onPause no frame runs, so the engine's «room visible» flag would stay stale. */
@@ -83,6 +88,28 @@ public class MainActivity extends NativeActivity {
                 d.setSystemUiVisibility(lightTheme ? d.getSystemUiVisibility() | mask : d.getSystemUiVisibility() & ~mask);
             }
         });
+    }
+
+    /**
+     * Called by the engine over JNI with a received file in the app's private folder: the system chooser offers it to other apps
+     * through a FileProvider URI (read access for the chosen app only; the file itself is deleted by the engine as for «Open»).
+     */
+    public boolean shareFile(String path) {
+        try {
+            File file = new File(path);
+            String ext = MimeTypeMap.getFileExtensionFromUrl(file.getName());
+            String mime = ext == null ? null : MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.toLowerCase(Locale.ROOT));
+            Uri uri = FileProvider.getUriForFile(this, "net.meskatech.gnobbi.files", file);
+            Intent send = new Intent(Intent.ACTION_SEND)
+                .setType(mime == null ? "application/octet-stream" : mime)
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(send, null)); // any thread may start an activity; the answer reaches the engine
+            return true;
+        } catch (RuntimeException e) { // a path outside the provider's folders, or no app to take it
+            Log.w("Gnobbi", "share failed: " + e.getClass().getSimpleName());
+            return false;
+        }
     }
 
     @Override

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- HOME is the files dir on Android: the engine keeps the download under .local/share/gnobbi/**/video-tmp. -->
+    <files-path name="received" path=".local/share/gnobbi/" />
+</paths>

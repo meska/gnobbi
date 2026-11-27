@@ -207,6 +207,26 @@ pub fn share(path: &Path) {
 #[cfg(not(target_os = "ios"))]
 pub fn share(_path: &Path) {}
 
+/// Android: the system chooser for `ACTION_SEND` on a file of the app's private folder, through `MainActivity.shareFile`
+/// (a FileProvider URI, read access granted to the chosen app only). True when the call went through.
+#[cfg(target_os = "android")]
+pub fn share_android(path: &Path) -> bool {
+    use jni::{jni_sig, jni_str, objects::JObject};
+    let (Ok(ctx), Some(app)) = (std::panic::catch_unwind(ndk_context::android_context), crate::ANDROID_APP.get()) else { return false };
+    // SAFETY: as in mobile::set_bar_icons.
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) };
+    let res = vm.attach_current_thread(|env| -> Result<bool, jni::errors::Error> {
+        // SAFETY: the activity is a global ref owned by android-activity; JObject has no Drop and is not kept.
+        let activity = unsafe { JObject::from_raw(env, app.activity_as_ptr().cast()) };
+        let file = env.new_string(path.to_string_lossy())?;
+        env.call_method(&activity, jni_str!("shareFile"), jni_sig!("(Ljava/lang/String;)Z"), &[(&file).into()])?.z()
+    });
+    if let Err(e) = &res {
+        log::warn!("gnobbi share: {e:?}");
+    }
+    res.unwrap_or(false)
+}
+
 /// The file extension the content says it has, for a saved file whose name lacks one (stickers arrive named «Image»).
 pub fn extension_of(bytes: &[u8]) -> Option<&'static str> {
     match bytes {

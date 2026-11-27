@@ -134,7 +134,7 @@ impl Viewer {
                         crate::pick::save_start(ctx, i18n::t("Save as"), name);
                     }
                     if !self.avatar && let Some(path) = crate::pick::done(i18n::t("Save as")) { action = Action::Save(path); }
-                    if self.video && ui.add_enabled(!self.opening, egui::Button::new(i18n::t("Open")).min_size(egui::Vec2::splat(crate::mobile::target(0.)))).clicked() {
+                    if (self.video || (cfg!(target_os = "android") && !self.avatar)) && ui.add_enabled(!self.opening, egui::Button::new(i18n::t(if cfg!(target_os = "android") { "Share" } else { "Open" })).min_size(egui::Vec2::splat(crate::mobile::target(0.)))).clicked() {
                         self.opening = true;
                         action = Action::Open;
                     }
@@ -208,6 +208,7 @@ impl Viewer {
 
 /// Opens `path` with the system's program for it; the answer (did it start) comes on the channel.
 /// iOS has no external opener process (and UIKit wants the main thread): the share sheet offers the file to other apps.
+/// Android does the same through `Intent.ACTION_SEND`.
 pub fn open_external(path: PathBuf) -> std::sync::mpsc::Receiver<bool> {
     let (tx, rx) = std::sync::mpsc::channel();
     #[cfg(target_os = "ios")]
@@ -216,7 +217,12 @@ pub fn open_external(path: PathBuf) -> std::sync::mpsc::Receiver<bool> {
         let _ = tx.send(true);
         return rx;
     }
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(target_os = "android")]
+    {
+        let _ = tx.send(crate::pick::share_android(&path));
+        return rx;
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     std::thread::spawn(move || {
         let program = std::env::var("GNOBBI_VIDEO_OPENER").unwrap_or_else(|_| if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" }.into());
         let ok = std::process::Command::new(program).arg(path).status().is_ok_and(|s| s.success());
@@ -225,10 +231,71 @@ pub fn open_external(path: PathBuf) -> std::sync::mpsc::Receiver<bool> {
     rx
 }
 
+#[derive(Clone, Copy)]
+#[allow(dead_code)] // each platform builds only its own arm; the tests build all three
+pub enum Os { Mac, Windows, Linux }
+
+/// The command that shows `path` selected in the file manager. `opener` (the prova hook `GNOBBI_VIDEO_OPENER`) replaces the
+/// program and gets the file path alone. Linux: only the fallback (the folder in the default file manager); `reveal` asks D-Bus first.
+pub fn reveal_command(os: Os, opener: Option<String>, path: &std::path::Path) -> (String, Vec<std::ffi::OsString>) {
+    if let Some(program) = opener { return (program, vec![path.into()]); }
+    match os {
+        Os::Mac => ("open".into(), vec!["-R".into(), path.into()]),
+        Os::Windows => {
+            let mut arg = std::ffi::OsString::from("/select,");
+            arg.push(path);
+            ("explorer".into(), vec![arg])
+        }
+        Os::Linux => ("xdg-open".into(), vec![path.parent().unwrap_or(path).into()]),
+    }
+}
+
+/// Linux: `org.freedesktop.FileManager1.ShowItems` selects the file in whichever file manager is running.
+#[cfg(target_os = "linux")]
+fn show_items(path: &std::path::Path) -> bool {
+    let Ok(uri) = url::Url::from_file_path(path) else { return false };
+    let call = || -> zbus::Result<()> {
+        let conn = zbus::blocking::Connection::session()?;
+        let proxy = zbus::blocking::Proxy::new(&conn, "org.freedesktop.FileManager1", "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1")?;
+        proxy.call::<_, _, ()>("ShowItems", &(vec![uri.as_str()], ""))
+    };
+    call().is_ok()
+}
+
+/// Shows the saved `path` in the file manager (desktop); the answer comes on the channel.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub fn reveal(path: PathBuf) -> std::sync::mpsc::Receiver<bool> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let opener = std::env::var("GNOBBI_VIDEO_OPENER").ok();
+        #[cfg(target_os = "linux")]
+        if opener.is_none() && show_items(&path) { let _ = tx.send(true); return; }
+        let os = if cfg!(target_os = "macos") { Os::Mac } else if cfg!(windows) { Os::Windows } else { Os::Linux };
+        let (program, args) = reveal_command(os, opener, &path);
+        let _ = tx.send(std::process::Command::new(program).args(args).status().is_ok_and(|s| s.success()));
+    });
+    rx
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use eframe::egui::vec2;
+
+    #[test]
+    fn reveal_selects_the_file_on_each_desktop() {
+        let file = std::path::Path::new("/home/a/Downloads/relazione.pdf");
+        let (p, a) = reveal_command(Os::Mac, None, file);
+        assert_eq!((p.as_str(), a), ("open", vec!["-R".into(), file.into()]));
+        let (p, a) = reveal_command(Os::Windows, None, std::path::Path::new(r"C:\Users\a\relazione.pdf"));
+        assert_eq!((p.as_str(), a), ("explorer", vec![r"/select,C:\Users\a\relazione.pdf".into()]));
+        // Linux without D-Bus: the folder, not the file (xdg-open on the file would run it).
+        let (p, a) = reveal_command(Os::Linux, None, file);
+        assert_eq!((p.as_str(), a), ("xdg-open", vec!["/home/a/Downloads".into()]));
+        // The test hook gets the file path alone, on every platform.
+        let (p, a) = reveal_command(Os::Linux, Some("hook".into()), file);
+        assert_eq!((p.as_str(), a), ("hook", vec![file.into()]));
+    }
 
     #[test]
     fn fit_keeps_aspect_inside_both_dimensions() {

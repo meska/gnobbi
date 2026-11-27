@@ -258,13 +258,14 @@ pub fn fraction(received: u64, total: Option<u64>) -> Option<f32> {
 #[derive(Default)]
 pub struct CardOut {
     pub open: bool,
+    pub reveal: bool,
     pub save: bool,
     pub cancel: bool,
 }
 
 /// The card of a file attachment: glyph, name, size or download progress, and Open / Save (Cancel while it downloads).
 /// `transfer` is `(received, declared total)` of the download of this very file now running.
-pub fn file_card(ui: &mut egui::Ui, e: &DemoEvent, name: &str, transfer: Option<(u64, Option<u64>)>, t: &DesignTokens) -> CardOut {
+pub fn file_card(ui: &mut egui::Ui, e: &DemoEvent, name: &str, transfer: Option<(u64, Option<u64>)>, saved: bool, t: &DesignTokens) -> CardOut {
     let mut out = CardOut::default();
     let button = crate::mobile::target(0.);
     ui.horizontal(|ui| {
@@ -295,9 +296,12 @@ pub fn file_card(ui: &mut egui::Ui, e: &DemoEvent, name: &str, transfer: Option<
         } else {
             // Only what the system may open without running anything; the rest is saved.
             if matrix_engine::video_file::openable_name(name).is_some() {
-                out.open = ui.add(egui::Button::new(i18n::t("Open")).min_size(size)).clicked();
+                out.open = ui.add(egui::Button::new(i18n::t(if cfg!(any(target_os = "ios", target_os = "android")) { "Share" } else { "Open" })).min_size(size)).clicked();
             }
             out.save = ui.add(egui::Button::new(crate::icons::with_label(crate::icons::Icon::DownloadSimple, i18n::t("Save"))).min_size(size)).clicked();
+            if saved {
+                out.reveal = ui.add(egui::Button::new(i18n::t("Show in folder")).min_size(size)).clicked();
+            }
         }
     });
     out
