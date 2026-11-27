@@ -2208,22 +2208,11 @@ fn quick_search(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 if index == sel && moved { r.scroll_to_me(None); }
                 if r.clicked() { picked = Some(index); }
             }
-            let mut row = |ui: &mut egui::Ui, i: usize, text: String| {
-                let r = ui.selectable_label(i == sel, text);
-                if i == sel && moved { r.scroll_to_me(None); }
-                if r.clicked() { picked = Some(i); }
-            };
             if !public.is_empty() { ui.label(i18n::t("Public rooms")); }
             for (i, hit) in public.iter().enumerate() {
-                // The join's spinner and its one-line state sit on the room's own row.
-                ui.horizontal(|ui| {
-                    row(ui, hits.len() + users.len() + i, hit.name.clone());
-                    let Some((running, line, failed)) = joins[i] else { return };
-                    if running { ui.spinner(); }
-                    if let Some(line) = line {
-                        ui.add(egui::Label::new(egui::RichText::new(line).color(if failed { ui.visuals().error_fg_color } else { ui.visuals().weak_text_color() })).wrap());
-                    }
-                });
+                let r = public_room_row(ui, hits.len() + users.len() + i == sel, hit.name.clone(), joins[i]);
+                if hits.len() + users.len() + i == sel && moved { r.scroll_to_me(None); }
+                if r.clicked() { picked = Some(hits.len() + users.len() + i); }
             }
         });
     }));
@@ -2992,6 +2981,20 @@ fn account_switch_effect(pick: Option<std::path::PathBuf>, active: &std::path::P
     (pick.filter(|path| path != active), narrow)
 }
 
+/// A public room's row: the name, and under it the join's spinner and one-line state. The state wraps on its own line, so a long name cannot squeeze it to nothing.
+fn public_room_row(ui: &mut egui::Ui, selected: bool, name: String, join: Option<(bool, Option<&'static str>, bool)>) -> egui::Response {
+    let r = ui.selectable_label(selected, name);
+    if let Some((running, line, failed)) = join && (running || line.is_some()) {
+        ui.horizontal(|ui| {
+            if running { ui.spinner(); }
+            if let Some(line) = line {
+                ui.add(egui::Label::new(egui::RichText::new(line).color(if failed { ui.visuals().error_fg_color } else { ui.visuals().weak_text_color() })).wrap());
+            }
+        });
+    }
+    r
+}
+
 /// The «Account unavailable» column: never wider than the window (a phone is under 400 pt), symmetric margins, wrapping error.
 /// Returns (retry, sign in again, sign out) clicks; `middle` draws the account switcher between Retry and Sign in again.
 fn recovery_screen(ui: &mut egui::Ui, t: &DesignTokens, who: Option<(&str, Option<&str>)>, line: &str, middle: impl FnOnce(&mut egui::Ui, egui::Vec2)) -> (bool, bool, bool) {
@@ -3031,6 +3034,26 @@ mod tests {
             rects = out.shapes.iter().map(|s| s.shape.visual_bounding_rect()).filter(|r| r.is_positive() && r.width() < width).collect();
         }
         rects
+    }
+
+    /// Public-room row with a 98-character name and a failed join: the state keeps a readable width (at most two lines) and nothing crosses the right edge.
+    #[test]
+    fn public_room_row_keeps_its_state_readable_after_a_long_name() {
+        let ctx = crate::icons::test_context();
+        for width in [291., 436.] {
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 700.));
+            let mut rects = Vec::new();
+            for _ in 0..3 {
+                let input = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+                let mut out = ctx.run_ui(input, |ui| { public_room_row(ui, false, "n".repeat(98), Some((false, Some("Could not join this room"), true))); });
+                out.textures_delta.clear();
+                rects = out.shapes.iter().map(|s| s.shape.visual_bounding_rect()).filter(|r| r.is_positive()).collect();
+            }
+            let right = rects.iter().fold(f32::MIN, |r, x| r.max(x.max.x));
+            let tall = rects.iter().map(|r| r.height()).fold(0., f32::max);
+            assert!(right <= width + 1., "{width}: something reaches x={right}");
+            assert!(tall <= 2. * 20. + 8., "{width}: a shape is {tall} pt tall");
+        }
     }
 
     const LONG_ERROR: &str = "Impossibile aprire questo account perche il profilo locale non e disponibile su questo telefono e il portachiavi ha rifiutato la richiesta, riprova piu tardi o accedi di nuovo con la tua password";

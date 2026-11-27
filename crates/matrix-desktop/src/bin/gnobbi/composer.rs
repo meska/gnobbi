@@ -77,12 +77,13 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         }
     }
     if let Some(error) = ui.data(|d| d.get_temp::<String>(error_id)) {
-        ui.horizontal(|ui| {
-            ui.add(egui::Label::new(egui::RichText::new(i18n::t(&error)).color(ui.visuals().error_fg_color)).wrap());
+        // Icon first, right-aligned: the wrapping text takes what is left and never pushes it off the edge.
+        ui.horizontal(|ui| ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if crate::info::close_icon(ui, i18n::t("Close")).clicked() {
                 ui.data_mut(|d| d.remove::<String>(error_id));
             }
-        });
+            ui.add(egui::Label::new(egui::RichText::new(i18n::t(&error)).color(ui.visuals().error_fg_color)).wrap());
+        }));
     }
     if let Some((name, data, revision)) = attachment {
         ui.horizontal(|ui| {
