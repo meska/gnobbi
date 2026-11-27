@@ -131,7 +131,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, mut a
     // Wide desktop (room composer only): one Emoji button; hover shows a small popup, click toggles the drawer above the bar.
     let extra = if thread { 0 } else { wide_extra_slots(crate::mobile::touch(), ui.available_width() - 12. - gap, slot, gap) };
     let dock_id = egui::Id::new(DOCK_ID);
-    if extra == 1 && ui.data(|d| d.get_temp::<bool>(dock_id)).unwrap_or(false) {
+    if extra > 0 && ui.data(|d| d.get_temp::<bool>(dock_id)).unwrap_or(false) {
         dock(ui, dock_id, nid("emoji-dock-scroll"), nid("emoji-dock-grid"), nid("composer-text"), draft, &mut stickers, t);
     }
     // Not horizontal_centered: it fills the panel's height from the previous frame, so the bar never shrank after a narrow-window wrap.
@@ -166,9 +166,10 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, mut a
         ui.spacing_mut().item_spacing.y = 0.; // else the space above adds a gap and the icons sit lower than the text
         ui.add_space((text_h - slot).max(0.));
         ui.horizontal(|ui| {
+        // Wide desktop: emoji, sticker and poll buttons sit before the attach one.
+        let wide: Vec<egui::Rect> = (0..extra).map(|_| ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover()).0).collect();
+        let wide_emoji = wide.first().copied();
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        // Wide desktop: the emoji button sits before the attach one.
-        let (rect, wide_emoji) = if extra > 0 { (ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover()).0, Some(rect)) } else { (rect, None) };
         // One button opens a menu with the rest: emoji, poll, attach. Keeps the field wide at any text scale (Telegram keeps attach and send/mic only).
         let attach = icon_at(ui, rect, &format!("composer-attach{salt}"), Icon::Paperclip, 1., true, i18n::t("Attach a file"));
         // Invisible twin of the button: the emoji popup hangs from it, opened by the menu entry.
@@ -179,25 +180,36 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, mut a
         let mut emoji_hover = None;
         if let Some(r) = wide_emoji {
             let button = icon_at(ui, r, &format!("composer-emoji-button{salt}"), Icon::Smiley, 1., true, i18n::t("Emoji"));
-            if button.clicked() {
-                let open = !ui.data(|d| d.get_temp::<bool>(dock_id)).unwrap_or(false);
-                ui.data_mut(|d| d.insert_temp(dock_id, open));
+            // Emoji and Sticker open the same drawer on their own tab: a click on the tab already shown closes it.
+            let toggle = |ui: &mut egui::Ui, sticker: bool| {
+                let open = ui.data(|d| d.get_temp::<bool>(dock_id)).unwrap_or(false);
+                let shown = ui.data(|d| d.get_temp::<bool>(tab_id)).unwrap_or(false);
+                let open = !(open && shown == sticker);
+                ui.data_mut(|d| { d.insert_temp(dock_id, open); d.insert_temp(tab_id, sticker); });
                 if open { open_popup(ui.ctx(), Popup::Drawer); }
-            }
+            };
+            if button.clicked() { toggle(ui, false); }
             emoji_hover = Some(button);
+            if stickers.is_some() && icon_at(ui, wide[1], &format!("composer-sticker-button{salt}"), Icon::Sticker, 1., true, i18n::t("Sticker")).clicked() { toggle(ui, true); }
+            if icon_at(ui, wide[2], &format!("composer-poll-button{salt}"), Icon::ChartBarHorizontal, 1., true, i18n::t("Poll")).clicked() { *poll = true; }
         }
         // Telegram's order: pictures and videos, file, then the rest. A phone gets a sheet from the bottom edge, the desktop a menu.
         let sheet_id = nid("attach-sheet-open");
         let touch = crate::mobile::touch();
         let mut row = None;
         let mut rows = vec![(crate::attach::SheetRow::Media, i18n::t("Photo or video")), (crate::attach::SheetRow::File, i18n::t("File"))];
-        if !thread { rows.push((crate::attach::SheetRow::Poll, i18n::t("Poll"))); }
-        if extra == 0 { rows.push((crate::attach::SheetRow::Emoji, i18n::t("Emoji"))); }
+        if extra == 0 {
+            if !thread { rows.push((crate::attach::SheetRow::Poll, i18n::t("Poll"))); }
+            rows.push((crate::attach::SheetRow::Emoji, i18n::t("Emoji")));
+        }
         if touch {
             let mut open = ui.data(|d| d.get_temp::<bool>(sheet_id)).unwrap_or(false);
             if attach.clicked() { open = !open; }
             if open { row = crate::attach::sheet(ui.ctx(), &mut open, &rows, t); }
             ui.data_mut(|d| d.insert_temp(sheet_id, open));
+        } else if extra > 0 {
+            // Wide desktop: Emoji and Poll have their own buttons, so the paperclip goes straight to the file dialog.
+            if attach.clicked() { row = Some(crate::attach::SheetRow::File); }
         } else {
             if attach.clicked() { open_popup(ui.ctx(), Popup::Attach); }
             egui::Popup::menu(&attach).show(|ui| {
@@ -326,11 +338,11 @@ const POPUP_MAX_ROWS: usize = 4;
 /// Sticker rows the docked drawer shows (half a row hints at the scroll); the popup shows `stickers::ROWS`.
 const DOCK_ROWS: f32 = 2.5;
 
-/// Emoji button shown beside the attach one: 0 on touch or when the field would fall under `MIN_WIDE_FIELD` with it, else 1.
+/// Emoji, Sticker and Poll buttons shown beside the attach one: 0 on touch or when the field would fall under `MIN_WIDE_FIELD` with them, else 3.
 fn wide_extra_slots(touch: bool, available: f32, slot: f32, gap: f32) -> usize {
     const MIN_WIDE_FIELD: f32 = 240.;
-    let field = available - 3. * slot - 4. * gap - 12.;
-    if touch || field < MIN_WIDE_FIELD { 0 } else { 1 }
+    let field = available - 5. * slot - 6. * gap - 12.;
+    if touch || field < MIN_WIDE_FIELD { 0 } else { 3 }
 }
 
 /// Rows the hover popup shows (whole rows only, at most `POPUP_MAX_ROWS`, scroll beyond) and the height they take.
@@ -734,11 +746,11 @@ mod tests {
 
     #[test]
     fn one_emoji_button_only_on_wide_desktop() {
-        assert_eq!(super::wide_extra_slots(false, 900., 36., 8.), 1);
+        assert_eq!(super::wide_extra_slots(false, 900., 36., 8.), 3);
         assert_eq!(super::wide_extra_slots(false, 340., 36., 8.), 0, "narrow window keeps the menu");
         assert_eq!(super::wide_extra_slots(true, 900., 44., 8.), 0, "phone keeps the menu");
         // The field keeps at least the threshold width with the button.
-        assert!((240..900).all(|a| { let e = super::wide_extra_slots(false, a as f32, 36., 8.); e == 0 || a as f32 - 3. * 36. - 4. * 8. - 12. >= 240. }));
+        assert!((240..900).all(|a| { let e = super::wide_extra_slots(false, a as f32, 36., 8.); e == 0 || a as f32 - 5. * 36. - 6. * 8. - 12. >= 240. }));
     }
 
     #[test]
@@ -803,11 +815,11 @@ mod tests {
     }
 
     /// The wide desktop bar driven with a pointer; `width` 900 has the Emoji button, 436 (touch) only the attach menu.
-    struct Bar { ctx: eframe::egui::Context, width: f32 }
+    struct Bar { ctx: eframe::egui::Context, width: f32, poll: std::cell::Cell<bool> }
 
     impl Bar {
         fn new(width: f32) -> Self {
-            let bar = Bar { ctx: crate::icons::test_context(), width };
+            let bar = Bar { ctx: crate::icons::test_context(), width, poll: Default::default() };
             for _ in 0..4 { bar.frame(vec![]); }
             bar
         }
@@ -817,8 +829,10 @@ mod tests {
             let mut out = self.ctx.run_ui(input, |ui| {
                 super::panel(egui::Frame::NONE).show(ui, |ui| {
                     let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (String::new(), false, crate::attach::Acts::default(), false, Vec::new(), None, None);
+                    c |= self.poll.get();
                     let (mut panel, avatars) = (crate::stickers::Panel::default(), crate::avatar::Avatars::new());
                     super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), Some((&mut panel, &avatars)), &matrix_desktop::LIGHT);
+                    self.poll.set(c);
                 });
             });
             out.textures_delta.clear();
@@ -846,45 +860,57 @@ mod tests {
         fn drawer(&self) -> bool { self.ctx.data(|d| d.get_temp::<bool>(eframe::egui::Id::new(super::DOCK_ID))).unwrap_or(false) }
     }
 
+    fn tab(bar: &Bar) -> Option<bool> { bar.ctx.data(|d| d.get_temp::<bool>(eframe::egui::Id::new(crate::stickers::TAB_ID))) }
+
     #[test]
-    fn hovering_emoji_closes_the_attach_menu() {
-        let bar = Bar::new(900.);
-        bar.click("composer-attach");
-        assert!(bar.menu() && !bar.small_popup());
-        bar.hover("composer-emoji-button");
-        assert!(bar.small_popup() && !bar.menu(), "menu {} popup {}", bar.menu(), bar.small_popup());
+    fn wide_bar_has_emoji_sticker_poll_attach_in_that_order_before_the_mic() {
+        let bar = Bar::new(1280.);
+        let x = |id: &str| bar.center(id).x;
+        let xs = [x("composer-emoji-button"), x("composer-sticker-button"), x("composer-poll-button"), x("composer-attach"), x("composer-voice")];
+        assert!(xs.windows(2).all(|w| w[0] < w[1]), "{xs:?}");
     }
 
     #[test]
-    fn clicking_attach_closes_the_small_emoji_popup() {
-        let bar = Bar::new(900.);
-        bar.hover("composer-emoji-button");
-        assert!(bar.small_popup() && !bar.menu());
-        bar.click("composer-attach");
-        assert!(bar.menu() && !bar.small_popup());
+    fn sticker_button_opens_the_drawer_on_its_tab_switches_tab_and_closes() {
+        let bar = Bar::new(1280.);
+        bar.click("composer-sticker-button");
+        assert!(bar.drawer() && tab(&bar) == Some(true));
+        bar.click("composer-emoji-button");
+        assert!(bar.drawer() && tab(&bar) == Some(false), "open on Sticker: Emoji switches tab");
+        bar.click("composer-sticker-button");
+        assert!(bar.drawer() && tab(&bar) == Some(true), "open on Emoji: Sticker switches tab");
+        bar.click("composer-sticker-button");
+        assert!(!bar.drawer(), "open on Sticker: Sticker closes");
+        bar.click("composer-emoji-button");
+        assert!(bar.drawer() && tab(&bar) == Some(false));
     }
 
     #[test]
-    fn the_drawer_stays_when_attach_opens_and_opening_it_closes_the_menu() {
+    fn poll_button_sets_poll_and_the_paperclip_opens_the_file_dialog_without_a_menu() {
+        let bar = Bar::new(1280.);
+        bar.click("composer-poll-button");
+        assert!(bar.poll.get());
+        bar.click("composer-attach");
+        assert!(!bar.menu(), "no menu on the wide bar");
+        assert_eq!(bar.ctx.data(|d| d.get_temp::<bool>(eframe::egui::Id::new("composer-attach-asker"))), Some(false), "the file dialog was asked for");
+    }
+
+    #[test]
+    fn narrow_desktop_keeps_the_menu_and_no_extra_buttons() {
+        let bar = Bar::new(436.);
+        assert!(bar.ctx.read_response(eframe::egui::Id::new("composer-poll-button")).is_none());
+        assert!(bar.ctx.read_response(eframe::egui::Id::new("composer-sticker-button")).is_none());
+        bar.click("composer-attach");
+        assert!(bar.menu());
+    }
+
+    #[test]
+    fn the_clicked_drawer_replaces_the_hover_popup() {
         let bar = Bar::new(900.);
         bar.click("composer-emoji-button");
         assert!(bar.drawer());
-        bar.click("composer-attach");
-        assert!(bar.menu() && bar.drawer(), "the drawer is not a popup: menu {} drawer {}", bar.menu(), bar.drawer());
-        bar.click("composer-emoji-button");
-        bar.click("composer-emoji-button");
-        assert!(bar.drawer() && !bar.menu(), "opening the drawer closes the menu");
-    }
-
-    #[test]
-    fn the_drawer_reopens_on_the_sticker_tab() {
-        let bar = Bar::new(900.);
-        let tab = eframe::egui::Id::new(crate::stickers::TAB_ID);
-        bar.ctx.data_mut(|d| d.insert_temp(tab, true));
-        for _ in 0..2 { bar.click("composer-emoji-button"); } // open, close
-        assert!(!bar.drawer());
-        bar.click("composer-emoji-button");
-        assert!(bar.drawer() && bar.ctx.data(|d| d.get_temp::<bool>(tab)) == Some(true));
+        bar.hover("composer-emoji-button");
+        assert!(bar.drawer() && !bar.small_popup(), "the clicked drawer replaces the small popup");
     }
 
     #[test]
