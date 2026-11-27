@@ -840,7 +840,7 @@ mod tests {
 
     #[test]
     fn subspaces_nest_under_their_parent_and_a_folded_parent_counts_them() {
-        // work > team > (r2), work > (r1); home apart. r1 is in both work and team: counted once.
+        // work > team > (r2), work > (r1); home apart. r1 is in both work and team: counted once. Open or folded, a space counts its whole subtree.
         let s = sidebar(&[("r1", 2, None), ("r2", 3, None), ("r3", 5, None), ("work", 0, Some(&["team", "r1"])), ("team", 0, Some(&["r1", "r2"])), ("home", 0, Some(&["r3"]))]);
         let layout = RailLayout::default();
         let folded = tree(&s, &layout, &HashSet::new(), false, None);
@@ -848,7 +848,7 @@ mod tests {
         assert!(folded[0].has_children && !folded[1].has_children);
         let open = HashSet::from(["!work:x".to_owned()]);
         let rows = tree(&s, &layout, &open, false, None);
-        assert_eq!(shape(&rows), [("work", 0, 2), ("team", 1, 5), ("home", 0, 5)]);
+        assert_eq!(shape(&rows), [("work", 0, 5), ("team", 1, 5), ("home", 0, 5)]);
         assert_eq!(rows[1].parent.as_deref(), Some("!work:x"));
     }
 
