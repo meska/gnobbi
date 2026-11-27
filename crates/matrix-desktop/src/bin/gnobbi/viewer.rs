@@ -100,7 +100,7 @@ impl Viewer {
     }
 
     pub fn open_player(&mut self, path: PathBuf) {
-        self.player = Some(open_external(path));
+        self.player = Some(open_external(path, &crate::pick::safe_name(&self.name)));
     }
 
     /// `items`: the pictures and videos of the chat in order, to step through; `transfer`: how far the video being opened has got.
@@ -209,7 +209,9 @@ impl Viewer {
 /// Opens `path` with the system's program for it; the answer (did it start) comes on the channel.
 /// iOS has no external opener process (and UIKit wants the main thread): the share sheet offers the file to other apps.
 /// Android does the same through `Intent.ACTION_SEND`.
-pub fn open_external(path: PathBuf) -> std::sync::mpsc::Receiver<bool> {
+pub fn open_external(path: PathBuf, name: &str) -> std::sync::mpsc::Receiver<bool> {
+    #[cfg(not(target_os = "android"))]
+    let _ = name;
     let (tx, rx) = std::sync::mpsc::channel();
     #[cfg(target_os = "ios")]
     {
@@ -219,7 +221,7 @@ pub fn open_external(path: PathBuf) -> std::sync::mpsc::Receiver<bool> {
     }
     #[cfg(target_os = "android")]
     {
-        let _ = tx.send(crate::pick::share_android(&path));
+        let _ = tx.send(crate::pick::share_android(&path, name));
         return rx;
     }
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
@@ -242,8 +244,10 @@ pub fn reveal_command(os: Os, opener: Option<String>, path: &std::path::Path) ->
     match os {
         Os::Mac => ("open".into(), vec!["-R".into(), path.into()]),
         Os::Windows => {
-            let mut arg = std::ffi::OsString::from("/select,");
+            // explorer wants the path quoted after the comma (a comma in the name would split it); `reveal` passes it raw.
+            let mut arg = std::ffi::OsString::from("/select,\"");
             arg.push(path);
+            arg.push("\"");
             ("explorer".into(), vec![arg])
         }
         Os::Linux => ("xdg-open".into(), vec![path.parent().unwrap_or(path).into()]),
@@ -272,7 +276,16 @@ pub fn reveal(path: PathBuf) -> std::sync::mpsc::Receiver<bool> {
         if opener.is_none() && show_items(&path) { let _ = tx.send(true); return; }
         let os = if cfg!(target_os = "macos") { Os::Mac } else if cfg!(windows) { Os::Windows } else { Os::Linux };
         let (program, args) = reveal_command(os, opener, &path);
-        let _ = tx.send(std::process::Command::new(program).args(args).status().is_ok_and(|s| s.success()));
+        let mut cmd = std::process::Command::new(program);
+        #[cfg(windows)]
+        {
+            // The quoting of `reveal_command` is already final; explorer exits 1 even when it opens the window, so only the start counts.
+            use std::os::windows::process::CommandExt;
+            for a in &args { cmd.raw_arg(a); }
+            let _ = tx.send(cmd.status().is_ok());
+        }
+        #[cfg(not(windows))]
+        let _ = tx.send(cmd.args(args).status().is_ok_and(|s| s.success()));
     });
     rx
 }
@@ -287,8 +300,8 @@ mod tests {
         let file = std::path::Path::new("/home/a/Downloads/relazione.pdf");
         let (p, a) = reveal_command(Os::Mac, None, file);
         assert_eq!((p.as_str(), a), ("open", vec!["-R".into(), file.into()]));
-        let (p, a) = reveal_command(Os::Windows, None, std::path::Path::new(r"C:\Users\a\relazione.pdf"));
-        assert_eq!((p.as_str(), a), ("explorer", vec![r"/select,C:\Users\a\relazione.pdf".into()]));
+        let (p, a) = reveal_command(Os::Windows, None, std::path::Path::new(r"C:\Users\a b\relazione, finale.pdf"));
+        assert_eq!((p.as_str(), a), ("explorer", vec![r#"/select,"C:\Users\a b\relazione, finale.pdf""#.into()]));
         // Linux without D-Bus: the folder, not the file (xdg-open on the file would run it).
         let (p, a) = reveal_command(Os::Linux, None, file);
         assert_eq!((p.as_str(), a), ("xdg-open", vec!["/home/a/Downloads".into()]));

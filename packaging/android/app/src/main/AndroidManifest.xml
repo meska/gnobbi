@@ -29,7 +29,7 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
-        <!-- Received files offered to the share sheet: only the engine's private temp folders, one URI per share. -->
+        <!-- Received files offered to the share sheet: the provider maps the data folder, but MainActivity.share only mints URIs for files in a video-tmp folder. -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="net.meskatech.gnobbi.files"

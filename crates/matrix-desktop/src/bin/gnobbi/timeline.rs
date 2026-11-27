@@ -36,7 +36,7 @@ pub struct Acts {
     /// What the pills asked for this frame.
     pub react: crate::reactions::Acts,
     /// The card of this file was asked to open it.
-    pub open_file: Option<matrix_domain::EventId>,
+    pub open_file: Option<(matrix_domain::EventId, String)>,
     pub reveal_file: Option<matrix_domain::EventId>,
     /// Files saved this session.
     pub saved: std::collections::HashSet<matrix_domain::EventId>,
@@ -574,7 +574,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 {
                     let transfer = acts.transfer.as_ref().filter(|(t, ..)| t == id).map(|(_, got, total)| (*got, total.or(e.attachment_size)));
                     let card = crate::media_cards::file_card(ui, e, name, transfer, acts.saved.contains(id), t);
-                    if card.open { acts.open_file = Some(id.clone()); }
+                    if card.open { acts.open_file = Some((id.clone(), name.clone())); }
                     if card.reveal { acts.reveal_file = Some(id.clone()); }
                     save |= card.save;
                     acts.cancel_transfer |= card.cancel;

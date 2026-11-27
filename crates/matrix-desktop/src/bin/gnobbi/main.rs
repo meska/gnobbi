@@ -1751,7 +1751,7 @@ impl App {
             if let Some(body) = out.send { s.send_thread(body); }
             if let Some((id, name)) = out.save { s.save(id, &name); }
             if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
-            if let Some(id) = acts.open_file.take() { s.open_file(id); }
+            if let Some((id, name)) = acts.open_file.take() { s.open_file(id, name); }
             if let Some(id) = acts.reveal_file.take() { s.reveal_file(&id); }
             if std::mem::take(&mut acts.cancel_transfer) { s.cancel_transfer(); }
             if let Some(user) = acts.profile.take() { s.open_profile_from_chat(user); }
@@ -1921,7 +1921,7 @@ impl App {
                     s.open_thread(root);
                 }
                 if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
-                if let Some(id) = acts.open_file.take() { s.open_file(id); }
+                if let Some((id, name)) = acts.open_file.take() { s.open_file(id, name); }
                 if let Some(id) = acts.reveal_file.take() { s.reveal_file(&id); }
                 if std::mem::take(&mut acts.cancel_transfer) { s.cancel_transfer(); }
                 if let Some(user) = acts.profile.take() { s.open_profile_from_chat(user); }

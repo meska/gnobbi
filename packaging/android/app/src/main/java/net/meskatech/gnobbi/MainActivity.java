@@ -2,6 +2,7 @@ package net.meskatech.gnobbi;
 
 import android.Manifest;
 import android.app.NativeActivity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -90,23 +91,30 @@ public class MainActivity extends NativeActivity {
         });
     }
 
+    /** Called by the engine over JNI: the received file (with the attachment's name) goes to the system chooser. */
+    public boolean shareFile(String path, String name) {
+        return share(this, path, name);
+    }
+
     /**
-     * Called by the engine over JNI with a received file in the app's private folder: the system chooser offers it to other apps
-     * through a FileProvider URI (read access for the chosen app only; the file itself is deleted by the engine as for «Open»).
+     * The system chooser offers a received file of the engine's temp folder (`video-tmp`, nothing else of the data folder) to other
+     * apps through a FileProvider URI named `name` (read access for the chosen app only; the engine deletes the file as for «Open»).
      */
-    public boolean shareFile(String path) {
+    static boolean share(Context context, String path, String name) {
         try {
-            File file = new File(path);
-            String ext = MimeTypeMap.getFileExtensionFromUrl(file.getName());
+            File file = new File(path).getCanonicalFile();
+            File dir = file.getParentFile();
+            if (dir == null || !"video-tmp".equals(dir.getName())) return false;
+            String ext = MimeTypeMap.getFileExtensionFromUrl(name);
             String mime = ext == null ? null : MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.toLowerCase(Locale.ROOT));
-            Uri uri = FileProvider.getUriForFile(this, "net.meskatech.gnobbi.files", file);
+            Uri uri = FileProvider.getUriForFile(context, "net.meskatech.gnobbi.files", file, name);
             Intent send = new Intent(Intent.ACTION_SEND)
                 .setType(mime == null ? "application/octet-stream" : mime)
                 .putExtra(Intent.EXTRA_STREAM, uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(send, null)); // any thread may start an activity; the answer reaches the engine
+            context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             return true;
-        } catch (RuntimeException e) { // a path outside the provider's folders, or no app to take it
+        } catch (java.io.IOException | RuntimeException e) { // a path outside the provider's folders, or no app to take it
             Log.w("Gnobbi", "share failed: " + e.getClass().getSimpleName());
             return false;
         }

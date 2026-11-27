@@ -193,6 +193,8 @@ pub struct Session {
     send_control: matrix_engine::sending::ControlSlot,
     /// The file a card asked to open: its download ends in the system opener, with no viewer in between.
     opening_file: Option<EventId>,
+    /// The attachment name (cleaned) the file is offered under when it is shared (Android).
+    opening_name: String,
     opener: Option<std::sync::mpsc::Receiver<bool>>,
     /// A voice note being recorded (the microphone is open); `voice` is the note waiting to be sent with the next send.
     pub recorder: Option<matrix_desktop::voice_recorder::Recorder>,
@@ -412,6 +414,7 @@ impl Session {
             viewer_pages: 0,
             send_control,
             opening_file: None,
+            opening_name: String::new(),
             opener: None,
             recorder: None,
             record_thread: false,
@@ -895,7 +898,7 @@ impl Session {
                     Ok(file) => {
                         let path = file.path().to_owned();
                         self.media.hold_playing(file);
-                        self.opener = Some(crate::viewer::open_external(path));
+                        self.opener = Some(crate::viewer::open_external(path, &self.opening_name));
                     }
                     Err(_) => self.notice = Some(i18n::t("Cannot open the content").to_owned()),
                 }
@@ -2351,10 +2354,11 @@ impl Session {
     }
 
     /// Downloads the file of `event` and opens it with the system's program for it.
-    pub fn open_file(&mut self, event: EventId) {
+    pub fn open_file(&mut self, event: EventId, name: String) {
         let Some(scope) = self.draft_scope.clone() else { return };
         self.media.cancel_original();
         self.opening_file = Some(event.clone());
+        self.opening_name = crate::pick::safe_name(&name);
         self.media.request_video(scope, event);
     }
 
