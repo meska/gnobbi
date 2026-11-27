@@ -484,8 +484,19 @@ impl Editor {
             if let Some(line) = self.error {
                 ui.add(egui::Label::new(RichText::new(i18n::t(line)).color(ui.visuals().error_fg_color)).wrap());
             }
+            // «Reset» keeps its icon and text; when it, «Cancel» and «Apply» do not fit side by side it takes its own line.
+            let reset_button = |ui: &mut egui::Ui| ui.add_enabled(ready, egui::Button::new(icons::with_label(Icon::ArrowUUpLeft, i18n::t("Reset")))).clicked();
+            let pad = 2. * ui.spacing().button_padding.x;
+            let text = |s: &str| ui.painter().layout_no_wrap(s.to_owned(), egui::FontId::proportional(crate::metrics::get().body), egui::Color32::WHITE).size().x + pad;
+            let needed = ui.painter().layout_job(icons::with_label(Icon::ArrowUUpLeft, i18n::t("Reset"))).size().x + pad + text(i18n::t("Cancel")) + text(i18n::t("Apply")) + 2. * ui.spacing().item_spacing.x;
+            let alone = needed > ui.available_width();
+            if alone {
+                reset = reset_button(ui);
+            }
             ui.horizontal(|ui| {
-                reset = ui.add_enabled(ready, egui::Button::new(icons::with_label(Icon::ArrowUUpLeft, i18n::t("Reset")))).clicked();
+                if !alone {
+                    reset = reset_button(ui);
+                }
                 ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
                     if self.saving.is_some() {
                         ui.spinner();
