@@ -60,7 +60,6 @@ fn sign_in_validates_the_exact_endpoint_and_user_before_network_or_storage() {
         "http://example.invalid",
         "https://user:pass@example.invalid",
         "https://example.invalid/?token=x",
-        " https://example.invalid",
     ] {
         let result = PasswordSignIn::new(
             root.0.clone(),
@@ -73,22 +72,25 @@ fn sign_in_validates_the_exact_endpoint_and_user_before_network_or_storage() {
         );
         assert!(matches!(result, Err(SignInError::InvalidHomeserver)));
     }
-    for user in [
-        "alice",
-        "alice:example.invalid",
-        "@alice",
-        " @alice:example.invalid",
-    ] {
-        let result = PasswordSignIn::new(
+    // Lenient input is deliberate: surrounding whitespace is trimmed, and a short user name
+    // ("alice", "alice:host") is completed to a full Matrix ID; only unparsable IDs are rejected.
+    let new = |endpoint: &str, user: &str| {
+        PasswordSignIn::new(
             root.0.clone(),
             AccountId::new(1),
-            "https://example.invalid".into(),
+            endpoint.into(),
             user.into(),
             Secret::new("fixture".into()).unwrap(),
             Secret::new("local unlock phrase".into()).unwrap(),
             None,
-        );
-        assert!(matches!(result, Err(SignInError::InvalidUserId)));
+        )
+    };
+    assert!(new(" https://example.invalid ", "@alice:example.invalid").is_ok());
+    for user in ["alice", "alice:example.invalid", " @alice:example.invalid"] {
+        assert!(new("https://example.invalid", user).is_ok(), "{user}");
+    }
+    for user in ["@alice", ""] {
+        assert!(matches!(new("https://example.invalid", user), Err(SignInError::InvalidUserId)), "{user}");
     }
     assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 0);
 }
