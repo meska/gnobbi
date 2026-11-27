@@ -31,15 +31,38 @@ where
 /// `start` error that is not an error: the system permission prompt is up; the app retries on `permission_granted`.
 pub const PERMISSION_PENDING: &str = "";
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 static GRANTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[cfg(any(target_os = "ios", target_os = "android"))]
+static DENIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// True once, after the user taps «Consenti» on the prompt raised by `start`.
 pub fn permission_granted() -> bool {
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     return GRANTED.swap(false, std::sync::atomic::Ordering::Relaxed);
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     false
+}
+
+/// The line to show, once, after the user refused the prompt raised by `start`.
+pub fn permission_denied() -> Option<&'static str> {
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    if DENIED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        return Some(crate::i18n::t("Microphone access was denied. Allow it in the system settings and try again."));
+    }
+    None
+}
+
+/// Android: the answer of `MainActivity.requestMic`, from `Native.onMicPermission`.
+#[cfg(target_os = "android")]
+mod jni_entry {
+    use jni::{EnvUnowned, objects::JClass};
+    use std::sync::atomic::Ordering::Relaxed;
+
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_net_meskatech_gnobbi_Native_nativeOnMicPermission<'l>(_: EnvUnowned<'l>, _: JClass<'l>, ok: jni::sys::jboolean) {
+        (if ok { &super::GRANTED } else { &super::DENIED }).store(true, Relaxed);
+    }
 }
 
 /// iOS: the first call raises the system permission prompt (`PERMISSION_PENDING`, retried after «Consenti»); then the
@@ -59,7 +82,7 @@ fn prepare_session(repaint: impl Fn() + Send + 'static) -> Result<(), &'static s
             }
             P::Undetermined => {
                 session.requestRecordPermission(&block2::RcBlock::new(move |ok: objc2::runtime::Bool| {
-                    GRANTED.store(ok.as_bool(), std::sync::atomic::Ordering::Relaxed);
+                    (if ok.as_bool() { &GRANTED } else { &DENIED }).store(true, std::sync::atomic::Ordering::Relaxed);
                     repaint();
                 }));
                 Err(PERMISSION_PENDING)

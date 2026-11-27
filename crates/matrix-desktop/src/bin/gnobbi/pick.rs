@@ -105,6 +105,21 @@ fn ask_android(ctx: &eframe::egui::Context, title: &str, mode: u8, many: bool) {
     }
 }
 
+/// `MainActivity.requestMic`: true when RECORD_AUDIO is already granted; otherwise the system prompt is raised and the answer
+/// comes from `Native.onMicPermission`. A failed JNI call counts as granted so that the recorder reports its own error.
+#[cfg(target_os = "android")]
+pub fn mic_allowed() -> bool {
+    use jni::{jni_sig, jni_str, objects::JObject};
+    let (Ok(vm_ctx), Some(app)) = (std::panic::catch_unwind(ndk_context::android_context), crate::ANDROID_APP.get()) else { return true };
+    // SAFETY: as in ask_android.
+    let vm = unsafe { jni::JavaVM::from_raw(vm_ctx.vm().cast()) };
+    let res = vm.attach_current_thread(|env| -> Result<bool, jni::errors::Error> {
+        let activity = unsafe { JObject::from_raw(env, app.activity_as_ptr().cast()) };
+        env.call_method(&activity, jni_str!("requestMic"), jni_sig!("()Z"), &[])?.z()
+    });
+    res.unwrap_or_else(|e| { log::warn!("gnobbi mic: {e:?}"); true })
+}
+
 /// The picked files (empty: closed, or no picker) for the dialog that asked.
 #[cfg(target_os = "android")]
 fn android_done(files: Vec<PathBuf>) {

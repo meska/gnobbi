@@ -83,8 +83,21 @@ public class MainActivity extends NativeActivity {
     @Override
     public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(code, permissions, results);
+        if (code == MIC) {
+            Native.onMicPermission(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED);
+            return;
+        }
         if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) Native.onPermission();
         // Refusal needs no handling here: Notifier.show() re-checks the permission and drops the push silently.
+    }
+
+    private static final int MIC = 2;
+
+    /** Called by the engine over JNI on the first tap of the microphone: true when RECORD_AUDIO is granted, else the prompt is raised and the answer is Native.onMicPermission. */
+    public boolean requestMic() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) return true;
+        runOnUiThread(() -> requestPermissions(new String[] {Manifest.permission.RECORD_AUDIO}, MIC));
+        return false;
     }
 
     /** Called by the engine over JNI with the app theme: dark status/navigation icons on a light theme, light icons on a dark one. */

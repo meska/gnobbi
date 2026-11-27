@@ -9,6 +9,8 @@ final class Native {
 
     private static native void nativeOnPermission();
 
+    private static native void nativeOnMicPermission(boolean granted);
+
     private static native void nativeOnPicked(String paths);
 
     private static native void nativeOnToken(String token);
@@ -80,6 +82,16 @@ final class Native {
             nativeOnPicked(String.join("\n", paths));
         } catch (UnsatisfiedLinkError e) {
             Log.w("Gnobbi", "pick not delivered to the engine: native side unavailable");
+        }
+    }
+
+    /** The answer to the RECORD_AUDIO prompt raised by the first tap on the microphone. */
+    static void onMicPermission(boolean granted) {
+        try {
+            System.loadLibrary("gnobbi");
+            nativeOnMicPermission(granted);
+        } catch (UnsatisfiedLinkError e) {
+            Log.w("Gnobbi", "mic permission not delivered to the engine: native side unavailable");
         }
     }
 }

@@ -772,6 +772,11 @@ impl Session {
             self.start_recording(thread, ctx);
             changed = true;
         }
+        if self.mic_pending.is_some() && let Some(error) = matrix_desktop::voice_recorder::permission_denied() {
+            self.mic_pending = None;
+            self.notice = Some(error.to_owned());
+            changed = true;
+        }
         changed |= self.drive_media(ctx);
         changed |= self.drive_stickers();
         changed |= self.drive_avatars(ctx);
@@ -2648,6 +2653,8 @@ impl Session {
     /// One microphone: a second start (the other composer) while a note is being recorded does nothing.
     pub fn start_recording(&mut self, thread: bool, ctx: &egui::Context) {
         if self.recorder.is_some() { return; }
+        #[cfg(target_os = "android")]
+        if !crate::pick::mic_allowed() { return self.mic_pending = Some(thread); } // first tap: the prompt is up; poll() answers
         match matrix_desktop::voice_recorder::Recorder::start(self.upload_limit.unwrap_or(50 << 20), { let ctx = ctx.clone(); move || ctx.request_repaint() }) {
             Ok(recorder) => {
                 self.record_thread = thread;
