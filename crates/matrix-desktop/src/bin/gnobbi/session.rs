@@ -882,6 +882,7 @@ impl Session {
                     changed = true;
                     if let (Some(p), Some(id)) = (self.media.take_preview(), self.media.event().cloned()) {
                         let image = egui::ColorImage::from_rgba_unmultiplied([p.width as usize, p.height as usize], &p.rgba);
+                        // shortcut: no cap on thumbnails, freed only on room change (as in the chat); cap when long grids show memory growth.
                         self.pictures.insert(id.clone(), ctx.load_texture(id.as_str(), image, Default::default()));
                         if let Some(frames) = p.anim { crate::animation::insert(id.as_str().to_owned(), frames); }
                     }
@@ -2041,7 +2042,7 @@ impl Session {
 
     /// The viewer is near the oldest loaded picture: the chat may load an older page.
     fn viewer_wants_older(&self) -> bool {
-        self.viewer_pages < VIEWER_PAGES && self.viewer.as_ref().is_some_and(|v| v.near_start(&self.viewer_items()))
+        viewer_asks_older(self.viewer_shared, self.viewer_pages, self.viewer.as_ref().map(|v| (v, self.viewer_items())))
     }
 
     /// Test hook: the first picture of the loaded chat.
@@ -2566,6 +2567,20 @@ fn settle_chat_card<T>(chat: Option<bool>, card: Option<T>, info: bool, other_pa
         Some(was) if card.is_none() => (None, None, was),
         Some(_) => (chat, card, info),
     }
+}
+
+/// The viewer on the chat's first pictures asks for older history; on the shared-media grid never (the grid has its own passes).
+fn viewer_asks_older(shared: bool, pages: u8, viewer: Option<(&crate::viewer::Viewer, Vec<crate::viewer::Item>)>) -> bool {
+    !shared && pages < VIEWER_PAGES && viewer.is_some_and(|(v, items)| v.near_start(&items))
+}
+
+#[test]
+fn the_viewer_opened_from_the_shared_grid_never_pages_the_chat() {
+    let item = |id: &str| crate::viewer::Item { id: EventId::new(id), video: false, name: String::new() };
+    let items = vec![item("$new"), item("$b"), item("$old")];
+    let viewer = crate::viewer::Viewer::new(EventId::new("$new"), false, String::new());
+    assert!(viewer_asks_older(false, 0, Some((&viewer, items.clone()))), "chat: first picture asks");
+    assert!(!viewer_asks_older(true, 0, Some((&viewer, items))), "grid: first picture does not");
 }
 
 #[test]

@@ -112,3 +112,12 @@ async fn a_pass_ends_with_the_room_and_stops_early_when_it_has_enough() {
 async fn a_failed_page_fails_the_pass() {
     assert!(pass(SharedTab::Media, None, |_| async { Err(()) }).await.is_err());
 }
+
+#[test]
+fn link_text_is_cut_on_a_char_boundary() {
+    let body = format!("https://example.org/x {}", "è".repeat(5000));
+    let item = classify(SharedTab::Links, &msg("$l", json!({"msgtype":"m.text","body":body}))).unwrap();
+    assert_eq!(item.name.chars().count(), 200);
+    assert!(body.starts_with(&item.name));
+    assert_eq!(item.url.as_deref(), Some("https://example.org/x"));
+}

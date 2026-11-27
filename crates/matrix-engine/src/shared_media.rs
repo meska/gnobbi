@@ -26,7 +26,12 @@ fn is_edit(event: &Value) -> bool {
     event["content"]["m.relates_to"]["rel_type"] == "m.replace"
 }
 
-/// The first web address in `body` (`http(s)://`, without the punctuation around it).
+/// Characters of a message kept on the Links tab: the rest is never shown and a body can be 64 KB.
+const LINK_TEXT_CHARS: usize = 200;
+
+/// The first web address in `body`. Not `matrix_desktop::links::message_links`: that one decides what is clickable in the chat, this
+/// one what the Links tab lists, so edge cases (`http://a`, a trailing parenthesis) can differ. shortcut: unaligned, align if reported.
+/// (`http(s)://`, without the punctuation around it).
 fn first_url(body: &str) -> Option<&str> {
     body.split_whitespace()
         .map(|w| w.trim_matches(|c: char| "()[]<>\"'.,;!".contains(c)))
@@ -50,7 +55,7 @@ pub fn classify(tab: SharedTab, event: &Value) -> Option<SharedItem> {
         (SharedTab::Files, "m.file") => (SharedKind::File, None, None),
         // A voice note is a message, not a file.
         (SharedTab::Files, "m.audio") if content.get("org.matrix.msc3245.voice").is_none() => (SharedKind::File, None, None),
-        (SharedTab::Links, "m.text" | "m.notice" | "m.emote") => (SharedKind::Link, Some(body.to_owned()), Some(first_url(body)?.to_owned())),
+        (SharedTab::Links, "m.text" | "m.notice" | "m.emote") => (SharedKind::Link, Some(body.chars().take(LINK_TEXT_CHARS).collect()), Some(first_url(body)?.to_owned())),
         _ => return None,
     };
     // With a `filename` the body is the caption (MSC2530).
@@ -145,6 +150,7 @@ impl SharedMedia {
         tx.send_replace(loading);
         self.task = Some(tokio::spawn(async move {
             let Some(room) = client.get_room(&room_id) else {
+                eprintln!("Gnobbi: shared media: room not found");
                 let failed = state(&paging.lock().unwrap(), MoreHits::Failed);
                 tx.send_replace(failed);
                 return;
@@ -159,7 +165,7 @@ impl SharedMedia {
                     options.from = from;
                     options.limit = PAGE_EVENTS.into();
                     options.filter = filter(tab, encrypted);
-                    let page = room.messages(options).await.map_err(|_| ())?;
+                    let page = room.messages(options).await.map_err(|e| eprintln!("Gnobbi: shared media: page failed: {}", error_kind(&e)))?;
                     let events = page.chunk.iter().filter_map(|e| serde_json::from_str(e.raw().json().get()).ok()).collect();
                     Ok((events, page.end))
                 }
@@ -196,5 +202,15 @@ async fn name_senders(room: &matrix_sdk::Room, items: &mut [SharedItem]) {
             Err(_) => None,
         };
         item.sender_name = member.and_then(|m| m.display_name().map(str::to_owned)).unwrap_or_else(|| item.sender.clone());
+    }
+}
+
+/// The kind of an error, never its text: that can carry a room ID, a URL or a name.
+fn error_kind(e: &matrix_sdk::Error) -> &'static str {
+    match e {
+        matrix_sdk::Error::Http(_) => "http",
+        matrix_sdk::Error::DecryptorError(_) => "decryption",
+        matrix_sdk::Error::StateStore(_) | matrix_sdk::Error::EventCacheStore(_) => "store",
+        _ => "other",
     }
 }
