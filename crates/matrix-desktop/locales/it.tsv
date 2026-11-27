@@ -574,7 +574,8 @@ menu	Bring All to Front	Porta tutto in primo piano
 	Credentials not accepted. Try again.	Credenziali non accettate. Riprova.
 	Too many attempts: try again in a moment.	Troppi tentativi: riprova tra qualche istante.
 	Sign-in/unlock failed. Check the credentials and try again.	Accesso/sblocco non riuscito. Controlla le credenziali e riprova.
-	System keychain unavailable or locked. Unlock it and try again.	Portachiavi di sistema non disponibile o bloccato. Sbloccalo e riprova.
+	System keychain is locked. Unlock it and try again.	Portachiavi di sistema bloccato. Sbloccalo e riprova.
+	System keychain unavailable.	Portachiavi di sistema non disponibile.
 	A key for this profile already exists in the system keychain. The profile was not changed.	Esiste già una chiave per questo profilo nel portachiavi di sistema. Il profilo non è stato modificato.
 	The profile key is not in the system keychain.	La chiave del profilo non è nel portachiavi di sistema.
 	The profile key in the system keychain is not valid.	La chiave del profilo nel portachiavi di sistema non è valida.

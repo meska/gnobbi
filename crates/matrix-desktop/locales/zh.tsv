@@ -524,7 +524,8 @@ menu	Bring All to Front	全部置于前面
 	Credentials not accepted. Try again.	凭据未被接受。请重试。
 	Too many attempts: try again in a moment.	尝试次数过多：请稍后再试。
 	Sign-in/unlock failed. Check the credentials and try again.	登录/解锁失败。请检查凭据后重试。
-	System keychain unavailable or locked. Unlock it and try again.	系统钥匙串不可用或已锁定。请解锁后重试。
+	System keychain is locked. Unlock it and try again.	系统钥匙串已锁定。请解锁后重试。
+	System keychain unavailable.	系统钥匙串不可用。
 	A key for this profile already exists in the system keychain. The profile was not changed.	系统钥匙串中已存在该配置文件的密钥。配置文件未被更改。
 	The profile key is not in the system keychain.	系统钥匙串中没有该配置文件的密钥。
 	The profile key in the system keychain is not valid.	系统钥匙串中该配置文件的密钥无效。

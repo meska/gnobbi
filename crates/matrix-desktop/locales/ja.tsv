@@ -484,7 +484,8 @@ menu	Bring All to Front	すべてを手前に移動
 	Credentials not accepted. Try again.	認証情報が受け付けられませんでした。もう一度お試しください。
 	Too many attempts: try again in a moment.	試行回数が多すぎます。しばらくしてからもう一度お試しください。
 	Sign-in/unlock failed. Check the credentials and try again.	サインイン/ロック解除に失敗しました。認証情報を確認してもう一度お試しください。
-	System keychain unavailable or locked. Unlock it and try again.	システムのキーチェーンが利用できないか、ロックされています。ロックを解除してもう一度お試しください。
+	System keychain is locked. Unlock it and try again.	システムのキーチェーンがロックされています。ロックを解除してもう一度お試しください。
+	System keychain unavailable.	システムのキーチェーンが利用できません。
 	A key for this profile already exists in the system keychain. The profile was not changed.	このプロフィールのキーはすでにシステムのキーチェーンにあります。プロフィールは変更されていません。
 	The profile key is not in the system keychain.	プロフィールキーがシステムのキーチェーンにありません。
 	The profile key in the system keychain is not valid.	システムのキーチェーンにあるプロフィールキーは無効です。

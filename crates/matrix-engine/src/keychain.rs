@@ -30,18 +30,39 @@ fn classify(error: &security_framework::base::Error) -> VaultError {
 
 #[cfg(target_os = "macos")]
 /// The login Keychain as a profile protection source.
-pub struct MacKeychain;
+#[derive(Default)]
+pub struct MacKeychain {
+    /// None = the user's default (login) Keychain.
+    keychain: Option<SecKeychain>,
+}
+#[cfg(target_os = "macos")]
+impl MacKeychain {
+    /// Same contract against an explicit Keychain file (disposable test keychains).
+    pub fn in_keychain(keychain: SecKeychain) -> Self {
+        Self {
+            keychain: Some(keychain),
+        }
+    }
+
+    fn keychain<'a>(&self, store: &'a AccountStore) -> Keychain<'a> {
+        Keychain {
+            store,
+            keychain: self.keychain.clone(),
+        }
+    }
+}
 #[cfg(target_os = "macos")]
 impl ProtectionSource for MacKeychain {
     /// An item left by an earlier install (the Keychain outlives the app) makes the id unusable.
     fn available(&self, path: &std::path::Path) -> Result<bool, VaultError> {
-        Keychain::item_exists(None, path.to_str().ok_or(VaultError::Unavailable)?).map(|exists| !exists)
+        let account = path.to_str().ok_or(VaultError::Unavailable)?;
+        Keychain::item_exists(self.keychain.clone(), account).map(|exists| !exists)
     }
     fn create(&self, store: &AccountStore) -> Result<Secret, VaultError> {
-        Keychain::new(store).create()
+        self.keychain(store).create()
     }
     fn read(&self, store: &AccountStore) -> Result<Secret, VaultError> {
-        Keychain::new(store).read()
+        self.keychain(store).read()
     }
 }
 
@@ -81,15 +102,18 @@ impl<'a> Keychain<'a> {
         self.store.path.to_str().ok_or(VaultError::Unavailable)
     }
 
-    /// Whether an item exists for this account (never reads the secret).
+    /// Whether an item exists for this account. Attributes-only search: the secret is not
+    /// loaded, so an item written by another signature (foreign ACL) is still seen.
     pub(crate) fn item_exists(keychain: Option<SecKeychain>, account: &str) -> Result<bool, VaultError> {
+        use security_framework::item::{ItemClass, ItemSearchOptions};
         let _no_prompt = SecKeychain::disable_user_interaction().map_err(|e| classify(&e))?;
-        let keychain = match keychain {
-            Some(k) => k,
-            None => SecKeychain::default().map_err(|e| classify(&e))?,
-        };
-        match keychain.find_generic_password(SERVICE, account) {
-            Ok(_) => Ok(true),
+        let mut search = ItemSearchOptions::new();
+        search.class(ItemClass::generic_password()).service(SERVICE).account(account).load_data(false);
+        if let Some(k) = &keychain {
+            search.keychains(std::slice::from_ref(k));
+        }
+        match search.search() {
+            Ok(items) => Ok(!items.is_empty()),
             Err(e) => match classify(&e) {
                 VaultError::Missing => Ok(false),
                 other => Err(other),

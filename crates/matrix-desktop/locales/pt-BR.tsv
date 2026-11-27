@@ -485,7 +485,8 @@ menu	Bring All to Front	Trazer tudo para a frente
 	Credentials not accepted. Try again.	Credenciais não aceitas. Tente de novo.
 	Too many attempts: try again in a moment.	Muitas tentativas: tente de novo em instantes.
 	Sign-in/unlock failed. Check the credentials and try again.	Falha ao entrar/desbloquear. Confira as credenciais e tente de novo.
-	System keychain unavailable or locked. Unlock it and try again.	Chaveiro do sistema indisponível ou bloqueado. Desbloqueie e tente de novo.
+	System keychain is locked. Unlock it and try again.	Chaveiro do sistema bloqueado. Desbloqueie e tente de novo.
+	System keychain unavailable.	Chaveiro do sistema indisponível.
 	A key for this profile already exists in the system keychain. The profile was not changed.	Já existe uma chave para este perfil no chaveiro do sistema. O perfil não foi alterado.
 	The profile key is not in the system keychain.	A chave do perfil não está no chaveiro do sistema.
 	The profile key in the system keychain is not valid.	A chave do perfil no chaveiro do sistema não é válida.

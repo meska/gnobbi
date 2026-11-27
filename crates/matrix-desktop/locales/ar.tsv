@@ -482,7 +482,8 @@ menu	Bring All to Front	إحضار الكل إلى المقدمة
 	Credentials not accepted. Try again.	لم تُقبل بيانات الاعتماد. حاول مجددًا.
 	Too many attempts: try again in a moment.	محاولات كثيرة جدًا: حاول مجددًا بعد قليل.
 	Sign-in/unlock failed. Check the credentials and try again.	فشل تسجيل الدخول أو فتح القفل. تحقق من البيانات وحاول مجددًا.
-	System keychain unavailable or locked. Unlock it and try again.	سلسلة مفاتيح النظام غير متاحة أو مقفلة. افتحها وحاول مجددًا.
+	System keychain is locked. Unlock it and try again.	سلسلة مفاتيح النظام مقفلة. افتحها وحاول مجددًا.
+	System keychain unavailable.	سلسلة مفاتيح النظام غير متاحة.
 	A key for this profile already exists in the system keychain. The profile was not changed.	يوجد بالفعل مفتاح لهذا الملف الشخصي في سلسلة مفاتيح النظام. لم يتغير الملف الشخصي.
 	The profile key is not in the system keychain.	مفتاح الملف الشخصي غير موجود في سلسلة مفاتيح النظام.
 	The profile key in the system keychain is not valid.	مفتاح الملف الشخصي في سلسلة مفاتيح النظام غير صالح.

@@ -118,10 +118,11 @@ impl FormStatus {
             Authentication(_) => {
                 t("Sign-in/unlock failed. Check the credentials and try again.")
             }
-            Vault(Unavailable | Locked) => {
-                t("System keychain unavailable or locked. Unlock it and try again.")
+            Vault(Locked) => t("System keychain is locked. Unlock it and try again."),
+            Vault(Unavailable) => t("System keychain unavailable."),
+            Vault(AlreadyExists) => {
+                t("A key for this profile already exists in the system keychain. The profile was not changed.")
             }
-            Vault(AlreadyExists) => t("A key for this profile already exists in the system keychain. The profile was not changed."),
             Vault(Missing) => t("The profile key is not in the system keychain."),
             Vault(InvalidItem) => t("The profile key in the system keychain is not valid."),
             ProfileBusy => t("Profile already open in another instance. Close it and restart."),
@@ -424,18 +425,11 @@ mod classification_tests {
     #[test]
     fn each_vault_failure_has_its_own_message() {
         use matrix_engine::signin::VaultError as V;
-        let all = [V::Unavailable, V::Locked, V::AlreadyExists, V::Missing, V::InvalidItem];
-        assert_eq!(message(E::Vault(V::Locked)), message(E::Vault(V::Unavailable)));
-        let texts: std::collections::HashSet<_> = [V::Unavailable, V::AlreadyExists, V::Missing, V::InvalidItem]
+        let texts: std::collections::HashSet<_> = [V::Unavailable, V::Locked, V::AlreadyExists, V::Missing, V::InvalidItem]
             .into_iter()
             .map(|v| message(E::Vault(v)).unwrap())
             .collect();
-        assert_eq!(texts.len(), 4);
-        assert_eq!(
-            message(E::Vault(V::AlreadyExists)),
-            Some(t("A key for this profile already exists in the system keychain. The profile was not changed."))
-        );
-        assert!(all.iter().all(|v| message(E::Vault(*v)).is_some()));
+        assert_eq!(texts.len(), 5);
     }
 
     #[test]

@@ -485,7 +485,8 @@ menu	Bring All to Front	Összes előtérbe hozása
 	Credentials not accepted. Try again.	A hitelesítő adatok nem elfogadottak. Próbáld újra.
 	Too many attempts: try again in a moment.	Túl sok próbálkozás: próbáld újra egy kis idő múlva.
 	Sign-in/unlock failed. Check the credentials and try again.	A bejelentkezés/feloldás sikertelen. Ellenőrizd az adatokat, és próbáld újra.
-	System keychain unavailable or locked. Unlock it and try again.	A rendszer kulcstartója nem érhető el, vagy zárolva van. Told fel, és próbáld újra.
+	System keychain is locked. Unlock it and try again.	A rendszer kulcstartója zárolva van. Told fel, és próbáld újra.
+	System keychain unavailable.	A rendszer kulcstartója nem érhető el.
 	A key for this profile already exists in the system keychain. The profile was not changed.	Ehhez a profilhoz már van kulcs a rendszer kulcstartójában. A profil nem változott.
 	The profile key is not in the system keychain.	A profil kulcsa nincs a rendszer kulcstartójában.
 	The profile key in the system keychain is not valid.	A profil kulcsa a rendszer kulcstartójában érvénytelen.

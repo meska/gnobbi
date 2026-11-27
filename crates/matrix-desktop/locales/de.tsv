@@ -524,7 +524,8 @@ menu	Bring All to Front	Alle nach vorne bringen
 	Credentials not accepted. Try again.	Zugangsdaten nicht akzeptiert. Versuche es erneut.
 	Too many attempts: try again in a moment.	Zu viele Versuche: versuche es gleich noch einmal.
 	Sign-in/unlock failed. Check the credentials and try again.	Anmeldung/Entsperren fehlgeschlagen. Prüfe die Zugangsdaten und versuche es erneut.
-	System keychain unavailable or locked. Unlock it and try again.	System-Schlüsselbund nicht verfügbar oder gesperrt. Entsperre ihn und versuche es erneut.
+	System keychain is locked. Unlock it and try again.	System-Schlüsselbund ist gesperrt. Entsperre ihn und versuche es erneut.
+	System keychain unavailable.	System-Schlüsselbund nicht verfügbar.
 	A key for this profile already exists in the system keychain. The profile was not changed.	Für dieses Profil gibt es im System-Schlüsselbund bereits einen Schlüssel. Das Profil wurde nicht geändert.
 	The profile key is not in the system keychain.	Der Profilschlüssel ist nicht im System-Schlüsselbund.
 	The profile key in the system keychain is not valid.	Der Profilschlüssel im System-Schlüsselbund ist ungültig.

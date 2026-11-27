@@ -486,7 +486,7 @@ pub fn platform_source() -> Option<Box<dyn ProtectionSource + Send + Sync>> {
     #[cfg(all(feature = "linux-vault", target_os = "linux"))]
     return Some(Box::new(crate::vault::SecretService));
     #[cfg(all(feature = "mac-vault", target_os = "macos"))]
-    return Some(Box::new(crate::keychain::MacKeychain));
+    return Some(Box::new(crate::keychain::MacKeychain::default()));
     #[cfg(all(feature = "ios-vault", target_os = "ios"))]
     return Some(Box::new(crate::keychain::IosKeychain));
     #[cfg(all(feature = "android-vault", target_os = "android"))]
@@ -1146,6 +1146,7 @@ mod pick_account_tests {
         assert_eq!(pick(vec![1], None), Ok(AccountId::new(2)));
         assert_eq!(pick(vec![1, 2], None), Ok(AccountId::new(3)));
         assert_eq!(pick((1..=128).collect(), None), Err(SignInError::AttemptLimit));
+        // shortcut: a fixed id with an orphan reports AttemptLimit; no caller fixes an id yet, give it its own error when one does.
         assert_eq!(pick(vec![5], Some(AccountId::new(5))), Err(SignInError::AttemptLimit));
     }
 }

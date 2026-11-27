@@ -524,7 +524,8 @@ menu	Bring All to Front	Все окна — на передний план
 	Credentials not accepted. Try again.	Учётные данные не приняты. Попробуйте ещё раз.
 	Too many attempts: try again in a moment.	Слишком много попыток: повторите через минуту.
 	Sign-in/unlock failed. Check the credentials and try again.	Не удалось войти или разблокировать. Проверьте данные и попробуйте ещё раз.
-	System keychain unavailable or locked. Unlock it and try again.	Системная связка ключей недоступна или заблокирована. Разблокируйте её и попробуйте ещё раз.
+	System keychain is locked. Unlock it and try again.	Системная связка ключей заблокирована. Разблокируйте её и попробуйте ещё раз.
+	System keychain unavailable.	Системная связка ключей недоступна.
 	A key for this profile already exists in the system keychain. The profile was not changed.	Ключ для этого профиля уже есть в системной связке ключей. Профиль не изменён.
 	The profile key is not in the system keychain.	Ключа профиля нет в системной связке ключей.
 	The profile key in the system keychain is not valid.	Ключ профиля в системной связке ключей недействителен.

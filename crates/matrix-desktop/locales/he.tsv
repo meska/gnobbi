@@ -482,7 +482,8 @@ menu	Bring All to Front	העברת הכול לחזית
 	Credentials not accepted. Try again.	פרטי ההתחברות לא התקבלו. יש לנסות שוב.
 	Too many attempts: try again in a moment.	יותר מדי ניסיונות: יש לנסות שוב בעוד רגע.
 	Sign-in/unlock failed. Check the credentials and try again.	הכניסה או ביטול הנעילה נכשלו. יש לבדוק את הפרטים ולנסות שוב.
-	System keychain unavailable or locked. Unlock it and try again.	צרור המפתחות של המערכת אינו זמין או נעול. יש לבטל את נעילתו ולנסות שוב.
+	System keychain is locked. Unlock it and try again.	צרור המפתחות של המערכת נעול. יש לבטל את נעילתו ולנסות שוב.
+	System keychain unavailable.	צרור המפתחות של המערכת אינו זמין.
 	A key for this profile already exists in the system keychain. The profile was not changed.	כבר קיים מפתח לפרופיל הזה בצרור המפתחות של המערכת. הפרופיל לא שונה.
 	The profile key is not in the system keychain.	מפתח הפרופיל אינו בצרור המפתחות של המערכת.
 	The profile key in the system keychain is not valid.	מפתח הפרופיל בצרור המפתחות של המערכת אינו תקין.

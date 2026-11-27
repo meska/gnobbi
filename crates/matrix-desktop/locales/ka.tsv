@@ -524,7 +524,8 @@ menu	Bring All to Front	ყველა წინ
 	Credentials not accepted. Try again.	მონაცემები არ მიიღეს. სცადეთ ხელახლა.
 	Too many attempts: try again in a moment.	ძალიან ბევრი მცდელობა: სცადეთ ცოტა ხანში.
 	Sign-in/unlock failed. Check the credentials and try again.	შესვლა/განბლოკვა ვერ მოხერხდა. შეამოწმეთ მონაცემები და სცადეთ ხელახლა.
-	System keychain unavailable or locked. Unlock it and try again.	სისტემური Keychain მიუწვდომელია ან დაბლოკილია. განბლოკეთ და სცადეთ ხელახლა.
+	System keychain is locked. Unlock it and try again.	სისტემური Keychain დაბლოკილია. განბლოკეთ და სცადეთ ხელახლა.
+	System keychain unavailable.	სისტემური Keychain მიუწვდომელია.
 	A key for this profile already exists in the system keychain. The profile was not changed.	ამ პროფილის გასაღები სისტემურ Keychain-ში უკვე არსებობს. პროფილი არ შეცვლილა.
 	The profile key is not in the system keychain.	პროფილის გასაღები სისტემურ Keychain-ში არ არის.
 	The profile key in the system keychain is not valid.	პროფილის გასაღები სისტემურ Keychain-ში არასწორია.

@@ -484,7 +484,8 @@ menu	Bring All to Front	Przesuń wszystko na wierzch
 	Credentials not accepted. Try again.	Dane logowania nie zostały zaakceptowane. Spróbuj ponownie.
 	Too many attempts: try again in a moment.	Zbyt wiele prób: spróbuj ponownie za chwilę.
 	Sign-in/unlock failed. Check the credentials and try again.	Logowanie/odblokowanie nie powiodło się. Sprawdź dane logowania i spróbuj ponownie.
-	System keychain unavailable or locked. Unlock it and try again.	Systemowy pęk kluczy niedostępny lub zablokowany. Odblokuj go i spróbuj ponownie.
+	System keychain is locked. Unlock it and try again.	Systemowy pęk kluczy jest zablokowany. Odblokuj go i spróbuj ponownie.
+	System keychain unavailable.	Systemowy pęk kluczy jest niedostępny.
 	A key for this profile already exists in the system keychain. The profile was not changed.	Klucz dla tego profilu już istnieje w systemowym pęku kluczy. Profil nie został zmieniony.
 	The profile key is not in the system keychain.	Klucza profilu nie ma w systemowym pęku kluczy.
 	The profile key in the system keychain is not valid.	Klucz profilu w systemowym pęku kluczy jest nieprawidłowy.
