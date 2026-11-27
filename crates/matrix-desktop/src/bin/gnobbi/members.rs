@@ -587,12 +587,15 @@ mod tests {
     fn touch_that_catches_a_fling_opens_no_profile() {
         let mut f = Finger::new();
         let from = egui::pos2(100., 300.);
+        f.touch(egui::TouchPhase::Start, from, None); // hover first, as a real finger does
         f.touch(egui::TouchPhase::Start, from, Some(true));
         for k in 1..=8 { f.touch(egui::TouchPhase::Move, from - egui::vec2(0., 30. * k as f32), None); }
         f.touch(egui::TouchPhase::End, from - egui::vec2(0., 240.), Some(false));
-        f.frame(vec![]); // the list is still flinging
-        let q = egui::pos2(100., 100.);
+        f.frame(vec![egui::Event::PointerGone]);
+        let q = egui::pos2(100., 150.);
         assert!(f.tap(q, 0.).is_none(), "the finger that stops the fling is not a tap");
+        for _ in 0..300 { f.frame(vec![]); } // the fling dies out
+        assert!(matches!(f.tap(q, 0.), Some(Act::Profile(_))), "the same tap on a still list opens the profile");
     }
 
     #[test]
