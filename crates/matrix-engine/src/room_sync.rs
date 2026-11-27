@@ -430,6 +430,9 @@ impl RoomListWorker {
                         // Message search of the open room: one instance, replaced when the room changes.
                         let mut messages: Option<(RoomScope, crate::message_search::MessageSearch)> = None;
                         let mut messages_rx: Option<tokio::sync::watch::Receiver<crate::operations::MessageSearchState>> = None;
+                        // Shared media of the open room: one instance, replaced when the room or the tab changes.
+                        let mut shared: Option<(RoomScope, crate::operations::SharedTab, crate::shared_media::SharedMedia)> = None;
+                        let mut shared_rx: Option<tokio::sync::watch::Receiver<crate::operations::SharedState>> = None;
                         // Message search of all rooms (room list): one instance for the account's life.
                         let mut everywhere = crate::message_search::MessageSearch::everywhere(operation_client.clone());
                         let mut everywhere_rx = everywhere.subscribe();
@@ -492,6 +495,23 @@ impl RoomListWorker {
                                         let sent = until_stopped(
                                             &operation_stop,
                                             operation_results.send(OperationResult::MessageSearch { scope: scope.clone(), state }),
+                                        )
+                                        .await;
+                                        clean &= matches!(sent, Some(Ok(())) | None);
+                                    }
+                                    continue;
+                                }
+                                Some(()) = async {
+                                    match &mut shared_rx {
+                                        Some(rx) => rx.changed().await.ok(),
+                                        None => std::future::pending().await,
+                                    }
+                                } => {
+                                    let state = shared_rx.as_mut().unwrap().borrow_and_update().clone();
+                                    if let Some((scope, tab, _)) = &shared {
+                                        let sent = until_stopped(
+                                            &operation_stop,
+                                            operation_results.send(OperationResult::SharedMedia { scope: scope.clone(), tab: *tab, state }),
                                         )
                                         .await;
                                         clean &= matches!(sent, Some(Ok(())) | None);
@@ -567,6 +587,21 @@ impl RoomListWorker {
                                     }
                                     if let Some((_, m)) = &mut messages {
                                         m.set_query(&term);
+                                    }
+                                    continue;
+                                }
+                                OperationCommand::SharedMedia { scope, tab } => {
+                                    // A scope of another account or an unparsable room closes it, as does no tab.
+                                    shared = tab
+                                        .filter(|_| scope.account_id == account)
+                                        .zip(matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).ok())
+                                        .map(|(tab, id)| (scope.clone(), tab, crate::shared_media::SharedMedia::open(operation_client.clone(), id, tab)));
+                                    shared_rx = shared.as_ref().map(|(_, _, m)| m.subscribe());
+                                    continue;
+                                }
+                                OperationCommand::MoreSharedMedia => {
+                                    if let Some((_, _, m)) = &mut shared {
+                                        m.more();
                                     }
                                     continue;
                                 }

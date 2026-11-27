@@ -40,6 +40,8 @@ pub mod message_search;
 #[cfg(feature = "sdk")]
 pub mod search_index;
 #[cfg(feature = "sdk")]
+pub mod shared_media;
+#[cfg(feature = "sdk")]
 pub mod notify;
 #[cfg(feature = "sdk")]
 pub mod push;

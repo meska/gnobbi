@@ -134,5 +134,9 @@ name = "global_search_qa"
 required-features = ["sdk"]
 
 [[test]]
+name = "shared_media_qa"
+required-features = ["sdk"]
+
+[[test]]
 name = "recovery_later"
 required-features = ["sdk"]

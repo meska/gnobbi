@@ -7,7 +7,7 @@ use matrix_desktop::{AppDirs, DemoHistory, FormStatus, HistorySession, LiveMedia
 use matrix_domain::{EventId, TimelineId};
 use matrix_engine::history::MediaKind;
 use matrix_engine::media::{MediaCommand, MediaEvent};
-use matrix_engine::operations::{Operation, OperationCommand, OperationResult};
+use matrix_engine::operations::{MoreHits, Operation, OperationCommand, OperationResult, SharedTab};
 use matrix_engine::{
     Receiver, RoomListEvent, RoomSyncStatus,
     room_sync::RoomListWorker,
@@ -175,6 +175,10 @@ pub struct Session {
     roles_stale: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    /// «Media, files and links» open inside the Info panel.
+    pub shared: Option<crate::shared::State>,
+    /// The open viewer steps through the shared media list, not through the chat.
+    viewer_shared: bool,
     /// The voice note being played; dropping the output stops the sound.
     audio: Option<(EventId, matrix_desktop::audio_player::AudioOutput)>,
     /// Waveform of the decoded note in `audio`: what the bubble draws when the sender sent none.
@@ -404,6 +408,8 @@ impl Session {
             roles_stale: None,
             upload_limit: None,
             info_open: false,
+            shared: None,
+            viewer_shared: false,
             audio: None,
             audio_wave: Vec::new(),
             uploads: Vec::new(),
@@ -803,6 +809,12 @@ impl Session {
                     wanted.push(id.clone());
                 }
             }
+            // The grid's pictures on screen come first.
+            if let Some(shared) = self.shared.as_ref().filter(|s| s.tab == SharedTab::Media) {
+                let on_screen: Vec<_> = shared.visible.iter().filter(|id| !self.pictures.contains_key(*id)).cloned().collect();
+                videos.extend(shared.items.iter().filter(|i| i.kind == matrix_engine::operations::SharedKind::Video).map(|i| EventId::new(&i.event_id)));
+                wanted.splice(0..0, on_screen);
+            }
             self.media.mark_videos(videos);
             self.media.next_inline(scope.clone(), wanted);
         }
@@ -937,6 +949,7 @@ impl Session {
             self.messages = Some(DemoHistory::new(request.tag.scope().clone(), 0));
             self.media.clear();
             self.viewer = None;
+            self.close_shared(request.tag.scope().clone());
             self.audio = None;
             self.pictures.clear();
             crate::animation::clear();
@@ -1160,6 +1173,9 @@ impl Session {
 
     /// Queues the members read and the message, user and room searches that follow the UI state.
     fn queue_lookups(&mut self) {
+        if !self.info_open && let Some(scope) = self.shared.as_ref().map(|s| s.scope.clone()) {
+            self.close_shared(scope);
+        }
         if self.op_pending.is_none()
             && let Some(scope) = &self.draft_scope
             && self.members_requested.as_ref() != Some(scope)
@@ -1607,6 +1623,13 @@ impl Session {
             }
             return changed;
         }
+        if let OperationResult::SharedMedia { scope, tab, state } = result {
+            if let Some(shared) = self.shared.as_mut().filter(|s| s.scope == scope && s.tab == tab) {
+                shared.set(state);
+                changed = true;
+            }
+            return changed;
+        }
         if let OperationResult::MessageSearch { scope, state } = result {
             let matches_term = match &state {
                 matrix_engine::operations::MessageSearchState::Idle => self.search_term.trim().len() < matrix_engine::message_match::MIN_CHARS,
@@ -1975,8 +1998,26 @@ impl Session {
         self.ops.clear_selection();
     }
 
+    /// The viewer on a picture of the shared media grid: it steps through that list.
+    pub fn open_shared_viewer(&mut self, id: EventId, video: bool, name: String) {
+        self.open_viewer(id, video, name);
+        self.viewer_shared = self.viewer.is_some();
+        self.shared_more_for_viewer();
+    }
+
+    /// The viewer reached the last pictures the grid has: one more pass is asked for (only when the viewer moves, so never in a loop).
+    fn shared_more_for_viewer(&mut self) {
+        let (Some(shared), Some(viewer)) = (&mut self.shared, &self.viewer) else { return };
+        let items = shared.viewer_items();
+        if self.viewer_shared && shared.more == MoreHits::Available && items.iter().position(|i| i.id == viewer.id).is_some_and(|at| at + 3 >= items.len()) {
+            shared.more = MoreHits::Loading;
+            self.op_queue.push(OperationCommand::MoreSharedMedia);
+        }
+    }
+
     pub fn open_viewer(&mut self, id: EventId, video: bool, name: String) {
         let Some(scope) = self.draft_scope.clone() else { return };
+        self.viewer_shared = false;
         self.media.cancel_original();
         self.viewer_pages = 0;
         if !video { self.media.request_original(scope, id.clone()); }
@@ -1985,6 +2026,9 @@ impl Session {
 
     /// The pictures and videos of the loaded chat, oldest first: what the viewer steps through.
     fn viewer_items(&self) -> Vec<crate::viewer::Item> {
+        if self.viewer_shared && let Some(shared) = &self.shared {
+            return shared.viewer_items();
+        }
         let Some(messages) = &self.messages else { return Vec::new() };
         messages.events().iter().filter(|e| !e.redacted && !e.status).filter_map(|e| match (&e.media, &e.id.id) {
             (Some(m), TimelineId::Server(id)) if matches!(m.kind, MediaKind::Image | MediaKind::Video) && m.label != "Sticker" => {
@@ -2017,6 +2061,7 @@ impl Session {
         self.viewer_pages = 0;
         if let Some(viewer) = &mut self.viewer { viewer.go(item); }
         if !item.video && let Some(scope) = self.draft_scope.clone() { self.media.request_original(scope, item.id.clone()); }
+        self.shared_more_for_viewer();
     }
 
     pub fn show_viewer(&mut self, ctx: &egui::Context) {
@@ -2043,6 +2088,29 @@ impl Session {
                 if let Some(scope) = self.draft_scope.clone() { viewer.failed = false; self.media.request_video(scope, viewer.id.clone()); }
             }
             crate::viewer::Action::None => {}
+        }
+    }
+
+    /// Opens «Media, files and links» of the open room (on its first tab, or on `tab`).
+    pub fn open_shared(&mut self, tab: SharedTab) {
+        let Some(scope) = self.draft_scope.clone() else { return };
+        self.op_queue.push(OperationCommand::SharedMedia { scope: scope.clone(), tab: Some(tab) });
+        self.shared = Some(crate::shared::State::new(scope, tab));
+    }
+
+    /// One more pass over older history for the open tab.
+    pub fn more_shared(&mut self) {
+        if let Some(shared) = self.shared.as_mut().filter(|s| matches!(s.more, MoreHits::Available | MoreHits::Failed)) {
+            shared.more = MoreHits::Loading;
+            self.op_queue.push(OperationCommand::MoreSharedMedia);
+        }
+    }
+
+    /// Closes it; the engine stops reading for it.
+    pub fn close_shared(&mut self, scope: matrix_domain::RoomScope) {
+        if self.shared.take().is_some() {
+            self.viewer_shared = false;
+            self.op_queue.push(OperationCommand::SharedMedia { scope, tab: None });
         }
     }
 

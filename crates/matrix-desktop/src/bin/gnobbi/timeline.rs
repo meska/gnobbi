@@ -573,7 +573,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     && !e.redacted
                 {
                     let transfer = acts.transfer.as_ref().filter(|(t, ..)| t == id).map(|(_, got, total)| (*got, total.or(e.attachment_size)));
-                    let card = crate::media_cards::file_card(ui, e, name, transfer, acts.saved.contains(id), t);
+                    let card = crate::media_cards::file_card(ui, e.attachment_size, name, transfer, acts.saved.contains(id), t);
                     if card.open { acts.open_file = Some((id.clone(), name.clone())); }
                     if card.reveal { acts.reveal_file = Some(id.clone()); }
                     save |= card.save;

@@ -341,6 +341,7 @@ impl LiveOperations {
             | OperationResult::StickerSent { .. }
             | OperationResult::StickerEdited { .. }
             | OperationResult::Members { .. }
+            | OperationResult::SharedMedia { .. }
             | OperationResult::MessageSearch { .. }
             | OperationResult::AllMessageSearch { .. }
             | OperationResult::UserSearch { .. } => false,

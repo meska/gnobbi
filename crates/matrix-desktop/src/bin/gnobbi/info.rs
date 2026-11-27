@@ -10,6 +10,8 @@ pub struct Out {
     pub member: Option<crate::members::Act>,
     pub open_link: Option<matrix_desktop::SafeWebUrl>,
     pub edit: bool,
+    /// «Media, files and links» was opened.
+    pub shared: bool,
 }
 
 pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, (status, hidden_status): (&mut matrix_desktop::StatusChoice, usize), avatars: &crate::avatar::Avatars, t: &DesignTokens) -> Out {
@@ -56,6 +58,14 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
                     ui.label(RichText::new(i18n::plural(hidden_status as u64, "{n} status message hidden", "{n} status messages hidden")).size(11.).color(rgb(t.secondary)));
                 }
             });
+        });
+        ui.add_space(8.);
+        ui.horizontal(|ui| {
+            ui.add_space(16.);
+            let width = (ui.available_width() - 16.).max(0.);
+            if ui.add_sized([width, crate::mobile::target(crate::metrics::button())], egui::Button::new(crate::icons::with_label(crate::icons::Icon::Paperclip, i18n::t("Media, files and links")))).clicked() {
+                out.shared = true;
+            }
         });
         let Some(members) = members else {
             ui.add_space(12.);

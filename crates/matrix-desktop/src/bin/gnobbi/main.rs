@@ -45,6 +45,7 @@ mod space;
 mod stickers;
 mod secret_clip;
 mod session;
+mod shared;
 mod suspend;
 mod settings;
 mod status_pill;
@@ -724,7 +725,9 @@ impl eframe::App for App {
                     else if session.menu.is_some() { session.close_menu(); }
                     else if session.thread.is_some() { session.thread = None; }
                     else if session.profile.is_some() { session.profile = None; }
-                    else if session.info_open { session.info_open = false; }
+                    else if session.info_open {
+                        if let Some(scope) = session.shared.as_ref().map(|s| s.scope.clone()) { session.close_shared(scope); } else { session.info_open = false; }
+                    }
                     else if session.search_open { session.search_open = false; }
                 }
             }
@@ -1190,6 +1193,11 @@ impl App {
                 // Test hook: the card of the first other member opened as a click on a sender in the chat does.
                 "chat-profile" if s.profile.is_none() && let Some(user) = s.members.as_ref().and_then(|(_, l)| l.iter().find(|m| m.user_id != s.user).map(|m| m.user_id.clone())) => s.open_profile_from_chat(user),
                 "search" => s.search_open = true,
+                // Test hook: «Media, files and links» (GNOBBI_EGUI_SHARED_TAB=files|links picks the tab) 30 s after the hook's own send, once it is in the room.
+                "shared" if s.shared.is_none() && self.hook_sent && self.hook_menu_at.is_some_and(|t| t.elapsed().as_secs() >= 30) => {
+                    s.info_open = true;
+                    s.open_shared(match matrix_desktop::hooks::var("GNOBBI_EGUI_SHARED_TAB").as_deref() { Ok("files") => matrix_engine::operations::SharedTab::Files, Ok("links") => matrix_engine::operations::SharedTab::Links, _ => matrix_engine::operations::SharedTab::Media });
+                }
                 // Test hook: GNOBBI_EGUI_TERM=<text> typed in the room list's field after GNOBBI_EGUI_TERM_AFTER seconds, so the index has filled (the messages of every room are searched for real).
                 "list-search" | "list-search-open" if s.query.is_empty() && self.shot.as_ref().is_some_and(|(_, t0)| t0.elapsed().as_secs() >= matrix_desktop::hooks::var("GNOBBI_EGUI_TERM_AFTER").ok().and_then(|v| v.parse().ok()).unwrap_or(0)) => {
                     s.query = matrix_desktop::hooks::var("GNOBBI_EGUI_TERM").unwrap_or_default();
@@ -1460,7 +1468,7 @@ impl App {
                 if self.list_open && room.is_some() && let Some(top) = side {
                     match top {
                         Side::Member => s.profile = None,
-                        Side::Info => s.info_open = false,
+                        Side::Info => if let Some(scope) = s.shared.as_ref().map(|x| x.scope.clone()) { s.close_shared(scope); } else { s.info_open = false; },
                         Side::Search => s.search_open = false,
                         Side::Thread => s.thread = None,
                     }
@@ -1600,6 +1608,10 @@ impl App {
 
     /// The room info panel (right).
     fn info_panel(&mut self, ui: &mut egui::Ui, t: &DesignTokens, single: bool, side: Option<Side>) {
+        if self.session.as_ref().is_some_and(|s| s.info_open && s.shared.is_some() && (!single || side == Some(Side::Info)) && s.sidebar.selected().is_some()) {
+            self.shared_panel(ui, t, single);
+            return;
+        }
         if let Some(s) = &self.session
             && s.info_open
             && (!single || side == Some(Side::Info))
@@ -1631,7 +1643,29 @@ impl App {
             if out.edit && let Some(s) = &mut self.session {
                 s.open_edit();
             }
+            if out.shared && let Some(s) = &mut self.session {
+                s.open_shared(matrix_engine::operations::SharedTab::Media);
+            }
         }
+    }
+
+    /// «Media, files and links» in place of the info panel.
+    fn shared_panel(&mut self, ui: &mut egui::Ui, t: &DesignTokens, single: bool) {
+        let Some(s) = &mut self.session else { return };
+        let Some(mut st) = s.shared.take() else { return };
+        let (transfer, scope, tab) = (s.transfer(), st.scope.clone(), st.tab);
+        let mut out = shared::Out::default();
+        let cols = shared::columns(single);
+        dir::panel_end("shared").exact_size(if single { ui.available_width() } else { 420. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| out = shared::show(ui, &mut st, &s.pictures, transfer, cols, t)));
+        s.shared = Some(st);
+        if out.back { s.close_shared(scope); return; }
+        if let Some(tab) = out.tab.filter(|n| *n != tab) { s.open_shared(tab); }
+        if let Some((id, video, name)) = out.picture { s.open_shared_viewer(id, video, name); }
+        if let Some((id, name)) = out.open { s.open_file(id, name); }
+        if let Some((id, name)) = out.save { s.save(id, &name); }
+        if out.cancel { s.cancel_transfer(); }
+        if out.more { s.more_shared(); }
+        if out.link.is_some() { self.pending_web = out.link; }
     }
 
     /// The member card panel (right).

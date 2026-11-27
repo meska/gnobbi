@@ -107,6 +107,47 @@ pub enum MessageSearchState {
     Error { term: String },
 }
 
+/// The tabs of «Media, file e link» of a room.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SharedTab {
+    Media,
+    Files,
+    Links,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SharedKind {
+    Image,
+    Video,
+    File,
+    Link,
+}
+
+/// One message of the shared-media tabs: an image, a video, a file, or a text with a link. Names and URLs are private.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SharedItem {
+    pub event_id: String,
+    pub kind: SharedKind,
+    pub sender: String,
+    /// Display name of the sender in the room, else the user ID.
+    pub sender_name: String,
+    /// `origin_server_ts` in ms.
+    pub ts: u64,
+    /// File name; the whole text of a link message.
+    pub name: String,
+    pub size: Option<u64>,
+    pub duration_ms: Option<u64>,
+    /// First web address of a link message.
+    pub url: Option<String>,
+}
+
+/// What a tab shows: the items found so far, newest first, and whether older ones can be asked for.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SharedState {
+    pub items: Vec<SharedItem>,
+    pub more: MoreHits,
+}
+
 /// Avatar of a new space: the image bytes and their MIME type, already read by the caller.
 #[derive(Clone, PartialEq, Eq)]
 pub struct SpaceAvatar {
@@ -236,6 +277,14 @@ pub enum OperationCommand {
     SearchAllMessages {
         term: String,
     },
+    /// Opens the shared media of one room on a tab (a tab change restarts it); `None` closes it. Answered with
+    /// `OperationResult::SharedMedia` as it progresses.
+    SharedMedia {
+        scope: RoomScope,
+        tab: Option<SharedTab>,
+    },
+    /// One more pass over the room's older history for the open tab.
+    MoreSharedMedia,
     /// Next page of the open message search.
     MoreMessages,
     /// Next page of the search of all rooms.
@@ -414,6 +463,11 @@ pub enum OperationResult {
     },
     StickerEdited {
         result: Result<(), OperationError>,
+    },
+    SharedMedia {
+        scope: RoomScope,
+        tab: SharedTab,
+        state: SharedState,
     },
     MessageSearch {
         scope: RoomScope,

@@ -167,6 +167,27 @@ fn cell(ui: &mut egui::Ui, rect: Rect, e: &DemoEvent, pictures: &Pictures, acts:
     }
 }
 
+/// One square cell of the shared-media grid: the thumbnail cropped to the centre (an empty tile while it loads), the play disc on a
+/// video. True when it was clicked.
+pub fn square_cell(ui: &mut egui::Ui, rect: Rect, tex: Option<&egui::TextureHandle>, video: Option<Option<&str>>, key: &str, t: &DesignTokens) -> bool {
+    let round = CornerRadius::same(6);
+    match tex {
+        Some(tex) => {
+            egui::Image::new(tex).uv(cover(tex.size_vec2(), rect.size())).fit_to_exact_size(rect.size()).corner_radius(round).paint_at(ui, rect);
+        }
+        None => {
+            ui.painter().rect_filled(rect, round, rgb(t.surface).gamma_multiply(0.8));
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+        }
+    }
+    if let Some(duration) = video {
+        play_badge(ui, rect, duration);
+    }
+    let resp = crate::metrics::clickable(ui.interact(rect, ui.id().with(("shared-cell", key)), egui::Sense::click()));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, i18n::t(if video.is_some() { "Video" } else { "Image" })));
+    crate::touch_list::tapped(&resp)
+}
+
 /// The album: its pictures and videos in a grid of `width`. Files of an album (sent with «Send as file») stay one card each.
 pub fn album(ui: &mut egui::Ui, items: &[DemoEvent], pictures: &Pictures, width: f32, acts: &mut Acts, t: &DesignTokens) {
     let aspects: Vec<f32> = items.iter().map(|e| aspect_of(e, pictures)).collect();
@@ -265,7 +286,7 @@ pub struct CardOut {
 
 /// The card of a file attachment: glyph, name, size or download progress, and Open / Save (Cancel while it downloads).
 /// `transfer` is `(received, declared total)` of the download of this very file now running.
-pub fn file_card(ui: &mut egui::Ui, e: &DemoEvent, name: &str, transfer: Option<(u64, Option<u64>)>, saved: bool, t: &DesignTokens) -> CardOut {
+pub fn file_card(ui: &mut egui::Ui, size: Option<u64>, name: &str, transfer: Option<(u64, Option<u64>)>, saved: bool, t: &DesignTokens) -> CardOut {
     let mut out = CardOut::default();
     let button = crate::mobile::target(0.);
     ui.horizontal(|ui| {
@@ -282,7 +303,7 @@ pub fn file_card(ui: &mut egui::Ui, e: &DemoEvent, name: &str, transfer: Option<
                     ui.label(RichText::new(progress_text(got, total)).size(11.).color(rgb(t.secondary)));
                 }
                 None => {
-                    ui.label(RichText::new(e.attachment_size.map_or_else(String::new, human_size)).size(11.).color(rgb(t.secondary)));
+                    ui.label(RichText::new(size.map_or_else(String::new, human_size)).size(11.).color(rgb(t.secondary)));
                 }
             }
         });
