@@ -181,6 +181,8 @@ pub struct Session {
     viewer_shared: bool,
     /// The voice note being played; dropping the output stops the sound.
     audio: Option<(EventId, matrix_desktop::audio_player::AudioOutput)>,
+    /// Click/drag on a note whose download is still running: applied when it lands.
+    audio_seek: Option<PendingSeek>,
     /// Waveform of the decoded note in `audio`: what the bubble draws when the sender sent none.
     audio_wave: Vec<f32>,
     /// Attachments going out, shown as cards with their progress until the server has them (or the user cancels).
@@ -411,6 +413,7 @@ impl Session {
             shared: None,
             viewer_shared: false,
             audio: None,
+            audio_seek: None,
             audio_wave: Vec::new(),
             uploads: Vec::new(),
             outgoing: Default::default(),
@@ -862,10 +865,12 @@ impl Session {
             }
         }
         if let Some((id, result)) = self.media.take_audio() {
+            let seek = PendingSeek::land(&mut self.audio_seek, &id);
             match result {
                 Ok(opened) => {
                     self.audio_wave = opened.waveform.clone();
-                    let player = matrix_desktop::audio_player::Player::new(opened.samples, opened.sample_rate);
+                    let mut player = matrix_desktop::audio_player::Player::new(opened.samples, opened.sample_rate);
+                    if let Some(seek) = seek { seek.apply(&mut player); }
                     match matrix_desktop::audio_player::AudioOutput::start(player) {
                         Ok(out) => self.audio = Some((id, out)),
                         Err(e) => self.notice = Some(e.to_owned()),
@@ -952,6 +957,7 @@ impl Session {
             self.viewer = None;
             self.close_shared(request.tag.scope().clone());
             self.audio = None;
+            self.audio_seek = None;
             self.pictures.clear();
             crate::animation::clear();
             self.members = None;
@@ -2530,15 +2536,23 @@ impl Session {
             out.player().lock().unwrap_or_else(|e| e.into_inner()).toggle();
         } else if let Some(scope) = self.draft_scope.clone() {
             self.audio = None;
+            if self.audio_seek.as_ref().is_some_and(|s| s.id != id) { self.audio_seek = None; }
             self.media.request_audio(scope, id);
         }
     }
 
-    /// Click or drag on a loaded note's waveform; `frac` is 0..=1 along it. A note not loaded yet is ignored.
+    /// Click or drag on a note's waveform; `frac` is 0..=1 along it. A note not loaded yet is downloaded
+    /// and the gesture waits for it (`audio_seek`); a release during the download plays from where it ended.
     pub fn scrub_audio(&mut self, id: &EventId, frac: f32, phase: crate::timeline::Scrub) {
         use crate::timeline::Scrub::*;
-        let Some((current, out)) = &self.audio else { return };
-        if current != id { return; }
+        if self.audio.as_ref().is_none_or(|(current, _)| current != id) {
+            if PendingSeek::track(&mut self.audio_seek, id, frac, phase) && let Some(scope) = self.draft_scope.clone() {
+                self.audio = None; // as play_audio does for another note
+                self.media.request_audio(scope, id.clone());
+            }
+            return;
+        }
+        let Some((_, out)) = &self.audio else { return };
         let player = out.player();
         let mut p = player.lock().unwrap_or_else(|e| e.into_inner());
         let secs = matrix_desktop::audio_player::x_to_secs(frac, 1., p.duration_ms() as f32 / 1000.);
@@ -2565,6 +2579,116 @@ impl Session {
         status
     }
 }
+
+/// A waveform gesture on a note that is still downloading.
+struct PendingSeek { id: EventId, frac: f32, held: bool }
+
+impl PendingSeek {
+    /// A gesture on a note that is not loaded. True: it begins a new one (the caller requests the download).
+    /// The tail (Move/End) of a gesture that was never tracked does nothing.
+    fn track(slot: &mut Option<Self>, id: &EventId, frac: f32, phase: crate::timeline::Scrub) -> bool {
+        use crate::timeline::Scrub::*;
+        if let Some(s) = slot.as_mut().filter(|s| s.id == *id) {
+            s.update(frac, phase);
+            return false;
+        }
+        if !matches!(phase, Start | Click) { return false; }
+        let mut s = Self { id: id.clone(), frac, held: false };
+        s.update(frac, phase);
+        *slot = Some(s);
+        true
+    }
+
+    /// `id` just finished loading (or failed): its gesture is taken; one for another note stays for its own answer.
+    fn land(slot: &mut Option<Self>, id: &EventId) -> Option<Self> {
+        slot.take_if(|s| s.id == *id)
+    }
+
+    fn update(&mut self, frac: f32, phase: crate::timeline::Scrub) {
+        use crate::timeline::Scrub::*;
+        if !frac.is_nan() { self.frac = frac; } // a release outside the window keeps the last position
+        self.held = matches!(phase, Start | Move);
+    }
+
+    /// The note just decoded: seek like the live gesture would; a finger still down mutes until its End arrives.
+    fn apply(&self, p: &mut matrix_desktop::audio_player::Player) {
+        let secs = matrix_desktop::audio_player::x_to_secs(self.frac, 1., p.duration_ms() as f32 / 1000.);
+        if self.held { p.begin_scrub(); }
+        p.seek_secs(secs);
+    }
+}
+
+#[cfg(test)]
+mod pending_seek_tests {
+    use super::*;
+    use crate::timeline::Scrub::*;
+    use matrix_desktop::audio_player::Player;
+
+    fn note() -> Player { Player::new(vec![0.; 10_000], 1000) } // 10 s
+    fn id(s: &str) -> EventId { EventId::new(s) }
+
+    #[test]
+    fn a_click_on_an_unloaded_note_starts_it_from_that_point() {
+        let mut slot = None;
+        assert!(PendingSeek::track(&mut slot, &id("$a"), 0.5, Click), "asks for the download");
+        let mut p = note();
+        PendingSeek::land(&mut slot, &id("$a")).unwrap().apply(&mut p);
+        assert!(p.is_playing());
+        assert!((p.progress() - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_drag_still_down_when_the_note_lands_stays_muted_until_release() {
+        let mut slot = None;
+        assert!(PendingSeek::track(&mut slot, &id("$a"), 0.2, Start));
+        assert!(!PendingSeek::track(&mut slot, &id("$a"), 0.7, Move), "one download per gesture");
+        let mut p = note();
+        PendingSeek::land(&mut slot, &id("$a")).unwrap().apply(&mut p);
+        assert!(!p.is_playing());
+        assert!((p.progress() - 0.7).abs() < 1e-3);
+        p.seek_secs(8.); p.end_scrub(); // End arrives on the loaded note
+        assert!(p.is_playing());
+    }
+
+    #[test]
+    fn a_release_during_the_download_plays_from_the_release_point() {
+        let mut slot = None;
+        PendingSeek::track(&mut slot, &id("$a"), 0.2, Start);
+        PendingSeek::track(&mut slot, &id("$a"), 0.9, End);
+        let mut p = note();
+        PendingSeek::land(&mut slot, &id("$a")).unwrap().apply(&mut p);
+        assert!(p.is_playing() && (p.progress() - 0.9).abs() < 1e-3);
+        // Released outside the window (NaN): the last position stays.
+        PendingSeek::track(&mut slot, &id("$a"), 0.4, Start);
+        PendingSeek::track(&mut slot, &id("$a"), f32::NAN, End);
+        let mut p = note();
+        PendingSeek::land(&mut slot, &id("$a")).unwrap().apply(&mut p);
+        assert!(p.is_playing() && (p.progress() - 0.4).abs() < 1e-3);
+    }
+
+    #[test]
+    fn another_note_replaces_the_gesture_and_a_stale_answer_drops_it() {
+        let mut slot = None;
+        PendingSeek::track(&mut slot, &id("$a"), 0.2, Click);
+        assert!(PendingSeek::track(&mut slot, &id("$b"), 0.6, Click), "the other note asks for its own download");
+        assert!(PendingSeek::land(&mut slot, &id("$a")).is_none(), "a's answer is stale");
+        let mut p = note();
+        PendingSeek::land(&mut slot, &id("$b")).unwrap().apply(&mut p);
+        assert!((p.progress() - 0.6).abs() < 1e-3, "b keeps its own gesture");
+        // The tail of a gesture that was never tracked (note already playing elsewhere / dropped) does nothing.
+        assert!(!PendingSeek::track(&mut slot, &id("$c"), 0.5, End));
+        assert!(!PendingSeek::track(&mut slot, &id("$c"), 0.5, Move));
+        assert!(slot.is_none());
+    }
+
+    #[test]
+    fn a_failed_load_drops_its_gesture() {
+        let mut slot = None;
+        PendingSeek::track(&mut slot, &id("$a"), 0.5, Click);
+        assert!(PendingSeek::land(&mut slot, &id("$a")).is_some() && slot.is_none());
+    }
+}
+
 
 fn recovery_open(state: Option<RecoveryState>) -> bool {
     matches!(state, Some(RecoveryState::Offered | RecoveryState::Pending | RecoveryState::Failed(_) | RecoveryState::Unsupported))
