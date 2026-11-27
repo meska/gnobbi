@@ -78,7 +78,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
     }
     if let Some(error) = ui.data(|d| d.get_temp::<String>(error_id)) {
         ui.horizontal(|ui| {
-            ui.colored_label(ui.visuals().error_fg_color, i18n::t(&error));
+            ui.add(egui::Label::new(egui::RichText::new(i18n::t(&error)).color(ui.visuals().error_fg_color)).wrap());
             if crate::info::close_icon(ui, i18n::t("Close")).clicked() {
                 ui.data_mut(|d| d.remove::<String>(error_id));
             }

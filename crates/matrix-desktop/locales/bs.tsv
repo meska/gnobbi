@@ -488,6 +488,7 @@ menu	Bring All to Front	Prebaci sve naprijed
 	System keychain unavailable or locked. Unlock it and try again.	Sistemski privjesak ključeva nije dostupan ili je zaključan. Otključaj ga i pokušaj ponovo.
 	The profile key is not in the system keychain. The profile was not changed.	Ključ profila nije u sistemskom privjesku ključeva. Profil nije promijenjen.
 	Profile already open in another instance. Close it and restart.	Profil je već otvoren u drugoj instanci. Zatvori je i ponovo pokreni.
+	Local profile unavailable.	Lokalni profil nije dostupan.
 	Local profile unavailable. Close and check the profile path.	Lokalni profil nije dostupan. Zatvori i provjeri putanju profila.
 	Enter the Matrix password.	Unesi Matrix lozinku.
 	Creating the recovery and backup…	Kreiranje oporavka i sigurnosne kopije…

@@ -527,6 +527,7 @@ menu	Bring All to Front	全部置于前面
 	System keychain unavailable or locked. Unlock it and try again.	系统钥匙串不可用或已锁定。请解锁后重试。
 	The profile key is not in the system keychain. The profile was not changed.	系统钥匙串中没有该配置文件的密钥。配置文件未被更改。
 	Profile already open in another instance. Close it and restart.	配置文件已在另一个实例中打开。请关闭后重新启动。
+	Local profile unavailable.	本地配置文件不可用。
 	Local profile unavailable. Close and check the profile path.	本地配置文件不可用。请关闭并检查配置文件路径。
 	Enter the Matrix password.	请输入 Matrix 密码。
 

@@ -527,6 +527,7 @@ menu	Bring All to Front	Усі вікна на передній план
 	System keychain unavailable or locked. Unlock it and try again.	Системна в'язка ключів недоступна або заблокована. Розблокуйте її й спробуйте ще раз.
 	The profile key is not in the system keychain. The profile was not changed.	Ключа профілю немає в системній в'язці ключів. Профіль не змінено.
 	Profile already open in another instance. Close it and restart.	Профіль уже відкритий в іншому екземплярі. Закрийте його й перезапустіть.
+	Local profile unavailable.	Локальний профіль недоступний.
 	Local profile unavailable. Close and check the profile path.	Локальний профіль недоступний. Закрийте й перевірте шлях до профілю.
 	Enter the Matrix password.	Введіть пароль Matrix.
 

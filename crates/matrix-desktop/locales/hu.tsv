@@ -488,6 +488,7 @@ menu	Bring All to Front	Összes előtérbe hozása
 	System keychain unavailable or locked. Unlock it and try again.	A rendszer kulcstartója nem érhető el, vagy zárolva van. Told fel, és próbáld újra.
 	The profile key is not in the system keychain. The profile was not changed.	A profil kulcsa nincs a rendszer kulcstartójában. A profil nem változott.
 	Profile already open in another instance. Close it and restart.	A profil már meg van nyitva egy másik példányban. Zárd be, és indítsd újra.
+	Local profile unavailable.	A helyi profil nem érhető el.
 	Local profile unavailable. Close and check the profile path.	A helyi profil nem érhető el. Zárd be, és ellenőrizd a profil elérési útját.
 	Enter the Matrix password.	Add meg a Matrix-jelszót.
 	Creating the recovery and backup…	Helyreállítás és mentés létrehozása…

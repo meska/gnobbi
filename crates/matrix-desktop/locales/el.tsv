@@ -527,6 +527,7 @@ menu	Bring All to Front	Όλα μπροστά
 	System keychain unavailable or locked. Unlock it and try again.	Η Κλειδοθήκη του συστήματος δεν είναι διαθέσιμη ή είναι κλειδωμένη. Ξεκλειδώστε την και δοκιμάστε ξανά.
 	The profile key is not in the system keychain. The profile was not changed.	Το κλειδί του προφίλ δεν βρίσκεται στην Κλειδοθήκη του συστήματος. Το προφίλ δεν άλλαξε.
 	Profile already open in another instance. Close it and restart.	Το προφίλ είναι ήδη ανοιχτό σε άλλο στιγμιότυπο. Κλείστε το και κάντε επανεκκίνηση.
+	Local profile unavailable.	Το τοπικό προφίλ δεν είναι διαθέσιμο.
 	Local profile unavailable. Close and check the profile path.	Το τοπικό προφίλ δεν είναι διαθέσιμο. Κλείστε και ελέγξτε τη διαδρομή του προφίλ.
 	Enter the Matrix password.	Εισαγάγετε τον κωδικό Matrix.
 

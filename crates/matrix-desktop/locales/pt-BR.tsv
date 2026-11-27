@@ -488,6 +488,7 @@ menu	Bring All to Front	Trazer tudo para a frente
 	System keychain unavailable or locked. Unlock it and try again.	Chaveiro do sistema indisponível ou bloqueado. Desbloqueie e tente de novo.
 	The profile key is not in the system keychain. The profile was not changed.	A chave do perfil não está no chaveiro do sistema. O perfil não foi alterado.
 	Profile already open in another instance. Close it and restart.	Perfil já aberto em outra instância. Feche-a e reinicie.
+	Local profile unavailable.	Perfil local indisponível.
 	Local profile unavailable. Close and check the profile path.	Perfil local indisponível. Feche e confira o caminho do perfil.
 	Enter the Matrix password.	Informe a senha do Matrix.
 	Creating the recovery and backup…	Criando a recuperação e o backup…

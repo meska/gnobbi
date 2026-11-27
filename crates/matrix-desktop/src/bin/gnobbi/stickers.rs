@@ -350,7 +350,7 @@ fn take_paste(ui: &egui::Ui, panel: &mut Panel) {
 fn error_line(ui: &mut egui::Ui, panel: &mut Panel) {
     if let Some(error) = panel.error {
         ui.horizontal(|ui| {
-            ui.colored_label(ui.visuals().error_fg_color, error);
+            ui.add(egui::Label::new(egui::RichText::new(error).color(ui.visuals().error_fg_color)).wrap());
             if crate::info::close_icon(ui, i18n::t("Close")).clicked() {
                 panel.error = None;
             }

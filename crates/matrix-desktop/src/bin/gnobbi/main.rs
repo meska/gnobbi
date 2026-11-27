@@ -784,7 +784,7 @@ impl eframe::App for App {
         });
         if let Some(line) = &self.account_notice {
             egui::Panel::top("account-selection-notice").frame(bar(&t)).show(ui, |ui| {
-                ui.add(egui::Label::new(line).wrap_mode(egui::TextWrapMode::Wrap));
+                ui.add(egui::Label::new(line).wrap());
             });
         }
         if self.open_failed() {
@@ -2221,7 +2221,7 @@ fn quick_search(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                     let Some((running, line, failed)) = joins[i] else { return };
                     if running { ui.spinner(); }
                     if let Some(line) = line {
-                        ui.label(egui::RichText::new(line).color(if failed { ui.visuals().error_fg_color } else { ui.visuals().weak_text_color() }));
+                        ui.add(egui::Label::new(egui::RichText::new(line).color(if failed { ui.visuals().error_fg_color } else { ui.visuals().weak_text_color() })).wrap());
                     }
                 });
             }
