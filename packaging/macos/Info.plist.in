@@ -12,7 +12,7 @@
 <key>CFBundleShortVersionString</key><string>@VERSION@</string>
 <key>GnobbiCommit</key><string>@COMMIT@</string>
 <key>GnobbiBuilt</key><string>@BUILT@</string>
-<key>NSHumanReadableCopyright</key><string>© 2026 Marco Mescalchin</string>
+<key>NSHumanReadableCopyright</key><string>© 2026 Meskatech</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
