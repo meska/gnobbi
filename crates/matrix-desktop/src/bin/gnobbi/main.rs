@@ -34,6 +34,8 @@ mod list;
 mod loading;
 mod members;
 mod media_cards;
+#[cfg(test)]
+mod members_bench;
 mod message_hits;
 mod metrics;
 mod mobile;
@@ -722,6 +724,7 @@ impl eframe::App for App {
                     else if session.menu.is_some() { session.close_menu(); }
                     else if session.thread.is_some() { session.thread = None; }
                     else if session.profile.is_some() { session.profile = None; }
+                    else if session.members_page { session.members_page = false; }
                     else if session.info_open {
                         if let Some(scope) = session.shared.as_ref().map(|s| s.scope.clone()) { session.close_shared(scope); } else { session.info_open = false; }
                     }
@@ -1118,8 +1121,8 @@ impl App {
             // GNOBBI_EGUI_MEMBER=profile|role: the card of the first other member, or of the last one, who is made «Moderatore» once the rights are in.
             if !self.hook_member
                 && let Ok(what @ ("profile" | "role")) = matrix_desktop::hooks::var("GNOBBI_EGUI_MEMBER").as_deref()
-                && let Some(user) = s.members.as_ref().and_then(|(_, l)| {
-                    let mut others = l.iter().filter(|m| m.user_id != s.user);
+                && let Some(user) = s.members.as_ref().and_then(|l| {
+                    let mut others = l.rows().iter().filter(|m| m.user_id != s.user);
                     if what == "role" { others.next_back() } else { others.next() }.map(|m| m.user_id.clone())
                 })
             {
@@ -1137,7 +1140,7 @@ impl App {
                 && let Ok(what) = matrix_desktop::hooks::var("GNOBBI_EGUI_MEMBER")
                 && let Some(a) = s.admin.as_ref().filter(|a| a.perms.can_kick || a.perms.can_invite)
             {
-                let list = s.space_view.as_ref().and_then(|v| v.members.as_ref()).or(s.members.as_ref().map(|(_, m)| m));
+                let list = s.space_view.as_ref().and_then(|v| v.members.as_ref()).or(s.members.as_ref()).map(|l| l.rows());
                 let act = match (what.as_str(), list.and_then(|l| l.iter().find(|m| m.user_id != s.user)), a.banned.as_ref().ok().and_then(|b| b.first())) {
                     ("invite", _, _) => Some(members::Act::Invite),
                     ("kick" | "ban", Some(m), _) => Some(members::Act::Ask { user_id: m.user_id.clone(), name: m.name.clone(), ban: what == "ban" }),
@@ -1190,7 +1193,7 @@ impl App {
             match view.as_str() {
                 "info" => s.info_open = true,
                 // Test hook: the card of the first other member opened as a click on a sender in the chat does.
-                "chat-profile" if s.profile.is_none() && let Some(user) = s.members.as_ref().and_then(|(_, l)| l.iter().find(|m| m.user_id != s.user).map(|m| m.user_id.clone())) => s.open_profile_from_chat(user),
+                "chat-profile" if s.profile.is_none() && let Some(user) = s.members.as_ref().and_then(|l| l.rows().iter().find(|m| m.user_id != s.user).map(|m| m.user_id.clone())) => s.open_profile_from_chat(user),
                 "search" => s.search_open = true,
                 // Test hook: «Media, files and links» (GNOBBI_EGUI_SHARED_TAB=files|links picks the tab) 30 s after the hook's own send, once it is in the room.
                 "shared" if s.shared.is_none() && self.hook_sent && self.hook_menu_at.is_some_and(|t| t.elapsed().as_secs() >= 30) => {
@@ -1467,7 +1470,7 @@ impl App {
                 if self.list_open && room.is_some() && let Some(top) = side {
                     match top {
                         Side::Member => s.profile = None,
-                        Side::Info => if let Some(scope) = s.shared.as_ref().map(|x| x.scope.clone()) { s.close_shared(scope); } else { s.info_open = false; },
+                        Side::Info => if s.members_page { s.members_page = false } else if let Some(scope) = s.shared.as_ref().map(|x| x.scope.clone()) { s.close_shared(scope); } else { s.info_open = false },
                         Side::Search => s.search_open = false,
                         Side::Thread => s.thread = None,
                     }
@@ -1607,16 +1610,24 @@ impl App {
 
     /// The room info panel (right).
     fn info_panel(&mut self, ui: &mut egui::Ui, t: &DesignTokens, single: bool, side: Option<Side>) {
+        if let Some(s) = &mut self.session {
+            if s.info_open && s.sidebar.selected().is_some() {
+                s.refresh_member_order();
+            } else {
+                (s.member_order_fresh, s.members_page) = (false, false);
+                s.member_query.clear();
+            }
+        }
         if self.session.as_ref().is_some_and(|s| s.info_open && s.shared.is_some() && (!single || side == Some(Side::Info)) && s.sidebar.selected().is_some()) {
             self.shared_panel(ui, t, single);
             return;
         }
-        if let Some(s) = &self.session
+        if let Some(s) = &mut self.session
             && s.info_open
             && (!single || side == Some(Side::Info))
             && let Some(room) = s.sidebar.selected()
         {
-            let members = s.members.as_ref().map(|(_, m)| m.as_slice());
+            let mut page_back = false;
             let mut out = info::Out::default();
             let mut alias_input = std::mem::take(&mut self.alias_input);
             let mut alias_action = None;
@@ -1624,9 +1635,20 @@ impl App {
             let mut status = s.status_choices.get(&room_id);
             let (status_was, hidden_status) = (status, s.messages.as_ref().filter(|m| m.scope() == &room.scope).map_or(0, |m| m.hidden_status_count()));
             let mut view = info::AliasView { data: s.aliases.as_ref(), error: s.alias_error, input: &mut alias_input, action: None };
-            dir::panel_end("info").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, (&mut status, hidden_status), &s.avatars, t)));
+            dir::panel_end("info").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| dir::scope(ui, |ui| {
+                let admin = s.admin.as_ref().filter(|a| a.scope == room.scope);
+                if s.members_page && let Some(list) = s.members.as_mut() {
+                    let p = members::page(ui, list, &mut s.member_query, None, admin, &s.user, &s.avatars, t);
+                    (out.member, page_back) = (p.act, p.back);
+                } else {
+                    out = info::show(ui, room, s.members.as_ref(), admin, &s.user, &mut view, (&mut status, hidden_status), &s.avatars, t);
+                }
+            }));
             alias_action = view.action.take();
             self.alias_input = alias_input;
+            if let Some(s) = &mut self.session {
+                s.members_page = (s.members_page && !page_back) || out.members_page;
+            }
             if status != status_was && let Some(s) = &mut self.session {
                 s.status_choices.set(&room_id, status);
             }
@@ -1831,14 +1853,14 @@ impl App {
                     }
                     ui.ctx().request_repaint_after(remaining);
                 }
-                let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
+                let members = s.members.as_ref().map_or(&[][..], |l| l.rows());
                 let recording = s.recording(false);
                 let mut stop = None;
                 for u in s.room_uploads() {
                     if ui.push_id(("upload", u.id.as_str()), |ui| media_cards::upload_card(ui, &u.name, u.sent, u.total, t)).inner { stop = Some(u.id.clone()); }
                 }
-                if let Some(id) = stop { s.cancel_upload(&id); }
                 to_send = composer::show(ui, "", &mut s.draft, mode, s.attachment.as_mut(), &mut cancel, &mut attach_acts, &mut open_poll, &mut picked_files, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)), t);
+                if let Some(id) = stop { s.cancel_upload(&id); } // after the composer: `members` borrows the session until then
                 if let Some(image) = pasted_image {
                     s.attach_image(image, false);
                 }

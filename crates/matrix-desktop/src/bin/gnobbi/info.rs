@@ -12,9 +12,11 @@ pub struct Out {
     pub edit: bool,
     /// «Media, files and links» was opened.
     pub shared: bool,
+    /// «Members · N» was clicked: the members page replaces the panel.
+    pub members_page: bool,
 }
 
-pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, (status, hidden_status): (&mut matrix_desktop::StatusChoice, usize), avatars: &crate::avatar::Avatars, t: &DesignTokens) -> Out {
+pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&crate::members::MemberList>, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, (status, hidden_status): (&mut matrix_desktop::StatusChoice, usize), avatars: &crate::avatar::Avatars, t: &DesignTokens) -> Out {
     let mut out = Out::default();
     let area = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.add_space(16.);
@@ -72,7 +74,7 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
             ui.vertical_centered(|ui| ui.spinner());
             return;
         };
-        out.member = crate::members::list(ui, members, admin, me, avatars, t);
+        out.member = crate::members::preview(ui, members, admin, me, &mut out.members_page, avatars, t);
     });
     crate::touch_list::after(ui.ctx(), &area);
     out
@@ -256,33 +258,7 @@ mod topic_tests {
 /// One member: initials, name on one line and the role badge at the right edge.
 pub fn member_row(ui: &mut egui::Ui, avatars: &crate::avatar::Avatars, m: &Member, duplicate: bool, t: &DesignTokens) -> egui::Response {
     use matrix_domain::role::MemberRole;
-    if duplicate {
-        let role = crate::members::role_label(m.role);
-        let name = crate::list::clean_single_line(&m.name);
-        let id = crate::list::clean_single_line(&m.user_id);
-        let row = ui.scope(|ui| {
-            crate::rows::lines_row(ui, |ui| {
-                ui.add_space(14.);
-                let (r, _) = ui.allocate_exact_size(Vec2::splat(28.), egui::Sense::hover());
-                crate::avatar::paint(ui, r.center(), 28., rgb(matrix_desktop::AVATAR_FALLBACK), &crate::avatar::lookup(avatars, m.avatar.as_deref()), &matrix_desktop::initials(&m.name), 12., rgb(t.on_accent));
-            }, &[crate::rows::Line::new(&name, 14., rgb(t.text)), crate::rows::Line::new(&id, 12., rgb(t.secondary))], |ui| {
-                let ink = rgb(match m.role { MemberRole::Admin => t.on_accent, MemberRole::Moderator => t.accent, MemberRole::Member => t.secondary });
-                let label = ui.painter().layout_no_wrap(role.to_owned(), FontId::proportional(11.), ink);
-                let (pill, _) = ui.allocate_exact_size(Vec2::new(label.size().x + 16., 20.), egui::Sense::hover());
-                match m.role {
-                    MemberRole::Admin => ui.painter().rect_filled(pill, 10., rgb(t.accent)),
-                    MemberRole::Moderator => ui.painter().rect_stroke(pill, 10., egui::Stroke::new(1., rgb(t.accent)), egui::StrokeKind::Inside),
-                    MemberRole::Member => ui.painter().rect_stroke(pill, 10., egui::Stroke::new(1., rgb(t.border)), egui::StrokeKind::Inside),
-                };
-                ui.painter().galley(pill.center() - label.size() / 2., label, ink);
-                ui.add_space(8.);
-            });
-        }).response;
-        let resp = crate::metrics::clickable(ui.interact(row.rect, row.id, egui::Sense::click()));
-        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{}, {}, {role}", m.name, m.user_id)));
-        return resp;
-    }
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), egui::Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), crate::members::row_h()), egui::Sense::click());
     let resp = crate::metrics::clickable(resp);
     if crate::touch_list::pressed(ui, &resp) {
         ui.painter().rect_filled(rect, 0., rgb(t.input));
@@ -306,9 +282,19 @@ pub fn member_row(ui: &mut egui::Ui, avatars: &crate::avatar::Avatars, m: &Membe
         MemberRole::Member => ui.painter().rect_stroke(shown, 10., egui::Stroke::new(1., rgb(t.border)), egui::StrokeKind::Inside),
     };
     ui.painter().galley(shown.center() - label.size() / 2., label, ink);
-    let name = crate::list::one_line(ui, &m.name, 14., rgb(t.text), (pill.left() - 8. - rect.left() - 52.).max(20.));
-    ui.painter().galley(crate::dir::place(rect, egui::pos2(rect.left() + 52., rect.center().y - name.size().y / 2.), name.size().x), name, rgb(t.text));
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{}, {role}", m.name)));
+    let width = (pill.left() - 8. - rect.left() - 52.).max(20.);
+    let name = crate::list::one_line(ui, &m.name, 14., rgb(t.text), width);
+    // A name that repeats shows the id under it, inside the same fixed height.
+    let id = duplicate.then(|| crate::list::one_line(ui, &m.user_id, 12., rgb(t.secondary), width));
+    let mut y = rect.center().y - (name.size().y + id.as_ref().map_or(0., |g| g.size().y)) / 2.;
+    let h = name.size().y;
+    ui.painter().galley(crate::dir::place(rect, egui::pos2(rect.left() + 52., y), name.size().x), name, rgb(t.text));
+    y += h;
+    if let Some(id) = id {
+        ui.painter().galley(crate::dir::place(rect, egui::pos2(rect.left() + 52., y), id.size().x), id, rgb(t.secondary));
+    }
+    let label = if duplicate { format!("{}, {}, {role}", m.name, m.user_id) } else { format!("{}, {role}", m.name) };
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label.clone()));
     resp
 }
 
