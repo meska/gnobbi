@@ -125,6 +125,10 @@ impl FormStatus {
                 t("The profile key is not in the system keychain. The profile was not changed.")
             }
             ProfileBusy => t("Profile already open in another instance. Close it and restart."),
+            // iOS (also an iPhone app on a Mac): the user chose no path, so "check the path" is no action; signing in again is.
+            #[cfg(target_os = "ios")]
+            Storage | InvalidStorePath => t("Local profile unavailable. Sign in again."),
+            #[cfg(not(target_os = "ios"))]
             Storage | InvalidStorePath => t("Local profile unavailable. Close and check the profile path."),
             // Unclassified: the detail goes to the log (see `apply`), not to a misleading specific message.
             _ => t("Unexpected error. Details are in the log."),

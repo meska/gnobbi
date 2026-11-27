@@ -2056,7 +2056,7 @@ impl App {
                     if let Some(id) = &e.user_id { ui.label(id); }
                 }
                 let line = self.session.as_ref().and_then(|s| s.status().error_message()).unwrap_or(i18n::t("Could not open this account."));
-                ui.add(egui::Label::new(RichText::new(line).color(rgb(t.error))).truncate());
+                ui.add(egui::Label::new(RichText::new(line).color(rgb(t.error))).wrap());
                 let size = egui::vec2(ui.available_width(), metrics::button() + 4.);
                 retry = ui.add_sized(size, egui::Button::new(i18n::t("Retry"))).clicked();
                 if let Some(d) = &self.dirs {
