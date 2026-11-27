@@ -957,6 +957,7 @@ impl Session {
             self.members = None;
             self.thread = None;
             self.upload_limit = None;
+            crate::pick::UPLOAD_LIMIT.store(50 << 20, std::sync::atomic::Ordering::Relaxed);
             self.search_sent.clear();
             self.search_jump = self.jump_after_open.take().filter(|(room, _)| Some(room) == scope.as_ref()).map(|(_, jump)| jump);
             self.search = matrix_engine::operations::MessageSearchState::Idle;
@@ -1646,6 +1647,7 @@ impl Session {
             // An answer for a room already left is dropped.
             if self.draft_scope.as_ref() == Some(&scope) {
                 self.upload_limit = upload_limit;
+                crate::pick::UPLOAD_LIMIT.store(upload_limit.unwrap_or(50 << 20), std::sync::atomic::Ordering::Relaxed);
                 if let Ok(list) = members {
                     self.members = Some((scope, list));
                 }

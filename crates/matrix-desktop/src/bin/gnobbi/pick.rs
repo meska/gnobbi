@@ -1,5 +1,6 @@
 //! File pickers: NSOpenPanel / xdg portal / Windows dialog through rfd; on iOS UIDocumentPicker and PHPicker
-//! through robius-file-picker, plus the share sheet. The iOS pickers answer later, so the API is
+//! (several files: `ios.rs`; one: robius-file-picker), plus the share sheet; on Android the system pickers through
+//! `MainActivity.pickFiles`. The iOS pickers answer later, so the API is
 //! `start` (on the click) + `done` (every frame): on desktop rfd's async dialog runs beside the frame (a blocking
 //! one nests a modal loop inside the winit callback, and AppKit events re-entering it abort the process).
 use matrix_desktop::i18n;
@@ -17,7 +18,7 @@ fn store(title: &str, path: Option<PathBuf>) {
 static MANY: Mutex<Option<(String, Vec<PathBuf>)>> = Mutex::new(None);
 
 /// The files chosen for the dialog titled `title`, once; empty while open, closed or taken. A single-file picker
-/// (iOS, Android) answers through `done`, which this also reads.
+/// answers through `done`, which this also reads.
 pub fn done_many(title: &str) -> Vec<PathBuf> {
     let mut slot = MANY.lock().unwrap_or_else(|e| e.into_inner());
     if slot.as_ref().is_some_and(|(t, _)| t == title) {
@@ -46,24 +47,84 @@ pub fn start_many(ctx: &eframe::egui::Context, title: &str, media_only: bool) {
     });
 }
 
-/// The phone pickers return one file per pass: «Add» in the preview adds the next. iOS: PHPicker for pictures and videos.
+/// iOS: PHPicker for pictures and videos, UIDocumentPicker otherwise, both with a multiple selection.
 #[cfg(target_os = "ios")]
 pub fn start_many(ctx: &eframe::egui::Context, title: &str, media_only: bool) {
-    if !media_only {
-        return start(ctx, title, false);
-    }
-    purge_temp();
+    purge_temp(); // the previous pick has been read by now
     let (ctx, t) = (ctx.clone(), title.to_owned());
-    let done = move |r: robius_file_picker::Result<Option<robius_file_picker::PickedFile>>| {
-        store(&t, r.ok().flatten().and_then(|f| f.into_path()));
+    ios::pick_many(media_only, move |files| {
+        answer(&t, true, files);
         ctx.request_repaint();
-    };
-    let _ = robius_file_picker::FileDialog::new().set_title(title).pick_image_or_video(done);
+    });
 }
 
+/// Android: the system photo picker (documents picker where it does not exist) or the documents picker, several files.
 #[cfg(target_os = "android")]
 pub fn start_many(ctx: &eframe::egui::Context, title: &str, media_only: bool) {
-    start(ctx, title, media_only);
+    ask_android(ctx, title, u8::from(media_only), true);
+}
+
+#[cfg(target_os = "ios")]
+mod ios;
+
+/// A finished dialog's files go to the slot its caller reads: `done_many` for a multiple selection, `done` (the first file) otherwise.
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+fn answer(title: &str, many: bool, files: Vec<PathBuf>) {
+    if many {
+        *MANY.lock().unwrap_or_else(|e| e.into_inner()) = Some((title.to_owned(), files));
+    } else {
+        store(title, files.into_iter().next());
+    }
+}
+
+/// The server's upload limit (50 MB until known): Android copies a picked file only up to it, the preview rejects the rest.
+pub static UPLOAD_LIMIT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(50 << 20);
+
+/// The dialog open on Android: its title, the context to wake and whether it takes several files.
+#[cfg(target_os = "android")]
+static ASKED: Mutex<Option<(String, eframe::egui::Context, bool)>> = Mutex::new(None);
+
+/// `mode`: 0 any file, 1 photo or video, 2 picture. The answer comes from `Native.onPicked` (`nativeOnPicked`), a file per picked item.
+#[cfg(target_os = "android")]
+fn ask_android(ctx: &eframe::egui::Context, title: &str, mode: u8, many: bool) {
+    use jni::{jni_sig, jni_str, objects::JObject};
+    *ASKED.lock().unwrap_or_else(|e| e.into_inner()) = Some((title.to_owned(), ctx.clone(), many));
+    let limit = UPLOAD_LIMIT.load(std::sync::atomic::Ordering::Relaxed) as i64;
+    let (Ok(vm_ctx), Some(app)) = (std::panic::catch_unwind(ndk_context::android_context), crate::ANDROID_APP.get()) else { return android_done(Vec::new()) };
+    // SAFETY: as in mobile::set_bar_icons.
+    let vm = unsafe { jni::JavaVM::from_raw(vm_ctx.vm().cast()) };
+    let res = vm.attach_current_thread(|env| -> Result<bool, jni::errors::Error> {
+        // SAFETY: the activity is a global ref owned by android-activity; JObject has no Drop and is not kept.
+        let activity = unsafe { JObject::from_raw(env, app.activity_as_ptr().cast()) };
+        env.call_method(&activity, jni_str!("pickFiles"), jni_sig!("(IZJ)Z"), &[(mode as i32).into(), many.into(), limit.into()])?.z()
+    });
+    if !matches!(res, Ok(true)) {
+        log::warn!("gnobbi pick: {res:?}");
+        android_done(Vec::new());
+    }
+}
+
+/// The picked files (empty: closed, or no picker) for the dialog that asked.
+#[cfg(target_os = "android")]
+fn android_done(files: Vec<PathBuf>) {
+    let Some((title, ctx, many)) = ASKED.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
+    answer(&title, many, files);
+    ctx.request_repaint();
+}
+
+/// JNI entry of `net.meskatech.gnobbi.Native` (see `MainActivity.onActivityResult`): the app's copies of the picked files, one path per line.
+#[cfg(target_os = "android")]
+mod jni_entry {
+    use jni::{errors::LogErrorAndDefault, objects::{JClass, JString}, EnvUnowned};
+
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_net_meskatech_gnobbi_Native_nativeOnPicked<'l>(mut env: EnvUnowned<'l>, _: JClass<'l>, paths: JString<'l>) {
+        env.with_env(|env| -> jni::errors::Result<()> {
+            super::android_done(paths.try_to_string(env)?.lines().filter(|p| !p.is_empty()).map(Into::into).collect());
+            Ok(())
+        })
+        .resolve::<LogErrorAndDefault>()
+    }
 }
 
 /// The file chosen for the dialog titled `title`, once; None while open, closed or taken.
@@ -93,10 +154,10 @@ pub fn start(ctx: &eframe::egui::Context, title: &str, images_only: bool) {
     run(ctx, title, dialog.pick_file());
 }
 
-// Android: no picker yet (SAF intent needed through JNI); the attach button answers "nothing picked".
+/// Android: one file, from the photo picker for pictures, from the documents picker otherwise.
 #[cfg(target_os = "android")]
-pub fn start(_ctx: &eframe::egui::Context, title: &str, _images_only: bool) {
-    store(title, None);
+pub fn start(ctx: &eframe::egui::Context, title: &str, images_only: bool) {
+    ask_android(ctx, title, if images_only { 2 } else { 0 }, false);
 }
 
 #[cfg(target_os = "android")]
@@ -261,6 +322,18 @@ mod tests {
         assert_eq!(done("Allega un file"), None, "taken once");
         store("Allega un file", None); // dialog closed
         assert_eq!(done("Allega un file"), None);
+    }
+
+    #[test]
+    fn a_multiple_answer_keeps_the_order_and_goes_to_done_many_once() {
+        answer("Photo or video", true, vec!["/tmp/1.jpg".into(), "/tmp/2.jpg".into(), "/tmp/3.mp4".into()]);
+        assert!(done_many("Attach a file").is_empty(), "another button must not take it");
+        assert_eq!(done_many("Photo or video"), ["/tmp/1.jpg", "/tmp/2.jpg", "/tmp/3.mp4"].map(PathBuf::from));
+        assert!(done_many("Photo or video").is_empty(), "taken once");
+        answer("Photo or video", true, Vec::new()); // closed without a choice
+        assert!(done_many("Photo or video").is_empty());
+        answer("Image", false, vec!["/tmp/a.png".into(), "/tmp/b.png".into()]);
+        assert_eq!(done("Image"), Some("/tmp/a.png".into()), "a single pick takes the first");
     }
 
     #[test]

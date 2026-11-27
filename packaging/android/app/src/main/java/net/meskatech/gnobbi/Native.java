@@ -9,6 +9,8 @@ final class Native {
 
     private static native void nativeOnPermission();
 
+    private static native void nativeOnPicked(String paths);
+
     private static native void nativeOnToken(String token);
 
     private static native void nativeOnOpen(String account, String room);
@@ -68,6 +70,16 @@ final class Native {
             nativeOnPermission();
         } catch (UnsatisfiedLinkError e) {
             Log.w("Gnobbi", "permission not delivered to the engine: native side unavailable");
+        }
+    }
+
+    /** The files copied from the system picker (none: closed); the engine reads them and adds them to the preview. */
+    static void onPicked(String[] paths) {
+        try {
+            System.loadLibrary("gnobbi");
+            nativeOnPicked(String.join("\n", paths));
+        } catch (UnsatisfiedLinkError e) {
+            Log.w("Gnobbi", "pick not delivered to the engine: native side unavailable");
         }
     }
 }

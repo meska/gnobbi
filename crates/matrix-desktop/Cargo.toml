@@ -69,7 +69,10 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["NSA
 objc2-user-notifications = { version = "0.3", features = ["block2"] }
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "block2", "AVAudioSession", "AVAudioSessionTypes"] }
 block2 = "0.6"
-objc2-ui-kit = { version = "0.3", default-features = false, features = ["UIActivityViewController", "UIActivity", "block2", "UIApplication", "UIPopoverPresentationController", "UIResponder", "UIView", "UIViewController", "UIWindow", "UIScene", "UIWindowScene", "UIScreen", "UIDevice"] }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["UIActivityViewController", "UIActivity", "block2", "UIApplication", "UIPopoverPresentationController", "UIResponder", "UIView", "UIViewController", "UIWindow", "UIScene", "UIWindowScene", "UIScreen", "UIDevice", "UIDocumentPickerViewController", "UIPresentationController", "objc2-uniform-type-identifiers"] }
+# PHPicker and UTType for the multiple selection (already in the tree through robius-file-picker).
+objc2-photos-ui = { version = "0.3", default-features = false, features = ["std", "PHPicker"] }
+objc2-uniform-type-identifiers = { version = "0.3", default-features = false, features = ["std", "UTCoreTypes", "UTType"] }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

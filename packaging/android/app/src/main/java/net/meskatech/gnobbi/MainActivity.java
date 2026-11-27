@@ -2,12 +2,18 @@ package net.meskatech.gnobbi;
 
 import android.Manifest;
 import android.app.NativeActivity;
+import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
+import android.database.Cursor;
 import android.os.Bundle;
+import android.provider.MediaStore;
+import android.provider.OpenableColumns;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
 import android.view.View;
@@ -16,6 +22,12 @@ import android.view.WindowInsetsController;
 import androidx.core.content.FileProvider;
 import com.google.firebase.messaging.FirebaseMessaging;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends NativeActivity {
@@ -118,6 +130,109 @@ public class MainActivity extends NativeActivity {
             Log.w("Gnobbi", "share failed: " + e.getClass().getSimpleName());
             return false;
         }
+    }
+
+    private static final int PICK = 0x4750;
+    /** The preview takes up to 10 files (attach.rs MAX_ITEMS). */
+    private static final int PICK_MAX = 10;
+    private long pickLimit;
+
+    /**
+     * Called by the engine over JNI: the system pickers, no storage permission. mode 0: any file, 1: photo or video, 2: picture.
+     * Photo Picker (Android 13+) for 1 and 2, the documents picker for 0 and where there is no Photo Picker. The answer comes
+     * from onActivityResult as Native.onPicked: the app's copies of the files, none when the dialog was closed.
+     */
+    public boolean pickFiles(int mode, boolean many, long limit) {
+        runOnUiThread(() -> {
+            pickLimit = limit;
+            if (mode != 0 && Build.VERSION.SDK_INT >= 33) {
+                Intent photos = new Intent(MediaStore.ACTION_PICK_IMAGES);
+                if (mode == 2) photos.setType("image/*");
+                if (many) photos.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, Math.min(PICK_MAX, MediaStore.getPickImagesMaxLimit()));
+                try {
+                    startActivityForResult(photos, PICK);
+                    return;
+                } catch (ActivityNotFoundException | SecurityException e) {
+                    Log.w("Gnobbi", "no photo picker: " + e.getClass().getSimpleName());
+                }
+            }
+            Intent docs = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, many);
+            if (mode != 0) docs.putExtra(Intent.EXTRA_MIME_TYPES, mode == 2 ? new String[] {"image/*"} : new String[] {"image/*", "video/*"});
+            try {
+                startActivityForResult(docs, PICK);
+            } catch (ActivityNotFoundException e) {
+                Native.onPicked(new String[0]);
+            }
+        });
+        return true;
+    }
+
+    @Override
+    protected void onActivityResult(int code, int result, Intent data) {
+        super.onActivityResult(code, result, data);
+        if (code != PICK) return;
+        List<Uri> uris = new ArrayList<>();
+        if (result == RESULT_OK && data != null) {
+            ClipData clip = data.getClipData();
+            if (clip != null) {
+                for (int i = 0; i < clip.getItemCount() && uris.size() < PICK_MAX; i++) uris.add(clip.getItemAt(i).getUri());
+            } else if (data.getData() != null) {
+                uris.add(data.getData());
+            }
+        }
+        long limit = pickLimit;
+        ContentResolver resolver = getContentResolver();
+        File root = new File(getCacheDir(), "picked");
+        new Thread(() -> Native.onPicked(copyPicked(resolver, root, uris, limit))).start(); // a file may be as big as the server's limit
+    }
+
+    /**
+     * Copies each picked item into its own folder of `root` under its display name, at most `limit` bytes each; the previous pick's
+     * copies are deleted first (the engine has read them by now). An item that cannot be read or is over the limit leaves an empty
+     * file, which the preview reports as «File cannot be attached». Returns one path per item, in order.
+     */
+    static String[] copyPicked(ContentResolver resolver, File root, List<Uri> uris, long limit) {
+        deleteTree(root);
+        String[] paths = new String[uris.size()];
+        for (int i = 0; i < paths.length; i++) {
+            File dir = new File(root, String.valueOf(i));
+            dir.mkdirs();
+            File file = new File(dir, displayName(resolver, uris.get(i)));
+            paths[i] = file.getPath();
+            long total = 0;
+            try (InputStream in = resolver.openInputStream(uris.get(i)); OutputStream out = new FileOutputStream(file)) {
+                byte[] buf = new byte[64 * 1024];
+                for (int n; in != null && (n = in.read(buf)) > 0; ) {
+                    total += n;
+                    if (total > limit) break;
+                    out.write(buf, 0, n);
+                }
+            } catch (IOException | RuntimeException e) {
+                total = limit + 1;
+            }
+            if (total > limit) {
+                try { new FileOutputStream(file).close(); } catch (IOException e) { Log.w("Gnobbi", "pick: " + e.getClass().getSimpleName()); }
+            }
+        }
+        return paths;
+    }
+
+    /** The name the provider gives the item, as one safe path component (never empty, hidden or with a separator). */
+    static String displayName(ContentResolver resolver, Uri uri) {
+        String name = uri.getLastPathSegment();
+        try (Cursor c = resolver.query(uri, new String[] {OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst() && c.getString(0) != null) name = c.getString(0);
+        } catch (RuntimeException e) {
+            Log.w("Gnobbi", "pick name: " + e.getClass().getSimpleName());
+        }
+        name = name == null ? "" : name.replaceAll("[/\\\\\\n]", "_").replaceFirst("^\\.+", "");
+        return name.isEmpty() ? "file" : name;
+    }
+
+    private static void deleteTree(File f) {
+        File[] kids = f.listFiles();
+        if (kids != null) for (File k : kids) deleteTree(k);
+        f.delete();
     }
 
     @Override
