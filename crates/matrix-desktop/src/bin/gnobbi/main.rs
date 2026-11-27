@@ -667,7 +667,6 @@ impl eframe::App for App {
             let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop-hint"));
             let painter = ctx.layer_painter(layer);
             painter.rect_filled(screen, 0., egui::Color32::from_black_alpha(140));
-            painter.text(screen.center(), egui::Align2::CENTER_CENTER, i18n::t("Drop files to send"), egui::FontId::proportional(22.), egui::Color32::WHITE);
         }
         if let Some(session) = &mut self.session {
             if let Some(path) = dropped.first() {

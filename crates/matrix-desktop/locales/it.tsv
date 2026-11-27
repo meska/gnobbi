@@ -47,7 +47,6 @@ banner	Reply	Risposta
 	Compress images	Comprimi immagini
 	Send as file	Invia come file
 	At most 10 files	Al massimo 10 file
-	Drop files to send	Rilascia i file per inviarli
 	Voice message	Messaggio vocale
 	Send	Invia
 
@@ -159,7 +158,6 @@ banner	Reply	Risposta
 # roomedit
 	Name	Nome
 	Topic	Argomento
-	Drop an image here for the photo	Trascina un'immagine qui per la foto
 	Choose photo…	Scegli foto…
 	Room photo	Foto della stanza
 	Save	Salva

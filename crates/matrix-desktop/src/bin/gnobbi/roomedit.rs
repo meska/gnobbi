@@ -11,10 +11,9 @@ pub fn show(ctx: &egui::Context, s: &mut Session, rights: matrix_engine::EditRig
         ui.add_enabled(rights.name, crate::metrics::line(&mut e.name).hint_text(i18n::t("Name")));
         ui.add_enabled(rights.topic, egui::TextEdit::multiline(&mut e.topic).hint_text(i18n::t("Topic")).desired_rows(3));
         if rights.avatar {
-            match &e.avatar {
-                Some(p) => ui.label(i18n::t("Photo: {name}").replace("{name}", &p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
-                None => ui.label(i18n::t("Drop an image here for the photo")),
-            };
+            if let Some(p) = &e.avatar {
+                ui.label(i18n::t("Photo: {name}").replace("{name}", &p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
+            }
             if ui.button(i18n::t("Choose photo…")).clicked() {
                 crate::pick::start(ui.ctx(), i18n::t("Room photo"), true);
             }
