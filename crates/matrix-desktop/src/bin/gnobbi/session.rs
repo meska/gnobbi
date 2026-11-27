@@ -1637,7 +1637,7 @@ impl Session {
             {
                 match &self.draft_scope {
                     Some(scope) => th.page(scope, result),
-                    None => { th.failed = true; th.growing = None; }
+                    None => { th.failed = true; th.growing = None; th.pending = None; }
                 }
                 changed = true;
             }

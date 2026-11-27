@@ -104,6 +104,42 @@ fn disposable_thread_panel_root_at_first_paint_and_thread_without_replies() {
     });
 }
 
+/// The first reply in a thread that had none (ours, then the other user's) is read at once: the cache holds as many
+/// replies as the root declares, so there is nothing to page (the SDK would wait 3 s for a first pagination token,
+/// and a 1 s cut of that wait used to cost 2.2 s and then 1.2 s). Measured before the fix: 2154-2157 ms, then 1155-1158 ms.
+#[test]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_thread_panel_first_reply_in_an_empty_thread_reads_at_once() {
+    runtime().block_on(async {
+        let mut room = PanelRoom::new(false, 0, 335).await;
+        assert!(room.open(50).await.0.replies.is_empty());
+        room.alice.send_in_thread(&room.scope, &room.root, None, "mine", None).await.unwrap();
+        let mut times = Vec::new();
+        let mut page = room.open(50).await;
+        for _ in 0..50 {
+            times.push(page.1.as_millis() as u64);
+            if page.0.replies.len() == 1 { break; }
+            let _ = room.alice.sliding_round().await;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            page = room.open(50).await;
+        }
+        println!("PANEL_FIRST_REPLY {}", serde_json::json!({"own_ms": times}));
+        assert_eq!(panel_bodies(&page.0), ["mine"]);
+        assert!(times.iter().all(|t| *t < 100), "a read after our first reply took {times:?} ms");
+        room.reply(0..1).await;
+        let mut times = Vec::new();
+        for _ in 0..50 {
+            let page = room.open(50).await;
+            times.push(page.1.as_millis() as u64);
+            if page.0.replies.len() == 2 { break; }
+            let _ = room.alice.sliding_round().await;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        println!("PANEL_FIRST_REPLY {}", serde_json::json!({"other_ms": times}));
+        assert!(times.iter().all(|t| *t < 100), "a read after the other user's reply took {times:?} ms");
+    });
+}
+
 /// The full ask on a thread without replies (a plain message opened as a thread) answers at once: the room shows the root
 /// without a thread summary, so there is nothing to page (the SDK would wait 3 s for a first pagination token that a
 /// thread cache without events never gets). Measured before the fix: 3010, 3039, 3009 ms.
@@ -187,7 +223,14 @@ fn disposable_thread_panel_fifty_replies_and_paging_backwards() {
 fn disposable_thread_panel_encrypted_room_decrypts() {
     runtime().block_on(async {
         let mut room = PanelRoom::new(true, 5, 330).await;
-        let page = room.open_until(50, 5, 20).await;
+        let mut page = room.open_until(50, 5, 20).await;
+        // The last reply can be in the rows before its key: wait for the decryption, not only for the rows.
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while page.replies.iter().any(|r| r.utd) && std::time::Instant::now() < end {
+            let _ = room.alice.sliding_round().await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            page = room.open(50).await.0;
+        }
         assert_eq!(panel_bodies(&page), ["reply 000", "reply 001", "reply 002", "reply 003", "reply 004"]);
         assert!(page.replies.iter().all(|r| !r.utd));
         assert_eq!(page.root.as_ref().map(|r| r.body.as_str()), Some("root"));

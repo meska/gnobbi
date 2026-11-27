@@ -29,21 +29,38 @@ pub(crate) async fn open(
     let thread = timelines.thread(room, &root_id).await?;
     let mut now = loaded(room, &thread).await;
     let mut offline = false;
-    // A root the room shows without a thread summary has no replies: the SDK would wait 3 s for a first
-    // pagination token that never comes, so a thread cache with no events is not paged then.
-    let no_replies = main.rows.iter().find(|r| r.event_id == *root).is_some_and(|r| r.thread.is_none());
+    // A thread read empty (the room's root has no summary) is not paged: the SDK would wait 3 s for a first
+    // pagination token that a thread cache without events does not have. Until a page runs, what the cache holds
+    // came by live sync, so once it holds the replies the root declares there is still nothing to page. The summary
+    // comes from the room's rows, or from the event cache when a sync gap took the root out of them.
+    // shortcut: a sync gap after the thread was read empty goes unseen until a read finds fewer replies than the summary declares.
+    let mut declared = main.rows.iter().find(|r| r.event_id == *root).map(|r| r.thread.as_ref().map_or(0, |t| t.num_replies as usize));
+    if declared.is_none() && want > 0 {
+        if let Ok((events, _)) = room.event_cache().await && let Ok(Some(event)) = events.find_event(&root_id).await {
+            declared = event.thread_summary.summary().map(|s| s.num_replies as usize);
+        }
+    }
+    let replies = |rows: &[crate::history::HistoryEvent]| rows.iter().filter(|r| r.event_id != *root).count();
+    let read_empty = want > 0 && now.rows.is_empty() && declared == Some(0);
+    if read_empty {
+        timelines.live_only(room, &root_id, Some(true));
+    }
+    let nothing_to_page = want == 0
+        || read_empty
+        || (timelines.live_only(room, &root_id, None) && declared.is_some_and(|n| replies(&now.rows) >= n));
     // `want == 0`: the cache only, no network (the panel's first paint).
     let guard = if want > 0 { room.client().event_cache().thread(room.room_id(), &root_id).await.ok() } else { None };
     let cache = guard.as_ref().map(|(cache, _)| cache);
-    if want > 0 && now.rows.is_empty() {
-        if !no_replies {
-            let (filled, status) = fill(room, &thread, want.max(PAGE), cache).await;
-            now = filled;
-            if now.rows.is_empty() && let Err(e) = status {
-                return Err(e);
-            }
+    if !nothing_to_page {
+        timelines.live_only(room, &root_id, Some(false));
+    }
+    if !nothing_to_page && now.rows.is_empty() {
+        let (filled, status) = fill(room, &thread, want.max(PAGE), cache).await;
+        now = filled;
+        if now.rows.is_empty() && let Err(e) = status {
+            return Err(e);
         }
-    } else if want > 0 {
+    } else if !nothing_to_page {
         // The SDK loads only the newest saved chunk first: the older saved ones come with a pagination
         // step. A step that has to leave the disk is dropped after 1 s, so a frozen server only delays it.
         let step = tokio::time::timeout(std::time::Duration::from_secs(1), fill(room, &thread, want.max(PAGE), cache)).await;

@@ -1935,12 +1935,25 @@ pub(crate) const PAGE: usize = 25;
 #[derive(Clone, Default)]
 pub(crate) struct Timelines(
     std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<TimelineKey, std::sync::Arc<matrix_sdk_ui::timeline::Timeline>>>>,
+    // Threads that were read empty and not paged since: all they hold came by live sync (see `threads::open`).
+    std::sync::Arc<std::sync::Mutex<std::collections::HashSet<TimelineKey>>>,
 );
 
 /// A room's own timeline (no root) or one of its threads.
 type TimelineKey = (matrix_sdk::ruma::OwnedRoomId, Option<matrix_sdk::ruma::OwnedEventId>);
 
 impl Timelines {
+    /// Remembers (`true`) or forgets (`false`) a thread that was read empty and not paged since.
+    pub(crate) fn live_only(&self, room: &matrix_sdk::Room, root: &matrix_sdk::ruma::EventId, set: Option<bool>) -> bool {
+        let key = (room.room_id().to_owned(), Some(root.to_owned()));
+        let mut all = self.1.lock().unwrap_or_else(|e| e.into_inner());
+        match set {
+            Some(true) => { all.insert(key); true }
+            Some(false) => { all.remove(&key); false }
+            None => all.contains(&key),
+        }
+    }
+
     pub(crate) async fn get(
         &self,
         room: &matrix_sdk::Room,
