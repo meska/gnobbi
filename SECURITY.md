@@ -1,23 +1,23 @@
-# Politica di sicurezza
+# Security policy
 
-## Versioni supportate
+## Supported versions
 
-Il progetto è in sviluppo iniziale e non ha release pubbliche: viene considerata solo l'ultima revisione del ramo principale.
+Gnobbi is in beta. Only the latest revision of the main branch is considered for security fixes.
 
-## Segnalare una vulnerabilità
+## Reporting a vulnerability
 
-Usa la *private vulnerability reporting* del repository (GitHub Security Advisories, scheda «Security» → «Report a vulnerability»). Se non fosse disponibile, apri una issue che contiene solo «Problema di sicurezza — contattami in privato» e un modo per ricontattarti.
+Use the repository's private vulnerability reporting feature (GitHub Security Advisories, under Security → Report a vulnerability). If it is unavailable, open an issue containing only “Security issue — please contact me privately” and a way to reach you.
 
-**Non aprire issue o PR pubbliche con dettagli, exploit o prove di concetto di una vulnerabilità.**
+**Do not open public issues or pull requests containing vulnerability details, exploits or proofs of concept.**
 
-Nella segnalazione includi, quando possibile:
+When possible, include in your private report:
 
-- descrizione del problema e del suo impatto;
-- passi o comando per riprodurlo;
-- versione/commit, sistema operativo e server usati.
+- A description of the issue and its impact.
+- Steps or a command to reproduce it.
+- The version or commit, operating system and server used.
 
-## Tempi e ambito
+## Response and scope
 
-Risposta best-effort: conferma di ricezione appena possibile e una valutazione, poi un coordinamento responsabile per la correzione e il rilascio dell'avviso.
+Responses are best effort: we will acknowledge receipt and provide an assessment as soon as possible, then coordinate a fix and advisory responsibly.
 
-L'ambito è il client Gnobbi (codice in questo repository). Problemi di homeserver, account o altri servizi vanno segnalati ai rispettivi gestori, non qui.
+The scope is the Gnobbi client (the code in this repository). Report homeserver, account or other service issues to their respective operators instead.

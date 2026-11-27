@@ -7,7 +7,7 @@ The first translations were written with AI assistance and have not been reviewe
 ## Where things are
 
 - Catalogs: `crates/matrix-desktop/locales/<code>.tsv` (`de.tsv`, `pt-BR.tsv`, ...). English has no file: the English text in the code is the key.
-- Language registry: the `LANGUAGES` table in `crates/matrix-desktop/src/i18n.rs`. Every supported language has a row there (code, native name, plural rule). A language appears in Settings > Language only once its catalog has at least one translation.
+- Language registry: the `LANGUAGES` table in `crates/matrix-desktop/src/i18n.rs`. Every supported language has a row there (code, native name, plural rule). English is always available; other languages appear in Settings > Language once their catalog has at least one translation.
 
 ## Format
 
@@ -43,11 +43,11 @@ context<TAB>English text<TAB>translation
 ## Try it
 
 ```sh
-GNOBBI_LANG=de cargo run -p matrix-desktop --bin gnobbi
+GNOBBI_LANG=de cargo run --locked -p matrix-desktop --bin gnobbi
 cargo i18n
 ```
 
-`GNOBBI_LANG` forces the language for that run (any registered code, even with an empty catalog). `cargo i18n` lists, per language, the strings still missing and the malformed rows, for example a `@plural` row with the wrong number of forms. `cargo test -p matrix-desktop --lib i18n` checks that every catalog parses.
+With Settings > Language set to Auto, `GNOBBI_LANG` selects the language for that run (any registered code, even with an empty catalog). `cargo i18n` lists, per language, the strings still missing and the malformed rows, for example an `@plural` row with the wrong number of forms. `cargo test --locked -p matrix-desktop --lib i18n` checks that every catalog parses.
 
 ## Send it
 
