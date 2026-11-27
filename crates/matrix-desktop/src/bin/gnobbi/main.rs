@@ -1641,12 +1641,13 @@ impl App {
                     let p = members::page(ui, list, &mut s.member_query, None, admin, &s.user, &s.avatars, t);
                     (out.member, page_back) = (p.act, p.back);
                 } else {
-                    out = info::show(ui, room, s.members.as_ref(), admin, &s.user, &mut view, (&mut status, hidden_status), &s.avatars, t);
+                    out = info::show(ui, room, s.members.as_ref(), s.members_failed, admin, &s.user, &mut view, (&mut status, hidden_status), &s.avatars, t);
                 }
             }));
             alias_action = view.action.take();
             self.alias_input = alias_input;
             if let Some(s) = &mut self.session {
+                if out.retry_members { s.retry_members(); }
                 s.members_page = (s.members_page && !page_back) || out.members_page;
             }
             if status != status_was && let Some(s) = &mut self.session {

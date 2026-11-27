@@ -231,6 +231,8 @@ pub struct Session {
     /// The member order was refreshed since the info panel opened: rows do not move while it is open.
     pub member_order_fresh: bool,
     members_requested: Option<matrix_domain::RoomScope>,
+    /// The members read of the open room failed (error or timeout): «Retry» instead of the spinner.
+    pub members_failed: bool,
     /// A role was changed here: members and rights are read again when the room's next event arrives.
     roles_stale: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
@@ -476,6 +478,7 @@ impl Session {
             member_query: String::new(),
             member_order_fresh: false,
             members_requested: None,
+            members_failed: false,
             roles_stale: None,
             upload_limit: None,
             info_open: false,
@@ -1042,6 +1045,7 @@ impl Session {
             self.pictures.clear();
             crate::animation::clear();
             self.members = None;
+            self.members_failed = false;
             (self.members_page, self.member_order_fresh) = (false, false);
             self.member_query.clear();
             self.thread = None;
@@ -1157,6 +1161,11 @@ impl Session {
             More if self.messages.as_ref().is_some_and(|m| m.events().is_empty()) => crate::loading::Fetch::Busy,
             _ => crate::loading::Fetch::Done,
         }
+    }
+
+    /// «Retry» on a failed members read: the next `queue_lookups` asks again.
+    pub fn retry_members(&mut self) {
+        (self.members_failed, self.members_requested) = (false, None);
     }
 
     /// «Retry» on a failed history load: the same request again (a failed live read is taken up by the next refresh).
@@ -1729,6 +1738,7 @@ impl Session {
             if self.draft_scope.as_ref() == Some(&scope) {
                 self.upload_limit = upload_limit;
                 crate::pick::UPLOAD_LIMIT.store(upload_limit.unwrap_or(50 << 20), std::sync::atomic::Ordering::Relaxed);
+                self.members_failed = members.is_err();
                 if let Ok(list) = members {
                     let activity = self.member_activity(&scope);
                     self.members = Some(crate::members::MemberList::new(scope.clone(), list, &activity, self.timeline_mark(&scope)));
@@ -2904,6 +2914,18 @@ fn restore_gave_up(status: matrix_desktop::HistoryStatus, pages: u8, waited: std
 /// (the list's own first pick, moved or not by later diffs, is not a choice), or after a while (a room that left the list must not pop up later).
 fn restore_over(want: &str, now: Option<&str>, user_picked: bool, waited: std::time::Duration) -> bool {
     now == Some(want) || user_picked || waited > std::time::Duration::from_secs(20)
+}
+
+#[cfg(test)]
+mod members_block_tests {
+    use crate::info::{MembersBlock::*, members_block};
+
+    #[test]
+    fn a_failed_members_read_ends_in_the_error_never_in_an_endless_spinner() {
+        assert_eq!(members_block(false, true), Failed);
+        assert_eq!(members_block(false, false), Loading);
+        assert_eq!(members_block(true, true), List);
+    }
 }
 
 #[cfg(test)]

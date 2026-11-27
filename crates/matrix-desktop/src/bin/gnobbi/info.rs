@@ -14,9 +14,19 @@ pub struct Out {
     pub shared: bool,
     /// «Members · N» was clicked: the members page replaces the panel.
     pub members_page: bool,
+    /// «Retry» on a members read that failed.
+    pub retry_members: bool,
 }
 
-pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&crate::members::MemberList>, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, (status, hidden_status): (&mut matrix_desktop::StatusChoice, usize), avatars: &crate::avatar::Avatars, t: &DesignTokens) -> Out {
+/// What the members block shows: the list, the error with «Retry», or the spinner while a read is really in flight.
+#[derive(Debug, PartialEq)]
+pub enum MembersBlock { List, Failed, Loading }
+
+pub fn members_block(have_list: bool, failed: bool) -> MembersBlock {
+    if have_list { MembersBlock::List } else if failed { MembersBlock::Failed } else { MembersBlock::Loading }
+}
+
+pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&crate::members::MemberList>, members_failed: bool, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, (status, hidden_status): (&mut matrix_desktop::StatusChoice, usize), avatars: &crate::avatar::Avatars, t: &DesignTokens) -> Out {
     let mut out = Out::default();
     let area = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.add_space(16.);
@@ -71,7 +81,13 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&crate::membe
         });
         let Some(members) = members else {
             ui.add_space(12.);
-            ui.vertical_centered(|ui| ui.spinner());
+            ui.vertical_centered(|ui| match members_block(false, members_failed) {
+                MembersBlock::Failed => {
+                    ui.colored_label(rgb(t.error), i18n::t("Couldn't load members"));
+                    out.retry_members = ui.button(i18n::t("Retry")).clicked();
+                }
+                _ => { ui.spinner(); }
+            });
             return;
         };
         out.member = crate::members::preview(ui, members, admin, me, &mut out.members_page, avatars, t);
