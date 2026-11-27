@@ -537,6 +537,10 @@ mod tests {
     /// The members page under a simulated finger on egui's own clock: returns the act of each frame.
     struct Finger { ctx: egui::Context, list: MemberList, q: String, time: f64 }
 
+    impl Drop for Finger {
+        fn drop(&mut self) { crate::mobile::FORCE_TOUCH.set(false); }
+    }
+
     impl Finger {
         fn new() -> Self {
             crate::mobile::FORCE_TOUCH.set(true);
