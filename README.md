@@ -1,6 +1,6 @@
 # Gnobbi
 
-Client desktop [Matrix](https://matrix.org/) open source, scritto in Rust con interfaccia [egui](https://github.com/emilk/egui) (eframe). Gnobbi si collega direttamente al proprio homeserver, senza gateway o servizi intermedi: account, messaggi e chiavi restano tra il client e il server scelto.
+Open source [Matrix](https://matrix.org/) client for desktop and mobile, written in Rust with an [egui](https://github.com/emilk/egui) (eframe) interface. Gnobbi talks directly to your homeserver, with no gateways or middle services: account, messages and keys stay between the client and the server you chose.
 
 <table>
   <tr>
@@ -13,71 +13,72 @@ Client desktop [Matrix](https://matrix.org/) open source, scritto in Rust con in
   </tr>
 </table>
 
-Caratteristiche principali:
+Main features:
 
-- accesso con ID e password al proprio homeserver (Synapse e Tuwunel sono i server di riferimento);
-- crittografia end-to-end tramite il [Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk) ufficiale;
-- interfaccia nativa Wayland (e X11) su Linux; build per macOS e Windows.
+- sign in with ID and password on your own homeserver (Synapse and Tuwunel are the reference servers);
+- end-to-end encryption through the official [Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk);
+- native Wayland (and X11) interface on Linux; builds for macOS, Windows, iOS and Android.
 
-**Stato: beta.** L'interfaccia è in continua evoluzione.
+**Status: beta.** The interface is constantly evolving.
 
-## Provalo
+## Try it
 
-- **iPhone e iPad:** beta pubblica su [TestFlight](https://testflight.apple.com/join/ZGYennpy).
-- **macOS, Windows, Linux:** binari nelle [release](https://github.com/meska/gnobbi/releases).
-- Oppure compila dai sorgenti (vedi sotto).
+- **iPhone and iPad:** public beta on [TestFlight](https://testflight.apple.com/join/ZGYennpy).
+- **Android:** coming to Google Play.
+- **macOS, Windows, Linux:** binaries in the [releases](https://github.com/meska/gnobbi/releases).
+- Or build from source (see below).
 
-## Traduzioni
+## Translations
 
-L'interfaccia è traducibile con semplici file di testo: vedi [TRANSLATING.md](TRANSLATING.md) (in inglese).
+The interface can be translated with plain text files: see [TRANSLATING.md](TRANSLATING.md).
 
-## Struttura
+## Structure
 
-- `crates/matrix-domain`: modelli e design token, senza SDK né toolkit grafico;
-- `crates/matrix-engine`: adattatore del Matrix Rust SDK (con la feature `sdk`);
-- `crates/matrix-desktop`: il client desktop. La libreria è lo strato applicativo senza toolkit (stato, preferenze, proiezioni), il binario `gnobbi` (`src/bin/gnobbi`) è l'app, con interfaccia egui;
-- `vendor/`: copie locali di dipendenze patchate (Matrix Rust SDK, egui/eframe, winit), collegate da `[patch.crates-io]` nel `Cargo.toml` di radice;
-- `packaging/`: AppImage, pacchetto macOS, zip Windows, icone.
+- `crates/matrix-domain`: models and design tokens, no SDK and no UI toolkit;
+- `crates/matrix-engine`: adapter for the Matrix Rust SDK (with the `sdk` feature);
+- `crates/matrix-desktop`: the client. The library is the toolkit-free application layer (state, preferences, projections); the `gnobbi` binary (`src/bin/gnobbi`) is the app itself — the same binary builds the desktop app (egui interface) and the iOS and Android apps;
+- `vendor/`: local copies of patched dependencies (Matrix Rust SDK, egui/eframe, winit), wired through `[patch.crates-io]` in the root `Cargo.toml`;
+- `packaging/`: AppImage, macOS package, Windows zip, iOS and Android bundles, icons.
 
-## Compilazione
+## Building
 
-Serve una toolchain Rust recente (edizione 2024; sviluppato con rustc 1.99). Dalla radice del repository:
+A recent Rust toolchain is required (edition 2024; developed with rustc 1.99). From the repository root:
 
 ```sh
 cargo build --locked -p matrix-desktop --features linux-vault
 ```
 
-Il binario è `target/debug/gnobbi`. Su macOS la feature è `mac-vault`, su Windows `windows-vault` (portachiavi di sistema). Con il solo `cargo build --locked` si compilano le librerie di base (`matrix-domain`, `matrix-engine`).
+The binary is `target/debug/gnobbi`. On macOS the feature is `mac-vault`, on Windows `windows-vault` (system keychain). Plain `cargo build --locked` builds the base libraries (`matrix-domain`, `matrix-engine`).
 
-Su Linux la build richiede `pkg-config` e gli header di sistema; l'ambiente di riferimento (Debian 12) ha installati `build-essential pkg-config libssl-dev libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev libvulkan-dev libdbus-1-dev`. A runtime le librerie GPU/Vulkan/Wayland arrivano dall'host.
+On Linux the build needs `pkg-config` and system headers; the reference environment (Debian 12) has `build-essential pkg-config libssl-dev libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev libvulkan-dev libdbus-1-dev` installed. At runtime the GPU/Vulkan/Wayland libraries come from the host.
 
-### Test
+### Tests
 
 ```sh
 cargo test --locked -p matrix-domain
 cargo test --locked -p matrix-desktop
 ```
 
-I test che toccano rete e homeserver usano fixture usa e getta; le unit test girano senza server.
+Tests that touch the network and a homeserver use disposable fixtures; the unit tests run without a server.
 
-## Avvio e accesso
+## First run and sign-in
 
-Il primo accesso chiede homeserver, ID Matrix e password; la chiave che protegge l'archivio locale è custodita nel portachiavi di sistema (Secret Service su Linux), senza frase da inventare. Dopo l'accesso un passo facoltativo permette di inserire la chiave di recupero Matrix esistente (non la frase locale) per recuperare dal backup la cronologia cifrata precedente; non tutti i vecchi messaggi sono garantiti nel backup. Una chiave errata o un errore di rete lasciano il backup intatto e si può riprovare; si può sempre proseguire senza recupero. Un account senza archivio segreto Matrix lo scopre quando si prova una chiave: a quel punto Gnobbi offre «Crea chiave di recupero», che genera una chiave e il backup delle chiavi di cifratura, mostra la chiave una sola volta (copia esplicita, poi conferma di averla salvata) e solo allora prosegue; se la creazione fallisce, il server resta com'era e si può riprovare. Gnobbi crea il recupero soltanto quando mancano sia l'archivio segreto sia il backup: un account con backup ma senza archivio (o l'inverso) viene rifiutato senza modifiche, e chiavi o backup esistenti non vengono mai sostituiti. Il backup protegge i messaggi cifrati scambiati da questo dispositivo dopo la creazione: la cronologia precedente, mai salvata in un backup, non diventa leggibile e non è promessa. Se il portachiavi non è disponibile o è bloccato, Gnobbi lo dice e non modifica il profilo. Compilando senza `linux-vault` resta il vecchio modulo con frase locale.
+The first sign-in asks for homeserver, Matrix ID and password; the key protecting the local store is kept in the system keychain (Secret Service on Linux), with no passphrase to make up. After signing in, an optional step lets you enter your existing Matrix recovery key (not the local passphrase) to recover previous encrypted history from the backup; not every old message is guaranteed to be in the backup. A wrong key or a network error leaves the backup untouched and you can retry; you can always continue without recovery. An account without a Matrix secret store finds out when it tries a key: at that point Gnobbi offers "Create recovery key", which generates a key and the encryption-key backup, shows the key once (explicit copy, then a confirmation that you saved it) and only then continues; if creation fails, the server is left as it was and you can retry. Gnobbi creates recovery only when both the secret store and the backup are missing: an account with a backup but no store (or the other way around) is refused without changes, and existing keys or backups are never replaced. The backup protects encrypted messages exchanged by this device after creation: previous history, never saved in a backup, does not become readable and is not promised. If the keychain is unavailable or locked, Gnobbi says so and does not touch the profile. Building without `linux-vault` keeps the old module with a local passphrase.
 
-Avvio: `target/debug/gnobbi` (o `cargo run --locked -p matrix-desktop --features linux-vault`) apre il profilo predefinito nella cartella dati dell'app; i profili successivi si aggiungono dal pannello account dell'app. `gnobbi --signin <cartella-profilo-assoluta> [--ca-file <pem-assoluto>]` apre un profilo isolato, ad esempio per provare un homeserver di test.
+Startup: `target/debug/gnobbi` (or `cargo run --locked -p matrix-desktop --features linux-vault`) opens the default profile in the app's data folder; further profiles are added from the app's account panel. `gnobbi --signin <absolute-profile-folder> [--ca-file <absolute-pem>]` opens an isolated profile, for example to try a test homeserver.
 
-## Account da riga di comando
+## Command-line accounts
 
-Per login, logout, verifica della sessione e gestione della chiave di recupero, anche in script e CI, vedi la [guida alla CLI account](ACCOUNT_CLI.md).
+For login, logout, session verification and recovery-key management, also in scripts and CI, see the [account CLI guide](ACCOUNT_CLI.md).
 
-Per cosa è in programma vedi la [roadmap](ROADMAP.md) (in inglese).
+For what is planned, see the [roadmap](ROADMAP.md).
 
-## Come contribuire
+## Contributing
 
-Vedi [CONTRIBUTING](CONTRIBUTING.md). Per segnalare vulnerabilità: [SECURITY](SECURITY.md).
+See [CONTRIBUTING](CONTRIBUTING.md). To report vulnerabilities: [SECURITY](SECURITY.md).
 
-## Licenza
+## License
 
-Copyright (c) 2026 Marco Mescalchin. Distribuito con doppia licenza [MIT](LICENSE-MIT) oppure [Apache-2.0](LICENSE-APACHE), a scelta dell'utente.
+Copyright (c) 2026 Marco Mescalchin. Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
 
-Le dipendenze di terze parti hanno licenze proprie: vedi [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md).
+Third-party dependencies have their own licenses: see [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md).
