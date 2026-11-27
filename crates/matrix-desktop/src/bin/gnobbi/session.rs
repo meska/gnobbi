@@ -1908,6 +1908,7 @@ impl Session {
 
     pub fn send_poll(&mut self, draft: matrix_domain::PollDraft) {
         let (Some(scope), Some((tx, _))) = (self.draft_scope.clone(), &mut self.send) else { return };
+        tx.hold(true);
         let request = matrix_engine::sending::SendRequest {
             scope,
             transaction_id: matrix_engine::sending::fresh_transaction_id(),
@@ -1916,7 +1917,9 @@ impl Session {
             poll: Some(draft),
             mentions: Vec::new(),
         };
-        let _ = tx.try_send(request);
+        // Through the same queue as the files: Busy/Full keeps the poll for the next frame instead of dropping it.
+        self.outgoing.push_back(request);
+        self.flush_outgoing();
     }
 
     pub fn open_edit(&mut self) {
@@ -2434,6 +2437,7 @@ impl Session {
     /// Sends the text to the open room; the live view picks up the echo.
     pub fn send(&mut self, body: String) {
         let (Some(scope), Some((tx, _))) = (self.draft_scope.clone(), &mut self.send) else { return };
+        tx.hold(true); // before the first push: the updater must never see the gap between queueing and try_send
         // One request per file, in order; the caption and its mentions ride on the last one (the album's caption).
         let mut files: Vec<_> = self.attachment.take().map(crate::attach::Pending::into_attachments).unwrap_or_default().into_iter().map(Some).collect();
         if files.is_empty() { files.push(None); }
@@ -2460,18 +2464,9 @@ impl Session {
     fn flush_outgoing(&mut self) -> bool {
         let Some((tx, _)) = &mut self.send else { return false };
         let before = self.outgoing.len();
-        while let Some(request) = self.outgoing.pop_front() {
-            match tx.try_send(request) {
-                Ok(()) => {}
-                Err(matrix_engine::TrySendError::Full(r) | matrix_engine::TrySendError::Busy(r)) => {
-                    self.outgoing.push_front(r);
-                    break;
-                }
-                Err(matrix_engine::TrySendError::Closed(r)) => {
-                    self.uploads.retain(|u| u.id != r.transaction_id);
-                    self.notice = Some(i18n::t("File not sent").to_owned());
-                }
-            }
+        for closed in flush_requests(&mut self.outgoing, tx) {
+            self.uploads.retain(|u| u.id != closed);
+            self.notice = Some(i18n::t("File not sent").to_owned());
         }
         before != self.outgoing.len()
     }
@@ -2506,6 +2501,7 @@ impl Session {
         }
         // One that never reached the send route is simply dropped.
         self.outgoing.retain(|r| &r.transaction_id != id);
+        if let Some((tx, _)) = &mut self.send { tx.hold(!self.outgoing.is_empty()); }
         self.uploads.retain(|u| &u.id != id);
     }
 
@@ -2708,6 +2704,27 @@ impl PendingSeek {
         if self.held { p.begin_scrub(); }
         p.seek_secs(secs);
     }
+}
+
+/// Hands `queue` to the engine in order until it refuses (Full/Busy: the rest stays, in order). Returns the ids dropped
+/// because the engine is gone. The sender is told whether the queue still holds writes, so the updater waits for them.
+fn flush_requests(
+    queue: &mut std::collections::VecDeque<matrix_engine::sending::SendRequest>,
+    tx: &mut matrix_engine::Sender<matrix_engine::sending::SendRequest>,
+) -> Vec<matrix_domain::TransactionId> {
+    let mut closed = Vec::new();
+    while let Some(request) = queue.pop_front() {
+        match tx.try_send(request) {
+            Ok(()) => {}
+            Err(matrix_engine::TrySendError::Full(r) | matrix_engine::TrySendError::Busy(r)) => {
+                queue.push_front(r);
+                break;
+            }
+            Err(matrix_engine::TrySendError::Closed(r)) => closed.push(r.transaction_id),
+        }
+    }
+    tx.hold(!queue.is_empty());
+    closed
 }
 
 #[cfg(test)]
@@ -2958,5 +2975,67 @@ mod stale_tests {
         assert!(!accept_user_answer(&mut gate, &S::NoResults));
         assert!(accept_user_answer(&mut gate, &S::Searching));
         assert!(accept_user_answer(&mut gate, &S::NoResults));
+    }
+}
+
+#[cfg(test)]
+mod outgoing_queue_tests {
+    use super::*;
+    use matrix_engine::sending::{Attachment, SendRequest};
+    use std::{collections::VecDeque, num::NonZeroUsize, sync::Mutex};
+
+    static SERIAL: Mutex<()> = Mutex::new(()); // the send guard is process-wide
+
+    fn req(id: &str, body: &str, file: bool, poll: bool) -> SendRequest {
+        SendRequest {
+            scope: matrix_domain::RoomScope { account_id: matrix_domain::AccountId::new(1), room_id: matrix_domain::RoomId::new("!r:test") },
+            transaction_id: matrix_domain::TransactionId::new(id),
+            body: body.into(),
+            attachment: file.then(|| Attachment { filename: format!("{id}.png"), data: vec![1], ..Default::default() }),
+            poll: poll.then(|| matrix_domain::PollDraft { question: "q".into(), answers: vec!["a".into(), "b".into()], multiple: false, disclosed: true }),
+            mentions: Vec::new(),
+        }
+    }
+
+    /// Album of two files with caption, then a poll; the route takes two at a time and, once, is closed by the updater.
+    #[test]
+    fn busy_full_and_restart_keep_files_caption_and_poll_in_order_and_block_the_updater() {
+        let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut tx, mut rx) = matrix_engine::bounded_writes(NonZeroUsize::new(2).unwrap(), |_| true);
+        let mut queue: VecDeque<_> = [req("a", "", true, false), req("b", "caption", true, false), req("c", "", false, true)].into();
+        assert!(flush_requests(&mut queue, &mut tx).is_empty());
+        assert_eq!(queue.len(), 1, "Full: the poll waits");
+        assert!(matrix_engine::lock_for_update().is_none(), "the UI still holds the poll");
+        let ids = |rx: &mut matrix_engine::Receiver<SendRequest>| std::iter::from_fn(|| rx.try_recv().ok()).map(|r| r.transaction_id.as_str().to_owned()).collect::<Vec<_>>();
+        assert_eq!(ids(&mut rx), ["a", "b"]);
+        assert!(matrix_engine::lock_for_update().is_none(), "poll still waiting after the engine drained the others");
+        // Free again: the poll goes through, text and attachments intact.
+        assert!(flush_requests(&mut queue, &mut tx).is_empty() && queue.is_empty());
+        let last = rx.try_recv().unwrap();
+        assert!(last.poll.is_some() && last.transaction_id.as_str() == "c");
+        assert!(rx.try_recv().is_err());
+        // The updater closes the gate: Busy, everything stays queued and the updater cannot have missed it.
+        let lock = matrix_engine::lock_for_update().expect("idle");
+        queue.extend([req("d", "text", true, false), req("e", "", false, true)]);
+        assert!(flush_requests(&mut queue, &mut tx).is_empty());
+        assert_eq!(queue.iter().map(|r| (r.transaction_id.as_str(), r.body.as_str(), r.attachment.is_some(), r.poll.is_some())).collect::<Vec<_>>(),
+            [("d", "text", true, false), ("e", "", false, true)]);
+        drop(lock); // the install failed
+        assert!(flush_requests(&mut queue, &mut tx).is_empty() && queue.is_empty());
+        assert_eq!(ids(&mut rx), ["d", "e"]);
+        assert!(rx.try_recv().is_err());
+        drop(tx);
+    }
+
+    #[test]
+    fn a_closed_route_reports_the_dropped_ids_and_releases_the_updater() {
+        let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut tx, rx) = matrix_engine::bounded_writes(NonZeroUsize::new(2).unwrap(), |_| true);
+        drop(rx);
+        let mut queue: VecDeque<_> = [req("x", "", true, false)].into();
+        let closed = flush_requests(&mut queue, &mut tx);
+        assert_eq!(closed.len(), 1);
+        assert!(queue.is_empty());
+        assert!(matrix_engine::lock_for_update().is_some(), "nothing held after the drop");
     }
 }

@@ -33,6 +33,10 @@ pub struct Sender<T> {
     writes: Writes<T>,
     /// A write was refused with Full/Busy and the caller still holds it (counted in the send guard).
     parked: bool,
+    /// The caller keeps unsent writes of its own queue (see [`Sender::hold`]); independent of `parked`.
+    held: bool,
+    /// What this sender currently contributes to the guard's parked count (`parked || held`).
+    counted: bool,
 }
 /// `Some` on channels that carry user writes: those are counted in `send_guard` while queued/handled.
 type Writes<T> = Option<fn(&T) -> bool>;
@@ -69,6 +73,8 @@ fn channel<T>(capacity: NonZeroUsize, writes: Writes<T>) -> (Sender<T>, Receiver
             state: state.clone(),
             writes,
             parked: false,
+            held: false,
+            counted: false,
         },
         Receiver { state, writes, held: false },
     )
@@ -127,11 +133,24 @@ impl<T> Sender<T> {
     pub fn try_send(&mut self, value: T) -> Result<(), TrySendError<T>> {
         let counted = self.writes.is_some_and(|w| w(&value));
         let result = self.admit(value, counted);
-        if counted && self.parked != matches!(result, Err(TrySendError::Full(_) | TrySendError::Busy(_))) {
-            self.parked = !self.parked;
-            crate::send_guard::park(self.parked);
+        if counted {
+            self.parked = matches!(result, Err(TrySendError::Full(_) | TrySendError::Busy(_)));
+            self.sync_park();
         }
         result
+    }
+    /// The UI declares whether it still holds writes in its own queue (not yet handed to `try_send`, or refused and
+    /// kept): while `true` the updater does not restart, also for the instants between two `try_send`.
+    pub fn hold(&mut self, held: bool) {
+        self.held = held;
+        self.sync_park();
+    }
+    fn sync_park(&mut self) {
+        let on = self.parked || self.held;
+        if on != self.counted {
+            self.counted = on;
+            crate::send_guard::park(on);
+        }
     }
     fn admit(&mut self, value: T, counted: bool) -> Result<(), TrySendError<T>> {
         let mut state = match self.state.try_lock() {
@@ -160,7 +179,7 @@ impl<T> Sender<T> {
 }
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
-        if self.parked {
+        if self.counted {
             crate::send_guard::park(false);
         }
         let mut state = self.state.lock().expect("channel state poisoned");

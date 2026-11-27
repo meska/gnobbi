@@ -23,7 +23,7 @@ fn request(n: usize, attachment: bool) -> SendRequest {
         scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:test") },
         transaction_id: TransactionId::new(format!("t{n}")),
         body: String::new(),
-        attachment: attachment.then(|| Attachment { filename: "a.png".into(), data: vec![1, 2, 3], voice: None }),
+        attachment: attachment.then(|| Attachment { filename: "a.png".into(), data: vec![1, 2, 3], ..Default::default() }),
         poll: None,
         mentions: Vec::new(),
     }
@@ -109,6 +109,7 @@ fn race_no_write_is_accepted_while_the_lock_is_held() {
                 match result {
                     Ok(()) => {
                         accepted.fetch_add(1, SeqCst);
+                        std::thread::sleep(std::time::Duration::from_micros(300)); // a UI that types, not a flood: the gate is idle at times
                         n += 1;
                         if before && after {
                             violations.fetch_add(1, SeqCst);
@@ -127,7 +128,11 @@ fn race_no_write_is_accepted_while_the_lock_is_held() {
                 }
             }
         });
-        for _ in 0..300 {
+        // At least 300 rounds, and until both sides have really run (the UI thread may be scheduled late or flood the gate).
+        let start = std::time::Instant::now();
+        let mut round = 0;
+        while round < 300 || ((accepted.load(SeqCst) == 0 || locks.load(SeqCst) == 0) && start.elapsed().as_secs() < 5) {
+            round += 1;
             if let Some(lock) = lock_for_update() {
                 locked.store(true, SeqCst);
                 locks.fetch_add(1, SeqCst);
@@ -140,5 +145,21 @@ fn race_no_write_is_accepted_while_the_lock_is_held() {
         done.store(true, SeqCst);
     });
     assert_eq!(violations.load(SeqCst), 0, "a write got in between the check and the exit");
-    assert!(locks.load(SeqCst) > 0 && accepted.load(SeqCst) > 0, "the race was actually exercised");
+    assert!(locks.load(SeqCst) > 0 && accepted.load(SeqCst) > 0, "the race was actually exercised: locks={} accepted={}", locks.load(SeqCst), accepted.load(SeqCst));
+}
+
+#[test]
+fn hold_keeps_the_gate_shut_across_successful_sends_until_the_ui_queue_is_empty() {
+    let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let (mut tx, mut rx) = channel(4);
+    tx.hold(true); // the UI queued two writes, none handed over yet
+    assert!(lock_for_update().is_none(), "queued in the UI: no update");
+    assert!(tx.try_send(request(6, false)).is_ok());
+    rx.try_recv().unwrap();
+    assert!(rx.try_recv().is_err());
+    assert!(lock_for_update().is_none(), "an accepted send must not release what the UI still holds");
+    tx.hold(false);
+    assert!(lock_for_update().is_some(), "queue empty and handled");
+    drop(tx);
+    assert!(lock_for_update().is_some(), "a dropped sender leaves nothing counted");
 }
