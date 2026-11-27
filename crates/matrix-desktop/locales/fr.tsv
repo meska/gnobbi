@@ -486,7 +486,9 @@ menu	Bring All to Front	Tout ramener au premier plan
 	Too many attempts: try again in a moment.	Trop de tentatives : réessayez dans un instant.
 	Sign-in/unlock failed. Check the credentials and try again.	Échec de la connexion ou du déverrouillage. Vérifiez les identifiants et réessayez.
 	System keychain unavailable or locked. Unlock it and try again.	Trousseau du système indisponible ou verrouillé. Déverrouillez-le et réessayez.
-	The profile key is not in the system keychain. The profile was not changed.	La clé du profil n’est pas dans le trousseau du système. Le profil n’a pas été modifié.
+	A key for this profile already exists in the system keychain. The profile was not changed.	Une clé pour ce profil existe déjà dans le trousseau du système. Le profil n’a pas été modifié.
+	The profile key is not in the system keychain.	La clé du profil n’est pas dans le trousseau du système.
+	The profile key in the system keychain is not valid.	La clé du profil dans le trousseau du système n’est pas valide.
 	Profile already open in another instance. Close it and restart.	Profil déjà ouvert dans une autre instance. Fermez-la et redémarrez.
 	Local profile unavailable.	Profil local indisponible.
 	Local profile unavailable. Close and check the profile path.	Profil local indisponible. Fermez et vérifiez le chemin du profil.

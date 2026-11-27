@@ -486,7 +486,9 @@ menu	Bring All to Front	Prebaci sve naprijed
 	Too many attempts: try again in a moment.	Previše pokušaja: pokušaj ponovo za koji trenutak.
 	Sign-in/unlock failed. Check the credentials and try again.	Prijava/otključavanje nije uspjelo. Provjeri podatke i pokušaj ponovo.
 	System keychain unavailable or locked. Unlock it and try again.	Sistemski privjesak ključeva nije dostupan ili je zaključan. Otključaj ga i pokušaj ponovo.
-	The profile key is not in the system keychain. The profile was not changed.	Ključ profila nije u sistemskom privjesku ključeva. Profil nije promijenjen.
+	A key for this profile already exists in the system keychain. The profile was not changed.	Ključ za ovaj profil već postoji u sistemskom privjesku ključeva. Profil nije promijenjen.
+	The profile key is not in the system keychain.	Ključ profila nije u sistemskom privjesku ključeva.
+	The profile key in the system keychain is not valid.	Ključ profila u sistemskom privjesku ključeva nije valjan.
 	Profile already open in another instance. Close it and restart.	Profil je već otvoren u drugoj instanci. Zatvori je i ponovo pokreni.
 	Local profile unavailable.	Lokalni profil nije dostupan.
 	Local profile unavailable. Close and check the profile path.	Lokalni profil nije dostupan. Zatvori i provjeri putanju profila.

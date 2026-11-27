@@ -485,7 +485,9 @@ menu	Bring All to Front	Przesuń wszystko na wierzch
 	Too many attempts: try again in a moment.	Zbyt wiele prób: spróbuj ponownie za chwilę.
 	Sign-in/unlock failed. Check the credentials and try again.	Logowanie/odblokowanie nie powiodło się. Sprawdź dane logowania i spróbuj ponownie.
 	System keychain unavailable or locked. Unlock it and try again.	Systemowy pęk kluczy niedostępny lub zablokowany. Odblokuj go i spróbuj ponownie.
-	The profile key is not in the system keychain. The profile was not changed.	Klucza profilu nie ma w systemowym pęku kluczy. Profil nie został zmieniony.
+	A key for this profile already exists in the system keychain. The profile was not changed.	Klucz dla tego profilu już istnieje w systemowym pęku kluczy. Profil nie został zmieniony.
+	The profile key is not in the system keychain.	Klucza profilu nie ma w systemowym pęku kluczy.
+	The profile key in the system keychain is not valid.	Klucz profilu w systemowym pęku kluczy jest nieprawidłowy.
 	Profile already open in another instance. Close it and restart.	Profil jest już otwarty w innym wystąpieniu. Zamknij je i uruchom ponownie.
 	Local profile unavailable.	Profil lokalny niedostępny.
 	Local profile unavailable. Close and check the profile path.	Profil lokalny niedostępny. Zamknij aplikację i sprawdź ścieżkę profilu.

@@ -93,6 +93,21 @@ fn create_then_read_returns_the_same_secret_and_delete_removes_it() {
 }
 
 #[test]
+fn item_exists_sees_an_orphan_without_reading_or_touching_it() {
+    let kc_file = Disposable::new("avail");
+    let store = AccountStore::create(&private_dir("avail-store"), AccountId::new(1)).unwrap();
+    let account = store.path.to_str().unwrap().to_owned();
+    let exists = || Keychain::item_exists(Some(kc_file.keychain()), &account);
+    assert_eq!(exists(), Ok(false));
+    let kc = Keychain::in_keychain(&store, kc_file.keychain());
+    let made = kc.create().unwrap();
+    assert_eq!(exists(), Ok(true));
+    assert_eq!(kc.read().unwrap().0.as_str(), made.0.as_str());
+    kc.delete().unwrap();
+    assert_eq!(exists(), Ok(false));
+}
+
+#[test]
 fn accounts_and_profiles_get_separate_secrets() {
     let kc_file = Disposable::new("sep");
     let (a_root, b_root) = (private_dir("sep-a"), private_dir("sep-b"));

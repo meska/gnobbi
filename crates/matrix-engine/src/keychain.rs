@@ -33,6 +33,10 @@ fn classify(error: &security_framework::base::Error) -> VaultError {
 pub struct MacKeychain;
 #[cfg(target_os = "macos")]
 impl ProtectionSource for MacKeychain {
+    /// An item left by an earlier install (the Keychain outlives the app) makes the id unusable.
+    fn available(&self, path: &std::path::Path) -> Result<bool, VaultError> {
+        Keychain::item_exists(None, path.to_str().ok_or(VaultError::Unavailable)?).map(|exists| !exists)
+    }
     fn create(&self, store: &AccountStore) -> Result<Secret, VaultError> {
         Keychain::new(store).create()
     }
@@ -75,6 +79,22 @@ impl<'a> Keychain<'a> {
 
     fn account(&self) -> Result<&str, VaultError> {
         self.store.path.to_str().ok_or(VaultError::Unavailable)
+    }
+
+    /// Whether an item exists for this account (never reads the secret).
+    pub(crate) fn item_exists(keychain: Option<SecKeychain>, account: &str) -> Result<bool, VaultError> {
+        let _no_prompt = SecKeychain::disable_user_interaction().map_err(|e| classify(&e))?;
+        let keychain = match keychain {
+            Some(k) => k,
+            None => SecKeychain::default().map_err(|e| classify(&e))?,
+        };
+        match keychain.find_generic_password(SERVICE, account) {
+            Ok(_) => Ok(true),
+            Err(e) => match classify(&e) {
+                VaultError::Missing => Ok(false),
+                other => Err(other),
+            },
+        }
     }
 
     pub fn read(&self) -> Result<Secret, VaultError> {

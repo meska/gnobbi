@@ -525,7 +525,9 @@ menu	Bring All to Front	Всички най-отпред
 	Too many attempts: try again in a moment.	Твърде много опити: опитайте пак след малко.
 	Sign-in/unlock failed. Check the credentials and try again.	Влизането/отключването не успя. Проверете данните и опитайте пак.
 	System keychain unavailable or locked. Unlock it and try again.	Системната връзка с ключове е недостъпна или заключена. Отключете я и опитайте пак.
-	The profile key is not in the system keychain. The profile was not changed.	Ключът на профила не е в системната връзка с ключове. Профилът не е променен.
+	A key for this profile already exists in the system keychain. The profile was not changed.	Ключ за този профил вече съществува в системната връзка с ключове. Профилът не е променен.
+	The profile key is not in the system keychain.	Ключът на профила не е в системната връзка с ключове.
+	The profile key in the system keychain is not valid.	Ключът на профила в системната връзка с ключове не е валиден.
 	Profile already open in another instance. Close it and restart.	Профилът вече е отворен в друг екземпляр. Затворете го и рестартирайте.
 	Local profile unavailable.	Локалният профил не е наличен.
 	Local profile unavailable. Close and check the profile path.	Локалният профил не е наличен. Затворете и проверете пътя до профила.
