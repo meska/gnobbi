@@ -197,6 +197,8 @@ pub mod keychain;
 #[cfg(any(all(test, feature = "sdk"), all(feature = "android-vault", target_os = "android")))]
 mod android_vault;
 pub mod anim;
+#[cfg(feature = "sdk")]
+pub mod sticker_anim;
 pub mod media;
 #[cfg(feature = "sdk")]
 pub mod matrix_link;

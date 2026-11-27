@@ -42,6 +42,8 @@ pub struct StickerPack {
 pub enum PackEdit {
     /// Uploads `png` and adds it; with no `pack` the first own pack, created as `default_name` when there is none.
     Add { pack: Option<String>, default_name: String, shortcode: String, png: Vec<u8>, side: u32 },
+    /// Uploads an animated file as it is (`sticker_anim::prepare`): its own mimetype and size, no re-encoding; a pack as in `Add`.
+    AddAnimated { pack: Option<String>, default_name: String, shortcode: String, bytes: Vec<u8>, mimetype: String, width: u32, height: u32 },
     /// Adds a picture or sticker message of `room` as it is (its own mxc and mimetype, so a GIF stays animated); a pack as in `Add`.
     AddMessage { pack: Option<String>, default_name: String, room: String, event: String },
     Remove { pack: String, shortcode: String },
@@ -469,18 +471,23 @@ mod sdk {
         create(client, default_name).await
     }
 
+    #[allow(clippy::too_many_arguments)]
+    async fn upload(client: &matrix_sdk::Client, pack: Option<String>, default_name: &str, shortcode: String, bytes: Vec<u8>, mimetype: String, width: u32, height: u32) -> Result<(), OperationError> {
+        let mime: mime_guess::mime::Mime = mimetype.parse().map_err(|_| OperationError::InvalidInput)?;
+        if bytes.len() > MAX_BYTES || !valid_shortcode(&shortcode) {
+            return Err(OperationError::InvalidInput);
+        }
+        let pack = own_pack(client, pack, default_name).await?;
+        let size = u32::try_from(bytes.len()).ok();
+        let url = timed(async { client.media().upload(&mime, bytes, None).await }).await?.content_uri;
+        let sticker = Sticker { body: shortcode.clone(), shortcode, url: url.to_string(), mimetype: Some(mimetype), width: Some(width), height: Some(height), size };
+        change_pack(client, &pack, |content| with_sticker(content, &sticker)).await
+    }
+
     pub async fn edit(client: &matrix_sdk::Client, edit: PackEdit) -> Result<(), OperationError> {
         match edit {
-            PackEdit::Add { pack, default_name, shortcode, png, side } => {
-                if png.len() > MAX_BYTES || !valid_shortcode(&shortcode) {
-                    return Err(OperationError::InvalidInput);
-                }
-                let pack = own_pack(client, pack, &default_name).await?;
-                let size = u32::try_from(png.len()).ok();
-                let url = timed(async { client.media().upload(&mime_guess::mime::IMAGE_PNG, png, None).await }).await?.content_uri;
-                let sticker = Sticker { body: shortcode.clone(), shortcode, url: url.to_string(), mimetype: Some("image/png".into()), width: Some(side), height: Some(side), size };
-                change_pack(client, &pack, |content| with_sticker(content, &sticker)).await
-            }
+            PackEdit::Add { pack, default_name, shortcode, png, side } => upload(client, pack, &default_name, shortcode, png, "image/png".into(), side, side).await,
+            PackEdit::AddAnimated { pack, default_name, shortcode, bytes, mimetype, width, height } => upload(client, pack, &default_name, shortcode, bytes, mimetype, width, height).await,
             PackEdit::AddMessage { pack, default_name, room, event } => {
                 let room = OwnedRoomId::try_from(room.as_str()).ok().and_then(|id| client.get_room(&id)).ok_or(OperationError::InvalidInput)?;
                 let event_id = matrix_sdk::ruma::OwnedEventId::try_from(event.as_str()).map_err(|_| OperationError::InvalidInput)?;
