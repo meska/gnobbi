@@ -2,7 +2,7 @@
 
 Open source [Matrix](https://matrix.org/) client for desktop and mobile, written in Rust with an [egui](https://github.com/emilk/egui) (eframe) interface. Gnobbi talks directly to your homeserver, with no gateways or middle services: account, messages and keys stay between the client and the server you chose.
 
-**[TestFlight beta (iPhone and iPad)](https://testflight.apple.com/join/ZGYennpy) · Google Play: coming soon · [Desktop releases](https://github.com/meska/gnobbi/releases/latest)**
+**[TestFlight beta (iPhone and iPad)](https://testflight.apple.com/join/ZGYennpy) · Google Play: coming soon · [Desktop releases](https://github.com/meska/gnobbi/releases)**
 
 <table>
   <tr>
