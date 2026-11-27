@@ -41,7 +41,7 @@ fn register(entries: &Entries) {
 
 /// Messages still on their way out across all accounts (failed ones wait for a retry and do not count).
 /// `None` = cannot tell (a lock is poisoned): callers must treat it as «something is unsent».
-/// shortcut: attachments are not queued here, so they are not counted.
+/// Attachments are not queued here: `send_guard` covers them (and every other write) until the engine answered.
 pub fn unsent_messages() -> Option<usize> {
     let live = LIVE.lock().ok()?;
     let mut total = 0;
@@ -49,6 +49,13 @@ pub fn unsent_messages() -> Option<usize> {
         total += w.lock().ok()?.values().filter(|e| !e.failed).count();
     }
     Some(total)
+}
+
+/// The updater's gate: closes every UI write path if nothing is being sent (queue, attachments, replies,
+/// threads, stickers, writes parked in the UI) and the queue state is known; `None` = busy or unknown.
+/// Keep the lock until the process exits; drop it when the update fails.
+pub fn lock_for_update() -> Option<crate::send_guard::UpdateLock> {
+    crate::send_guard::lock(|| unsent_messages() == Some(0))
 }
 
 #[derive(Clone)]
@@ -384,6 +391,7 @@ mod unsent_tests {
         let poisoned = entries.clone();
         let _ = std::thread::spawn(move || { let _g = poisoned.lock().unwrap(); panic!("poison") }).join();
         assert_eq!(unsent_messages(), None, "unknown state is reported, not guessed");
+        assert!(lock_for_update().is_none(), "unknown state never closes the gate");
         drop(entries);
         assert_eq!(unsent_messages(), Some(0), "a closed account no longer counts");
     }

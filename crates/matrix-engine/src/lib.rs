@@ -29,7 +29,7 @@ mod outbox;
 #[doc(hidden)]
 pub use outbox::TestOutbox;
 #[cfg(feature = "sdk")]
-pub use outbox::unsent_messages;
+pub use outbox::{lock_for_update, unsent_messages};
 #[cfg(feature = "sdk")]
 pub mod room_sync;
 pub mod alias;

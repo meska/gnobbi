@@ -76,9 +76,8 @@ fn status_of(state: &Mutex<stage::UpdateState>) -> Status {
 
 /// «Aggiorna»: downloads, verifies and installs in a background thread (the UI never blocks), then
 /// restarts the app. Any failure leaves the running build untouched and becomes `Status::Error`.
-/// `unsent` says whether a message is still being sent (`None` = unknown, counts as yes). It is asked at
-/// the click and again right after the download, just before the restart: nothing installs while it says so.
-pub fn start_update(dirs: AppDirs, unsent: impl Fn() -> Option<bool> + Send + 'static) {
+/// `lock` is `matrix_engine::lock_for_update` (see `stage_then_install`): nothing installs without it.
+pub fn start_update<L>(dirs: AppDirs, lock: impl Fn() -> Option<L> + Send + 'static) {
     let state = shared_state();
     let Some(offer) = ({
         let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
@@ -92,7 +91,7 @@ pub fn start_update(dirs: AppDirs, unsent: impl Fn() -> Option<bool> + Send + 's
     let finish = state.clone();
     let spawned = std::thread::Builder::new().name("update-apply".into()).spawn(move || {
         let line = stage_then_install(
-            unsent,
+            lock,
             || scheduler::stage(&dirs, &state, &channel, &offer),
             |ready| install::install_and_restart(&dirs, &channel, &ready),
         );
@@ -138,16 +137,21 @@ pub fn install_unless_unsent(unsent: bool, install: impl FnOnce() -> Result<std:
     }
 }
 
-/// Asks `unsent` before the download and again after it (a message may have been sent meanwhile), never later than the restart.
-pub fn stage_then_install<R>(
-    unsent: impl Fn() -> Option<bool>,
+/// `lock` closes every send path if nothing is being sent (`None` = busy or unknown: no update). It is tried
+/// at the click (nothing is downloaded otherwise) and again after the download; that second lock is held
+/// through `install`, so nothing can start between the check and the exit, and it is released if `install` fails.
+pub fn stage_then_install<R, L>(
+    lock: impl Fn() -> Option<L>,
     stage: impl FnOnce() -> Result<R, String>,
     install: impl FnOnce(R) -> Result<std::convert::Infallible, String>,
 ) -> String {
-    let busy = || unsent().unwrap_or(true);
-    install_unless_unsent(busy(), || {
+    let busy = lock().is_none(); // the probe's lock is dropped here: the gate is not held during the download
+    install_unless_unsent(busy, || {
         let staged = stage()?;
-        Err(install_unless_unsent(busy(), || install(staged)))
+        let held = lock();
+        let line = install_unless_unsent(held.is_none(), || install(staged));
+        drop(held);
+        Err(line)
     })
 }
 

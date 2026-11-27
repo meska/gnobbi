@@ -92,12 +92,13 @@ impl RoomListWorker {
             crate::bounded(std::num::NonZeroUsize::new(8).unwrap());
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (send_commands, mut sends) =
-            crate::bounded::<crate::sending::SendRequest>(std::num::NonZeroUsize::new(16).unwrap()); // room for a ten-file album
+            crate::bounded_writes::<crate::sending::SendRequest>(std::num::NonZeroUsize::new(16).unwrap(), |_| true); // room for a ten-file album
         let (mut send_results, send_events) =
             crate::bounded(std::num::NonZeroUsize::new(8).unwrap());
         let (operation_commands, mut operations) =
-            crate::bounded::<crate::operations::OperationCommand>(
+            crate::bounded_writes::<crate::operations::OperationCommand>(
                 std::num::NonZeroUsize::new(8).unwrap(),
+                |c| matches!(c, crate::operations::OperationCommand::Apply(_) | crate::operations::OperationCommand::ThreadSend { .. }),
             );
         let (mut operation_results, operation_events) =
             crate::bounded(std::num::NonZeroUsize::new(8).unwrap());
@@ -115,7 +116,7 @@ impl RoomListWorker {
         let send_control = crate::sending::ControlSlot::default();
         let worker_control = send_control.clone();
         let (media_commands, mut media_requests) =
-            crate::bounded::<crate::media::MediaCommand>(std::num::NonZeroUsize::new(2).unwrap());
+            crate::bounded_writes::<crate::media::MediaCommand>(std::num::NonZeroUsize::new(2).unwrap(), |c| matches!(c, crate::media::MediaCommand::Send { .. }));
         let (mut media_results, media_events) =
             crate::bounded(std::num::NonZeroUsize::new(2).unwrap());
         let thread = std::thread::Builder::new()

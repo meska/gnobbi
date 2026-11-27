@@ -85,7 +85,7 @@ fn update_row(ui: &mut egui::Ui, dirs: Option<&AppDirs>) {
                     if ui.button(tr("Update")).clicked()
                         && let Some(d) = dirs
                     {
-                        update::start_update(d.clone(), || matrix_engine::unsent_messages().map(|n| n > 0));
+                        update::start_update(d.clone(), matrix_engine::lock_for_update);
                     }
                     ui.add(egui::Label::new(update::indicator_row(&version)).wrap());
                 });

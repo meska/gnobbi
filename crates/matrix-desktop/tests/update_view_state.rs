@@ -44,26 +44,31 @@ fn check_switch_only_on_self_updating_channels() {
 }
 
 #[test]
-fn unsent_is_asked_again_after_the_download_and_unknown_means_unsent() {
-    use std::{cell::RefCell, convert::Infallible};
+fn lock_is_asked_again_after_the_download_held_through_the_install_and_unknown_means_busy() {
+    use std::{cell::RefCell, convert::Infallible, rc::Rc};
     let postponed = "Update postponed: message not sent";
-    let run = |answers: Vec<Option<bool>>| {
+    // `Some(true)` = the lock is granted; the lock is a token that records when it is dropped.
+    let run = |answers: Vec<bool>| {
         let (asked, staged, installed) = (Cell::new(0), Cell::new(0), Cell::new(0));
+        let (held, held_at_install) = (Rc::new(Cell::new(0)), Cell::new(None));
         let answers = RefCell::new(answers.into_iter());
+        struct Token(Rc<Cell<i32>>);
+        impl Drop for Token { fn drop(&mut self) { self.0.set(self.0.get() - 1) } }
         let line = update::stage_then_install(
-            || { asked.set(asked.get() + 1); answers.borrow_mut().next().unwrap() },
+            || {
+                asked.set(asked.get() + 1);
+                answers.borrow_mut().next().unwrap().then(|| { held.set(held.get() + 1); Token(held.clone()) })
+            },
             || { staged.set(staged.get() + 1); Ok(()) },
-            |()| -> Result<Infallible, String> { installed.set(installed.get() + 1); Err("Update failed: error".into()) },
+            |()| -> Result<Infallible, String> { installed.set(installed.get() + 1); held_at_install.set(Some(held.get())); Err("Update failed: error".into()) },
         );
-        (line, asked.get(), staged.get(), installed.get())
+        (line, asked.get(), staged.get(), installed.get(), held.get(), held_at_install.get())
     };
-    // Nothing unsent at the click and after the download: installs.
-    assert_eq!(run(vec![Some(false), Some(false)]), ("Update failed: error".into(), 2, 1, 1));
-    // A message starts during the download: staged, but never installed.
-    assert_eq!(run(vec![Some(false), Some(true)]), (postponed.into(), 2, 1, 0));
-    // Unsent at the click: nothing is even downloaded.
-    assert_eq!(run(vec![Some(true)]), (postponed.into(), 1, 0, 0));
-    // Unknown state is fail-safe, at the click and after the download.
-    assert_eq!(run(vec![None]), (postponed.into(), 1, 0, 0));
-    assert_eq!(run(vec![Some(false), None]), (postponed.into(), 2, 1, 0));
+    // Idle at the click and after the download: installs with the lock held; the failed install releases it.
+    assert_eq!(run(vec![true, true]), ("Update failed: error".into(), 2, 1, 1, 0, Some(1)));
+    // A message starts during the download: staged, never installed.
+    assert_eq!(run(vec![true, false]).0, postponed);
+    assert_eq!(run(vec![true, false]).3, 0);
+    // Busy at the click: nothing is even downloaded. Unknown state is the same answer (`None`).
+    assert_eq!(run(vec![false]), (postponed.into(), 1, 0, 0, 0, None));
 }

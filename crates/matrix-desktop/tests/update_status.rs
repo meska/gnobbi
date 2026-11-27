@@ -23,7 +23,7 @@ fn status_machine_and_failures_never_touch_the_running_app() {
 
     // Nothing offered: Idle, and start_update is a no-op (no thread, no state change).
     assert_eq!(update::status(), Status::Idle);
-    update::start_update(dirs.clone(), || Some(false));
+    update::start_update(dirs.clone(), || Some(()));
     assert_eq!(update::status(), Status::Idle);
 
     let offer = Offer { version: "0.1.0-nightly.9.999".into(), build: 999, url: "http://127.0.0.1:1/x.AppImage".into(), sha256: "0".repeat(64), size: 10 };
@@ -31,19 +31,19 @@ fn status_machine_and_failures_never_touch_the_running_app() {
     assert_eq!(update::status(), Status::Available { version: offer.version.clone() });
 
     // A message is still being sent: nothing starts, the offer stays, the row says why.
-    update::start_update(dirs.clone(), || Some(true));
+    update::start_update(dirs.clone(), || None::<()>);
     assert_eq!(wait_not_working(), Status::Error("Update postponed: message not sent".into()));
     assert!(update::shared_state().lock().unwrap().available.is_some(), "offer kept for a later click");
 
     // Real attempt that fails: back to a single error line, not «working», process alive, offer kept.
-    update::start_update(dirs.clone(), || Some(false));
+    update::start_update(dirs.clone(), || Some(()));
     match wait_not_working() {
         Status::Error(line) => assert!(!line.is_empty() && !line.contains('\n'), "{line:?}"),
         other => panic!("expected an error line, got {other:?}"),
     }
     assert!(update::shared_state().lock().unwrap().available.is_some());
     // Retry is allowed after an error (working flag released).
-    update::start_update(dirs.clone(), || Some(false));
+    update::start_update(dirs.clone(), || Some(()));
     assert!(matches!(wait_not_working(), Status::Error(_)));
 
     let cwd_after: Vec<_> = std::fs::read_dir(".").unwrap().flatten().map(|e| e.file_name()).collect();
