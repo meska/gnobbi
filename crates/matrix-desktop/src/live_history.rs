@@ -245,6 +245,8 @@ impl HistorySession {
         }
         self.live_before = None;
         self.live_cursors.clear();
+        // Unchanged rows are not published, yet a quote still Loading must be read again until the fetch ends.
+        let loading = self.live_rows.iter().any(quote_loading);
         let published: Vec<_> = std::mem::take(&mut self.live_rows)
                 .into_iter()
                 .filter(|event| {
@@ -255,7 +257,7 @@ impl HistorySession {
                     true
                 })
                 .collect();
-        if published.iter().any(quote_loading) {
+        if loading {
             self.settle_soon();
         }
         // Only rooms that have threads pay for the second look (shortcut: a fixed delay, no stream).

@@ -817,6 +817,12 @@ fn a_loading_quote_is_read_again_and_republished_once_resolved() {
     assert!(view.refresh().is_none(), "no activity yet: the settle delay has not passed");
     std::thread::sleep(matrix_desktop::SETTLE);
     let refresh = view.refresh().expect("a loading quote is read again by itself");
+    // Still Loading and identical to the seen row: nothing is published, but the read must re-arm.
+    let mut same = page(&refresh, &["$reply"], None);
+    same.page.as_mut().unwrap().events[0].reply_to = quote(ReplyState::Loading);
+    assert!(view.apply_live(same).unwrap().is_empty());
+    std::thread::sleep(matrix_desktop::SETTLE);
+    let refresh = view.refresh().expect("an unchanged loading quote keeps being read");
     let mut done = page(&refresh, &["$reply"], None);
     done.page.as_mut().unwrap().events[0].reply_to = quote(ReplyState::Resolved);
     let rows = view.apply_live(done).unwrap();
