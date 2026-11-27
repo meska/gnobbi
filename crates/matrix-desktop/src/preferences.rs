@@ -404,6 +404,8 @@ pub struct Preferences {
     /// «Dimensione testo» and «Dimensione pulsanti e icone»: absent from older files, then the default.
     pub text_size: TextSize,
     pub density: Density,
+    /// «Download automatico»: limits by kind and network.
+    pub auto_download: crate::auto_download::AutoDownload,
 }
 
 impl Default for Preferences {
@@ -437,6 +439,7 @@ impl Default for Preferences {
             language: Default::default(),
             text_size: TextSize::System,
             density: Density::System,
+            auto_download: Default::default(),
         }
     }
 }
@@ -593,6 +596,7 @@ impl Preferences {
             thread_width: map.get("thread_width").and_then(Value::as_u64).and_then(|w| u32::try_from(w).ok()),
             text_size: map.get("text_size").and_then(Value::as_str).and_then(TextSize::parse).unwrap_or_default(),
             density: map.get("density").and_then(Value::as_str).and_then(Density::parse).unwrap_or_default(),
+            auto_download: crate::auto_download::AutoDownload::from_json(map.get("auto_download")),
             no_recovery_offer_accounts: map
                 .get("no_recovery_offer")
                 .and_then(Value::as_array)
@@ -659,7 +663,7 @@ impl Preferences {
     }
 
     fn encode(&self, map: &mut serde_json::Map<String, Value>) {
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "show_status": self.show_status, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "unified_list": self.unified_list, "thread_width": self.thread_width, "emoji_dock": self.emoji_dock, "emoji_sticker_tab": self.emoji_sticker_tab, "language": self.language.code(), "text_size": self.text_size.name(), "density": self.density.name() });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "show_status": self.show_status, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "unified_list": self.unified_list, "thread_width": self.thread_width, "emoji_dock": self.emoji_dock, "emoji_sticker_tab": self.emoji_sticker_tab, "language": self.language.code(), "text_size": self.text_size.name(), "density": self.density.name(), "auto_download": self.auto_download.to_json() });
         if let Value::Object(own) = body {
             map.extend(own);
         }
@@ -868,6 +872,18 @@ mod scale_tests {
         Preferences { text_size: TextSize::Small, density: Density::Comfortable, ..Preferences::default() }.encode(&mut map);
         let p = Preferences::from_map(&map);
         assert_eq!((p.text_size, p.density), (TextSize::Small, Density::Comfortable));
+    }
+
+    #[test]
+    fn the_auto_download_limits_round_trip_and_an_older_file_keeps_the_defaults() {
+        use crate::auto_download::{Kind, Limit, Network};
+        let mut p = Preferences::default();
+        p.auto_download.set(Kind::Video, Network::Mobile, Limit::Mb5);
+        p.auto_download.set(Kind::Photo, Network::Wifi, Limit::Never);
+        let mut map = serde_json::Map::new();
+        p.encode(&mut map);
+        assert_eq!(Preferences::from_map(&map).auto_download, p.auto_download);
+        assert_eq!(Preferences::from_map(&serde_json::Map::new()).auto_download, Default::default());
     }
 
     #[test]

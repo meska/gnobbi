@@ -64,9 +64,14 @@ fn wrapped_label(ui: &mut egui::Ui, label: &str) -> egui::Response {
 
 /// One choice among a few: fixed label, the list on the right.
 pub fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&mut egui::Ui)) {
+    choice_in(ui, label, label, selected, add);
+}
+
+/// [`choice`] for a label that appears more than once on the page: `salt` tells the lists apart.
+fn choice_in(ui: &mut egui::Ui, salt: &str, label: &str, selected: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
         ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
-            let combo = crate::metrics::clickable(egui::ComboBox::from_id_salt(label).selected_text(selected).width(150.).show_ui(ui, |ui| crate::dir::scope(ui, add)).response);
+            let combo = crate::metrics::clickable(egui::ComboBox::from_id_salt(salt).selected_text(selected).width(150.).show_ui(ui, |ui| crate::dir::scope(ui, add)).response);
             combo.labelled_by(wrapped_label(ui, label).id);
         });
     });
@@ -102,6 +107,33 @@ fn update_row(ui: &mut egui::Ui, dirs: Option<&AppDirs>) {
     }
 }
 
+/// «Download automatico»: a limit per kind. A phone has two groups, mobile data and Wi-Fi; the desktop one, which is the Wi-Fi one.
+fn auto_download(ui: &mut egui::Ui, auto: &mut matrix_desktop::auto_download::AutoDownload) -> bool {
+    use matrix_desktop::auto_download::{Kind, Limit, Network};
+    let phone = cfg!(any(target_os = "ios", target_os = "android"));
+    let mut changed = false;
+    for net in Network::ALL {
+        if !phone && net == Network::Mobile {
+            continue;
+        }
+        if phone {
+            ui.label(egui::RichText::new(tr(if net == Network::Mobile { "Mobile network" } else { "Wi-Fi" })).strong());
+        }
+        for kind in Kind::ALL {
+            let current = auto.limit(kind, net);
+            choice_in(ui, &format!("auto-download-{net:?}-{kind:?}"), kind.label(), current.label(), |ui| {
+                for limit in Limit::ALL {
+                    if ui.selectable_label(limit == current, limit.label()).clicked() {
+                        auto.set(kind, net, limit);
+                        changed = true;
+                    }
+                }
+            });
+        }
+    }
+    changed
+}
+
 /// Draws the drawer beside the rail; returns the new preferences when something was changed (already saved).
 pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferences, several_accounts: bool, dirs: Option<&AppDirs>, t: &DesignTokens) -> Option<Preferences> {
     let mut p = prefs.clone();
@@ -126,6 +158,8 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                     if several_accounts {
                         changed |= switch(ui, tr("One list for all accounts"), &mut p.unified_list, t);
                     }
+                    section(ui, tr("Automatic download"), t);
+                    changed |= auto_download(ui, &mut p.auto_download);
                     section(ui, tr("Notifications"), t);
                     changed |= switch(ui, tr("Notifications"), &mut p.notifications, t);
                     // iOS has no tray (nor other desktop-only system rows): no System section.
@@ -202,6 +236,7 @@ pub fn persist(dirs: Option<&AppDirs>, p: &Preferences) {
             saved.language = new.language;
             saved.text_size = new.text_size;
             saved.density = new.density;
+            saved.auto_download = new.auto_download;
         });
     }
 }

@@ -54,6 +54,39 @@ pub struct Acts {
     pub cancel_transfer: bool,
     /// Set by the app before drawing: the download running now, `(file, bytes received, declared size)`.
     pub transfer: Option<(matrix_domain::EventId, u64, Option<u64>)>,
+    /// Set by the app before drawing: the auto download settings, the network and what is already in memory. None = no buttons.
+    pub auto: Option<AutoView>,
+    /// A download button was pressed: the event and what it is.
+    pub fetch: Option<(matrix_domain::EventId, matrix_desktop::auto_download::Kind)>,
+}
+
+/// What the rows need to know to show a download button where the app does not fetch by itself.
+#[derive(Default)]
+pub struct AutoView {
+    pub policy: matrix_desktop::auto_download::AutoDownload,
+    pub net: matrix_desktop::auto_download::Network,
+    /// In memory already, and the fetches that failed or were cancelled (their button comes back).
+    pub fetched: std::collections::HashSet<matrix_domain::EventId>,
+    pub stopped: std::collections::HashSet<matrix_domain::EventId>,
+}
+
+impl AutoView {
+    /// `Some(size)` when this attachment shows the download button (with its declared size): held back by the settings, or its
+    /// automatic fetch stopped, and not in memory.
+    pub fn button(&self, e: &DemoEvent) -> Option<Option<u64>> {
+        use matrix_desktop::auto_download::{Decision, Kind};
+        let (Some(media), matrix_domain::TimelineId::Server(id)) = (e.media.as_ref(), &e.id.id) else { return None };
+        let kind = Kind::of(media.kind)?;
+        if e.redacted || self.fetched.contains(id) || (kind == Kind::Photo && media.label == "Sticker") {
+            return None;
+        }
+        let shows = match self.policy.decide(kind, self.net, e.attachment_size) {
+            Decision::Button => true,
+            Decision::Fetch => self.stopped.contains(id),
+            Decision::Nothing => false,
+        };
+        shows.then_some(e.attachment_size)
+    }
 }
 
 /// Where the menu was asked for on the bubble `rect` this frame: a right click, or a long press (`acts.held` then carries the bubble).
@@ -288,6 +321,8 @@ pub struct Heights {
     pills: std::collections::HashMap<matrix_domain::EventId, f32>,
     /// Rows whose bottom edge is in view this frame, as (index, event id): what the read marker may follow.
     pub visible: Vec<(usize, matrix_domain::EventId)>,
+    /// Rows that touch the viewport this frame, the members of a drawn album included: the only ones the auto download fetches for.
+    pub on_screen: Vec<matrix_domain::EventId>,
     /// Unread rows are in view and their receipt is pending: keep drawing until it goes out.
     pub watching: bool,
     /// Where the history request stands (set by the caller before drawing), and since when the pane / the older page has been loading.
@@ -551,17 +586,21 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                                 let picture = ui.add(egui::Image::new(tex).fit_to_exact_size(size).corner_radius(CornerRadius::same(8)).sense(egui::Sense::click()));
                                 crate::animation::step(ui.ctx(), id.as_str(), tex, ui.is_rect_visible(picture.rect));
                                 if video { crate::media_cards::video_badge(ui, picture.rect, e); }
+                                let rect = picture.rect;
                                 if crate::metrics::clickable(picture).clicked() && matches!(media.kind, MediaKind::Image | MediaKind::Video) {
                                     acts.picture = Some((id.clone(), video, e.attachment_name.clone().unwrap_or_else(|| i18n::t("image").into())));
                                 }
+                                if video { crate::media_cards::tile_pill(ui, rect, e, acts); }
                             }
-                            None if media.dims.is_some() && !sticker && matches!(media.kind, MediaKind::Image | MediaKind::Video) => {
+                            None if (media.dims.is_some() || acts.auto.as_ref().is_some_and(|a| a.button(e).is_some())) && !sticker && matches!(media.kind, MediaKind::Image | MediaKind::Video) => {
                                 // A tile of the picture's shape with its label, until the thumbnail arrives (or when it cannot).
                                 let tile = crate::media_cards::tile(ui, crate::media_cards::single_size(media.dims, None, max, side), t);
                                 ui.painter().text(tile.rect.center(), egui::Align2::CENTER_CENTER, media.translated(|k| i18n::t(k).to_owned()), egui::FontId::proportional(12.), rgb(t.secondary));
+                                let rect = tile.rect;
                                 if crate::metrics::clickable(tile).clicked() {
                                     acts.picture = Some((id.clone(), video, e.attachment_name.clone().unwrap_or_else(|| i18n::t(if video { "video" } else { "image" }).into())));
                                 }
+                                crate::media_cards::tile_pill(ui, rect, e, acts);
                             }
                             None => {
                                 if crate::metrics::clickable(ui.add(egui::Label::new(RichText::new(media.translated(|k| i18n::t(k).to_owned())).color(rgb(t.secondary))).sense(egui::Sense::click()))).clicked() && video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| i18n::t("video").into()))); }
@@ -610,7 +649,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     && !e.redacted
                 {
                     let transfer = acts.transfer.as_ref().filter(|(t, ..)| t == id).map(|(_, got, total)| (*got, total.or(e.attachment_size)));
-                    let card = crate::media_cards::file_card(ui, e.attachment_size, name, transfer, acts.saved.contains(id), t);
+                    let held = acts.auto.as_ref().and_then(|a| a.button(e));
+                    let card = crate::media_cards::file_card(ui, e.attachment_size, name, transfer, held, acts.saved.contains(id), t);
+                    if card.fetch { acts.fetch = Some((id.clone(), matrix_desktop::auto_download::Kind::File)); }
                     if card.open { acts.open_file = Some((id.clone(), name.clone())); }
                     if card.reveal { acts.reveal_file = Some(id.clone()); }
                     save |= card.save;
@@ -885,6 +926,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     let paging = heights.paging.elapsed(pane == crate::loading::Pane::Rows && heights.fetch != crate::loading::Fetch::Done, now);
     let mut anchor = None;
     let mut visible = Vec::new();
+    let mut on_screen = Vec::new();
     let out = area.stick_to_bottom(!restoring && pinned.is_none()).show_viewport(ui, |ui, view| {
         ui.spacing_mut().item_spacing = Vec2::new(0., 0.);
         if hide {
@@ -977,6 +1019,10 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
             if heights.ready && !hide && y + h > view.min.y && y + h <= view.max.y && let matrix_domain::TimelineId::Server(id) = &e.id.id {
                 visible.push((i, id.clone()));
             }
+            if heights.ready && !hide && y + h > view.min.y && y < view.max.y {
+                let from = if let Role::Leader(start) = roles[i] { start } else { i };
+                on_screen.extend(events[from..=i].iter().filter_map(|e| if let matrix_domain::TimelineId::Server(id) = &e.id.id { Some(id.clone()) } else { None }));
+            }
             y += heights.rows[i] + gap;
         }
         ui.add_space(GAP);
@@ -985,6 +1031,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         }
     });
     heights.visible = visible;
+    heights.on_screen = on_screen;
     if let Some((_, frames, still)) = &mut heights.pin {
         (*frames, *still) = (*frames + 1, if changed { 0 } else { *still + 1 });
         if *still >= 3 || *frames >= 60 { heights.pin = None; }

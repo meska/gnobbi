@@ -141,8 +141,13 @@ pub(crate) async fn fetch_to_file(
     tag: &RequestTag,
     progress: impl FnMut(usize),
 ) -> Result<VideoFile, MediaError> {
-    static NAMES: AtomicU64 = AtomicU64::new(0);
     let bytes = fetch_bytes(client, source, max_bytes, tag, progress).await?;
+    write_temp(&bytes, ext, profile)
+}
+
+/// A plaintext private temp file with `bytes`, named with `ext`: the user asked to open it.
+fn write_temp(bytes: &[u8], ext: &str, profile: &Path) -> Result<VideoFile, MediaError> {
+    static NAMES: AtomicU64 = AtomicU64::new(0);
     // A zero-byte body is a broken attachment: no player can open an empty file.
     if bytes.is_empty() {
         return Err(MediaError::Failed);
@@ -157,7 +162,7 @@ pub(crate) async fn fetch_to_file(
     let file = VideoFile::new(path);
     crate::fsx::private_file(std::fs::OpenOptions::new().write(true).create_new(true))
         .open(file.path())
-        .and_then(|mut f| f.write_all(&bytes))
+        .and_then(|mut f| f.write_all(bytes))
         .map_err(|_| MediaError::Failed)?;
     Ok(file)
 }
@@ -265,16 +270,11 @@ pub async fn download_video(
     if size.is_some_and(|size| size > max_bytes as u64) {
         return Err(MediaError::TooLarge);
     }
-    fetch_to_file(
-        client,
-        source,
-        ext,
-        profile,
-        max_bytes,
-        tag,
-        progress,
-    )
-    .await
+    // What the app already fetched by itself is not downloaded again.
+    match crate::media::auto_get(tag.scope(), event) {
+        Some(bytes) => write_temp(&bytes, ext, profile),
+        None => fetch_to_file(client, source, ext, profile, max_bytes, tag, progress).await,
+    }
 }
 
 /// Download the original of an exact scoped `m.audio` event through the SDK (auth and E2EE
@@ -339,7 +339,32 @@ pub async fn save_attachment_with_progress(
     if size.is_some_and(|size| size > max_bytes as u64) {
         return Err(MediaError::TooLarge);
     }
-    save_source(client, source, dest, max_bytes, tag, |n| progress(n as u64, size)).await
+    match crate::media::auto_get(tag.scope(), event) {
+        Some(bytes) => write_dest(dest, bytes).await,
+        None => save_source(client, source, dest, max_bytes, tag, |n| progress(n as u64, size)).await,
+    }
+}
+
+/// Fetch the original of an exact scoped attachment into the auto cache, in memory only: nothing is written to disk.
+/// Over `max_bytes` (declared or received) is `TooLarge`; `progress` gets `(bytes received, declared size)`.
+pub async fn prefetch_attachment(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    tag: &RequestTag,
+    event: &EventId,
+    max_bytes: usize,
+    mut progress: impl FnMut(u64, Option<u64>),
+) -> Result<(), MediaError> {
+    let (source, size, ..) = attachment(client, account, tag, event, true).await?;
+    if size.is_some_and(|size| size > max_bytes as u64) {
+        return Err(MediaError::TooLarge);
+    }
+    if crate::media::auto_get(tag.scope(), event).is_some() {
+        return Ok(());
+    }
+    let bytes = fetch_bytes(client, source, max_bytes, tag, |n| progress(n as u64, size)).await?;
+    // Bigger than the whole budget: it would be dropped at once, so the user's Open or Save fetches it as before.
+    if crate::media::auto_put(tag.scope(), event, bytes) { Ok(()) } else { Err(MediaError::TooLarge) }
 }
 
 async fn save_source(
@@ -351,6 +376,10 @@ async fn save_source(
     progress: impl FnMut(usize),
 ) -> Result<(), MediaError> {
     let bytes = fetch_bytes(client, source, max_bytes, tag, progress).await?;
+    write_dest(dest, bytes).await
+}
+
+async fn write_dest(dest: &Path, bytes: Vec<u8>) -> Result<(), MediaError> {
     // Straight into the chosen file: the macOS sandbox grants no sibling files.
     let dest = dest.to_owned();
     tokio::task::spawn_blocking(move || {

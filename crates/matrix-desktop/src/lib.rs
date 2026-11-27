@@ -92,6 +92,7 @@ mod voice;
 pub mod audio_player;
 pub mod voice_recorder;
 pub use voice::{max_note_samples, voice_attachment};
+pub mod auto_download;
 mod live_media;
 pub use live_media::LiveMedia;
 mod live_operations;

@@ -137,7 +137,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut State, pictures: &crate::timeline::Pictu
                         ui.with_layout(crate::dir::col(), |ui| {
                             ui.set_max_width(ui.available_width() - 12.);
                             let running = transfer.as_ref().filter(|(e, ..)| *e == id).map(|(_, got, total)| (*got, total.or(i.size)));
-                            let card = crate::media_cards::file_card(ui, i.size, &i.name, running, false, t);
+                            let card = crate::media_cards::file_card(ui, i.size, &i.name, running, None, false, t);
                             if card.open { out.open = Some((id.clone(), i.name.clone())); }
                             if card.save { out.save = Some((id.clone(), i.name.clone())); }
                             out.cancel |= card.cancel;

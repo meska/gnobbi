@@ -273,6 +273,8 @@ pub struct Session {
     record_thread: bool,
     /// Set by the app each frame: the window has focus, the newest message is in view, the «Conferme di lettura» setting.
     pub reading: (bool, bool, bool),
+    /// The «Download automatico» settings and the network now in use, set by the app every frame.
+    pub auto: (matrix_desktop::auto_download::AutoDownload, matrix_desktop::auto_download::Network),
     read_dirty: bool,
     /// Debounce for the receipt after a new event: nothing goes out before this.
     read_after: Option<std::time::Instant>,
@@ -508,6 +510,7 @@ impl Session {
             recorder: None,
             record_thread: false,
             reading: (false, false, true),
+            auto: Default::default(),
             read_dirty: true,
             read_after: None,
             alerted_unread: Default::default(),
@@ -905,19 +908,33 @@ impl Session {
     fn drive_media(&mut self, ctx: &egui::Context) -> bool {
         let mut changed = false;
         if let (Some(messages), Some(scope)) = (&self.messages, &self.draft_scope) {
+            use matrix_desktop::auto_download::{Decision, Kind};
+            let (policy, net) = self.auto;
             let mut videos = Vec::new();
             let mut wanted = Vec::new();
+            let mut files = Vec::new();
             let thread = self.thread.iter().filter_map(|th| th.history.as_ref()).flat_map(|h| h.events());
+            let on_screen: std::collections::HashSet<&EventId> = self.heights.on_screen.iter().chain(self.thread.iter().flat_map(|th| th.heights.on_screen.iter())).collect();
             for e in messages.events().iter().chain(thread).rev() {
                 let (Some(media), TimelineId::Server(id)) = (&e.media, &e.id.id) else { continue };
+                let sticker = e.text.is_empty() && media.label == "Sticker";
+                // Only rows on screen are fetched for, and only as far as the settings go (a stopped or finished fetch is the button's).
+                let fetch = !sticker && on_screen.contains(id) && policy.decide(Kind::of(media.kind).unwrap_or(Kind::File), net, e.attachment_size) == Decision::Fetch;
                 match media.kind {
                     MediaKind::Video => videos.push(id.clone()),
                     MediaKind::Image => {}
+                    MediaKind::File if fetch => { files.push((id.clone(), Kind::File)); continue; }
                     _ => continue,
                 }
-                if !self.pictures.contains_key(id) {
+                if media.kind == MediaKind::Video && fetch { files.push((id.clone(), Kind::Video)); }
+                // A picture comes when the settings let it, or once the user's button brought it; a video's poster always (it is small).
+                let loads = media.kind == MediaKind::Video || sticker || (on_screen.contains(id) && (fetch || self.media.fetched(id)));
+                if loads && !self.pictures.contains_key(id) {
                     wanted.push(id.clone());
                 }
+            }
+            for (id, kind) in files {
+                if self.media.request_fetch(scope.clone(), id, matrix_desktop::auto_download::cap(kind) as usize, false) { break; }
             }
             // The grid's pictures on screen come first.
             if let Some(shared) = self.shared.as_ref().filter(|s| s.tab == SharedTab::Media) {
@@ -2584,6 +2601,17 @@ impl Session {
         self.outgoing.retain(|r| &r.transaction_id != id);
         if let Some((tx, _)) = &mut self.send { tx.hold(!self.outgoing.is_empty()); }
         self.uploads.retain(|u| &u.id != id);
+    }
+
+    /// What the rows need for the download button: the settings, the network and what is in memory.
+    pub fn auto_view(&self) -> crate::timeline::AutoView {
+        crate::timeline::AutoView { policy: self.auto.0, net: self.auto.1, fetched: self.media.fetched_ids(), stopped: self.media.stopped_ids() }
+    }
+
+    /// The download button of an attachment was pressed: fetch its original into memory, with progress.
+    pub fn fetch_media(&mut self, event: EventId, kind: matrix_desktop::auto_download::Kind) {
+        let Some(scope) = self.draft_scope.clone() else { return };
+        self.media.request_fetch(scope, event, matrix_desktop::auto_download::cap(kind) as usize, true);
     }
 
     /// The files saved this session: only these have «Show in folder».

@@ -24,7 +24,7 @@ use matrix_engine::{
     },
     sdk_ui::sync_service::SyncService,
     sending::{Album, Attachment, Delivery, SendError, SendEvent, SendRequest, fresh_transaction_id, send_text},
-    video_file::{download_video, save_attachment_with_progress},
+    video_file::{download_video, prefetch_attachment, save_attachment_with_progress},
 };
 use serde_json::Value;
 use std::time::{Duration, Instant};
@@ -209,6 +209,24 @@ fn attachment_view_plain_and_encrypted() {
             assert_eq!(std::fs::read(file.path()).unwrap(), pdf);
             assert_eq!(got.last().copied(), Some(PDF_BYTES), "{got:?}");
             drop(file);
+
+            // Auto download: a cap below the size refuses it while received and keeps nothing; a fetch keeps the original in memory
+            // only, and Save and Open then use it: no byte is received again (their progress never fires), the files are the same.
+            let lane = views.start(scope.clone()).unwrap();
+            let refused = prefetch_attachment(&b, acc(), &lane, &pdf_event, 1 << 20, |_, _| ()).await;
+            assert!(matches!(refused, Err(MediaError::TooLarge)), "{refused:?}");
+            let mut fetched = Vec::new();
+            prefetch_attachment(&b, acc(), &lane, &pdf_event, 256 << 20, |got, total| fetched.push((got, total))).await.unwrap();
+            assert_eq!(fetched.last().copied(), Some((PDF_BYTES as u64, Some(PDF_BYTES as u64))), "{fetched:?}");
+            let (mut seen, mut got) = (Vec::new(), Vec::new());
+            let again = out.join(format!("{encrypted}-again.pdf"));
+            save_attachment_with_progress(&b, acc(), &lane, &pdf_event, &again, 256 << 20, |g, t| seen.push((g, t))).await.unwrap();
+            assert_eq!(std::fs::read(&again).unwrap(), pdf);
+            let file = download_video(&b, acc(), &lane, &pdf_event, &out, 256 << 20, |n| got.push(n)).await.unwrap();
+            assert_eq!(std::fs::read(file.path()).unwrap(), pdf);
+            assert!(seen.is_empty() && got.is_empty(), "encrypted={encrypted}: the bytes were fetched again: {seen:?} {got:?}");
+            drop(file);
+            matrix_engine::media::auto_clear_for_test(acc());
 
             // Upload progress: the bytes sent are reported while it goes out, never more than the total, and it ends well.
             let outbox = TestOutbox::new(a.clone(), acc());

@@ -265,10 +265,12 @@ impl RoomListWorker {
                                     } else {
                                         &[Thumbnail, Original]
                                     };
+                                    // What the app fetched by itself (the button, or the thresholds) is decoded from memory, not fetched again.
                                     let hit = variants
                                         .iter()
                                         .copied()
-                                        .find_map(|v| cache.get(&key(v)).map(|b| (v, b.to_vec())));
+                                        .find_map(|v| cache.get(&key(v)).map(|b| (v, b.to_vec())))
+                                        .or_else(|| crate::media::auto_get(tag.scope(), &event).map(|b| (Original, b)));
                                     let read = async {
                                         if let Some((variant, bytes)) = hit {
                                             let limit = if original {
@@ -373,6 +375,12 @@ impl RoomListWorker {
                                     }
                                     continue;
                                 }
+                                MediaCommand::Prefetch { tag, event, max_bytes } => {
+                                    if !tag.is_cancelled() {
+                                        spawn_prefetch(&media_client, account, &media_stop, &saved_tx, tag, event, max_bytes);
+                                    }
+                                    continue;
+                                }
                                 MediaCommand::VideoThumbnail { tag, event } => {
                                     if tag.is_cancelled()
                                         || media_stop.load(std::sync::atomic::Ordering::Acquire)
@@ -409,6 +417,7 @@ impl RoomListWorker {
                                 clean = false;
                             }
                         }
+                        crate::media::auto_clear(account);
                         clean
                     });
                     let verification_task = tokio::spawn(crate::verification::run_service(
@@ -1872,6 +1881,27 @@ fn spawn_save(
         );
         if let Some(result) = until_stopped(&stop, save).await {
             let _ = done.send(crate::media::MediaEvent::Saved { tag, event, result });
+        }
+    });
+}
+
+/// One prefetch in its own task, like a save; its progress and answer go to `done`.
+fn spawn_prefetch(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    done: &tokio::sync::mpsc::UnboundedSender<crate::media::MediaEvent>,
+    tag: crate::RequestTag,
+    event: matrix_domain::EventId,
+    max_bytes: usize,
+) {
+    let (client, stop, done) = (client.clone(), stop.clone(), done.clone());
+    tokio::spawn(async move {
+        let fetch = crate::video_file::prefetch_attachment(&client, account, &tag, &event, max_bytes, |received, total| {
+            let _ = done.send(crate::media::MediaEvent::Progress { tag: tag.clone(), event: event.clone(), received, total });
+        });
+        if let Some(result) = until_stopped(&stop, fetch).await {
+            let _ = done.send(crate::media::MediaEvent::Prefetched { tag, event, result });
         }
     });
 }

@@ -39,6 +39,7 @@ mod members_bench;
 mod message_hits;
 mod metrics;
 mod mobile;
+mod network;
 mod newchat;
 mod poll;
 mod rail;
@@ -743,6 +744,9 @@ impl eframe::App for App {
             // Narrow layout with the chat list on top: the selected room is not on screen.
             let room_hidden = self.list_open && layout::compact(&ctx);
             session.reading = (ctx.input(|i| i.focused) && !room_hidden, session.heights.at_bottom, self.prefs.read_receipts);
+            session.auto = (self.prefs.auto_download, network::current());
+            // The room is not on screen: nothing is fetched for it.
+            if room_hidden { session.heights.on_screen.clear(); }
             if !self.recorded
                 && let (Some(v), Some(dirs)) = (&session.verification, &self.dirs)
                 && let Some((id, name)) = v.profile()
@@ -1782,7 +1786,7 @@ impl App {
             && let Some(mut th) = s.thread.take()
         {
             let (mut close, mut out) = (false, info::ThreadOut::default());
-            let mut acts = timeline::Acts { now_playing: s.audio_now(), wishes: s.ops.wishes().to_vec(), transfer: s.transfer(), saved: s.saved_ids(), ..Default::default() };
+            let mut acts = timeline::Acts { now_playing: s.audio_now(), wishes: s.ops.wishes().to_vec(), transfer: s.transfer(), saved: s.saved_ids(), auto: Some(s.auto_view()), ..Default::default() };
             let members = s.sidebar.selected().map_or(3, |r| r.info.joined_members);
             let recording = s.recording(true);
             let w = self.prefs.thread_width.map_or(320., |w| w as f32);
@@ -1822,6 +1826,7 @@ impl App {
             if let Some(body) = out.send { s.send_thread(body); }
             if let Some((id, name)) = out.save { s.save(id, &name); }
             if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
+            if let Some((id, kind)) = acts.fetch.take() { s.fetch_media(id, kind); }
             if let Some((id, name)) = acts.open_file.take() { s.open_file(id, name); }
             if let Some(id) = acts.reveal_file.take() { s.reveal_file(&id); }
             if std::mem::take(&mut acts.cancel_transfer) { s.cancel_transfer(); }
@@ -1953,7 +1958,7 @@ impl App {
                 s.flash.clear_if_over(now, still);
                 if let Some(after) = s.flash.repaint_in(now, still) { ui.ctx().request_repaint_after(after); }
                 let flash = s.flash.lit(now, still).cloned();
-                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash_alpha: flash.as_ref().map_or(0., |id| s.flash.opacity_for(id, now, still)), flash_term: s.flash.term().map(str::to_owned), flash, lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), wishes: s.ops.wishes().to_vec(), transfer: s.transfer(), saved: s.saved_ids(), ..Default::default() };
+                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash_alpha: flash.as_ref().map_or(0., |id| s.flash.opacity_for(id, now, still)), flash_term: s.flash.term().map(str::to_owned), flash, lift: s.lift.as_ref().map(|l| (l.id.clone(), l.lifted())), wishes: s.ops.wishes().to_vec(), transfer: s.transfer(), saved: s.saved_ids(), auto: Some(s.auto_view()), ..Default::default() };
                 let jump = s.search_jump.as_ref().and_then(|(id, _)| messages.events().iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())));
                 let room = s.sidebar.selected();
                 let members = room.map_or(3, |r| r.info.joined_members);
@@ -1996,6 +2001,7 @@ impl App {
                     s.open_thread(root);
                 }
                 if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
+                if let Some((id, kind)) = acts.fetch.take() { s.fetch_media(id, kind); }
                 if let Some((id, name)) = acts.open_file.take() { s.open_file(id, name); }
                 if let Some(id) = acts.reveal_file.take() { s.reveal_file(&id); }
                 if std::mem::take(&mut acts.cancel_transfer) { s.cancel_transfer(); }

@@ -165,6 +165,10 @@ fn cell(ui: &mut egui::Ui, rect: Rect, e: &DemoEvent, pictures: &Pictures, acts:
     if resp.clicked() {
         acts.picture = Some((id.clone(), video, e.attachment_name.clone().unwrap_or_else(|| i18n::t(if video { "video" } else { "image" }).into())));
     }
+    // Drawn last, so that a press on it is the pill's and not the cell's.
+    if pictures.get(id).is_none() || video {
+        tile_pill(ui, rect, e, acts);
+    }
 }
 
 /// One square cell of the shared-media grid: the thumbnail cropped to the centre (an empty tile while it loads), the play disc on a
@@ -221,6 +225,60 @@ pub fn tile(ui: &mut egui::Ui, size: Vec2, t: &DesignTokens) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     ui.painter().rect_filled(rect, 8., rgb(t.surface).gamma_multiply(0.8));
     resp
+}
+
+/// What the download pill of a tile asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pill {
+    Idle,
+    Start,
+    Cancel,
+}
+
+/// The download button on the corner of a picture or video tile: the arrow and the size («↓ 8.2 MB»), or, while it runs, the bytes
+/// received over the total with a bar and a cross that cancels. `running` is `(received, total)` of this very file.
+pub fn download_pill(ui: &mut egui::Ui, tile: Rect, size: Option<u64>, running: Option<(u64, Option<u64>)>, key: &str) -> Pill {
+    let label = match running {
+        Some((got, total)) => progress_text(got, total),
+        None => size.map_or_else(String::new, human_size),
+    };
+    let galley = ui.painter().layout_no_wrap(label, egui::FontId::proportional(12.), Color32::WHITE);
+    let (icon, pad, height) = (14., 8., 26.);
+    let width = if galley.size().x > 0. { pad + icon + 4. + galley.size().x + pad } else { pad + icon + pad };
+    let pill = Rect::from_min_size(tile.min + vec2(8., 11.), vec2(width.min((tile.width() - 16.).max(height)), height));
+    // Pressable over at least 44 pt, whatever the pill's own size.
+    let hit = Rect::from_center_size(pill.center(), vec2(pill.width().max(44.), 44.));
+    let resp = crate::metrics::clickable(ui.interact(hit, ui.id().with(("download-pill", key)), egui::Sense::click()));
+    let name = format!("{} {}", i18n::t(if running.is_some() { "Cancel" } else { "Download" }), galley.text());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name.trim()));
+    let p = ui.painter();
+    p.rect_filled(pill, height / 2., Color32::from_black_alpha(if resp.hovered() { 190 } else { 150 }));
+    let icon_at = pos2(pill.left() + pad + icon / 2., pill.center().y);
+    crate::icons::paint(p, icon_at, if running.is_some() { crate::icons::Icon::X } else { crate::icons::Icon::DownloadSimple }, false, icon, Color32::WHITE);
+    if galley.size().x > 0. {
+        let at = pos2(pill.left() + pad + icon + 4., pill.center().y - galley.size().y / 2.);
+        p.galley(at, galley, Color32::WHITE);
+    }
+    if let Some(done) = running.and_then(|(got, total)| fraction(got, total)) {
+        p.rect_filled(Rect::from_min_size(pill.left_bottom() - vec2(0., 3.), vec2(pill.width() * done, 3.)), 1.5, Color32::WHITE);
+    }
+    match (resp.clicked(), running.is_some()) {
+        (true, true) => Pill::Cancel,
+        (true, false) => Pill::Start,
+        _ => Pill::Idle,
+    }
+}
+
+/// The pill of `e`'s tile, from what the app says: the button while it is held back, the progress while it comes. Sets what was asked.
+pub fn tile_pill(ui: &mut egui::Ui, tile: Rect, e: &DemoEvent, acts: &mut Acts) {
+    let (Some(auto), TimelineId::Server(id), Some(media)) = (&acts.auto, &e.id.id, &e.media) else { return };
+    let running = acts.transfer.as_ref().filter(|(t, ..)| t == id).map(|(_, got, total)| (*got, total.or(e.attachment_size)));
+    let Some(size) = auto.button(e).or(running.map(|_| e.attachment_size)) else { return };
+    match download_pill(ui, tile, size, running, id.as_str()) {
+        Pill::Start => acts.fetch = matrix_desktop::auto_download::Kind::of(media.kind).map(|k| (id.clone(), k)),
+        Pill::Cancel => acts.cancel_transfer = true,
+        Pill::Idle => {}
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -303,6 +361,7 @@ fn indeterminate_bar(ui: &mut egui::Ui, fill: egui::Color32) {
 /// What the file card asked for this frame.
 #[derive(Default)]
 pub struct CardOut {
+    pub fetch: bool,
     pub open: bool,
     pub reveal: bool,
     pub save: bool,
@@ -310,8 +369,10 @@ pub struct CardOut {
 }
 
 /// The card of a file attachment: glyph, name, size or download progress, and Open / Save (Cancel while it downloads).
-/// `transfer` is `(received, declared total)` of the download of this very file now running.
-pub fn file_card(ui: &mut egui::Ui, size: Option<u64>, name: &str, transfer: Option<(u64, Option<u64>)>, saved: bool, t: &DesignTokens) -> CardOut {
+/// `transfer` is `(received, declared total)` of the download of this very file now running. `held` is `Some(size)` while the file is
+/// not in memory and the settings keep the app from fetching it: the card then offers the download button with the size, and Open and
+/// Save once it is here.
+pub fn file_card(ui: &mut egui::Ui, size: Option<u64>, name: &str, transfer: Option<(u64, Option<u64>)>, held: Option<Option<u64>>, saved: bool, t: &DesignTokens) -> CardOut {
     let mut out = CardOut::default();
     let button = crate::mobile::target(0.);
     ui.horizontal(|ui| {
@@ -340,6 +401,11 @@ pub fn file_card(ui: &mut egui::Ui, size: Option<u64>, name: &str, transfer: Opt
         if transfer.is_some() {
             out.cancel = ui.add(egui::Button::new(i18n::t("Cancel")).min_size(size)).clicked();
         } else {
+            if let Some(declared) = held {
+                let label = declared.map_or_else(|| i18n::t("Download").to_owned(), human_size);
+                out.fetch = ui.add(egui::Button::new(crate::icons::with_label(crate::icons::Icon::DownloadSimple, &label)).min_size(size)).clicked();
+                return;
+            }
             // Only what the system may open without running anything; the rest is saved.
             if matrix_engine::video_file::openable_name(name).is_some() {
                 out.open = ui.add(egui::Button::new(i18n::t(if cfg!(any(target_os = "ios", target_os = "android")) { "Share" } else { "Open" })).min_size(size)).clicked();

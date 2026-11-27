@@ -36,6 +36,14 @@ pub struct LiveMedia {
     audio: Option<EventId>,
     audio_command: Option<MediaCommand>,
     audio_done: Option<(EventId, Result<OpenedAudio, MediaError>)>,
+    /// The auto download and the download button: one fetch into the engine's memory at a time, on its own lane.
+    fetch_views: ViewRequests,
+    fetching: Option<(EventId, bool)>,
+    fetch_command: Option<MediaCommand>,
+    /// Events whose original is in memory (until the engine drops it for room: then Open and Save fetch it again).
+    fetched: HashSet<EventId>,
+    /// Fetches that failed or were cancelled by the user: never started again by themselves.
+    stopped: HashSet<EventId>,
     /// The download of a file (save or open) now running: `(file, bytes received, size the sender declared)`.
     transfer: Option<(EventId, u64, Option<u64>)>,
 }
@@ -52,6 +60,52 @@ impl LiveMedia {
         self.cancel_original();
         self.cancel_save();
         self.cancel_audio();
+        self.stop_fetch(false);
+    }
+    /// Fetch the original of `event` into memory (`max_bytes` at most). One at a time: a fetch the user asked for replaces
+    /// the one the app started, and an automatic one waits for the lane and is never started again after it failed.
+    pub fn request_fetch(&mut self, scope: RoomScope, event: EventId, max_bytes: usize, manual: bool) -> bool {
+        if self.fetched.contains(&event) || (!manual && self.stopped.contains(&event)) {
+            return false;
+        }
+        if self.fetching.as_ref().is_some_and(|(_, was_manual)| manual && !was_manual) {
+            self.stop_fetch(false);
+        }
+        if self.fetching.is_some() {
+            return false;
+        }
+        let Ok(tag) = self.fetch_views.start(scope) else {
+            return false;
+        };
+        self.stopped.remove(&event);
+        self.fetching = Some((event.clone(), manual));
+        self.fetch_command = Some(MediaCommand::Prefetch { tag, event, max_bytes });
+        true
+    }
+    /// Stop the running fetch; `declined` keeps it from starting again by itself (the user cancelled it).
+    fn stop_fetch(&mut self, declined: bool) {
+        if let Some((event, _)) = self.fetching.take() {
+            if self.transfer.as_ref().map(|t| &t.0) == Some(&event) { self.transfer = None; }
+            if declined { self.stopped.insert(event); }
+        }
+        self.fetch_views.cancel();
+        self.fetch_command = None;
+    }
+    pub fn fetched(&self, event: &EventId) -> bool {
+        self.fetched.contains(event)
+    }
+    /// A fetch that failed or was cancelled, and that only the user's button starts again.
+    pub fn fetch_stopped(&self, event: &EventId) -> bool {
+        self.stopped.contains(event)
+    }
+    pub fn fetching(&self, event: &EventId) -> bool {
+        self.fetching.as_ref().is_some_and(|(e, _)| e == event)
+    }
+    pub fn fetched_ids(&self) -> HashSet<EventId> {
+        self.fetched.clone()
+    }
+    pub fn stopped_ids(&self) -> HashSet<EventId> {
+        self.stopped.clone()
     }
     /// How far the running save or open of a file has got.
     pub fn transfer(&self) -> Option<&(EventId, u64, Option<u64>)> {
@@ -61,6 +115,9 @@ impl LiveMedia {
     pub fn cancel_transfer(&mut self) {
         self.cancel_save();
         self.cancel_original();
+        if self.fetching.as_ref().is_some_and(|(_, manual)| *manual) {
+            self.stop_fetch(true);
+        }
     }
     /// Download and decode the note of `event` for the in-app player, on its own lane.
     pub fn request_audio(&mut self, scope: RoomScope, event: EventId) {
@@ -232,6 +289,15 @@ impl LiveMedia {
                 }
             }
         }
+        if let Some(command) = self.fetch_command.take() {
+            match sender.try_send(command) {
+                Ok(()) => (),
+                Err(
+                    matrix_engine::TrySendError::Full(c) | matrix_engine::TrySendError::Busy(c),
+                ) => self.fetch_command = Some(c),
+                Err(matrix_engine::TrySendError::Closed(_)) => self.stop_fetch(true),
+            }
+        }
         if let Some(command) = self.audio_command.take() {
             match sender.try_send(command) {
                 Ok(()) => (),
@@ -278,8 +344,22 @@ impl LiveMedia {
                 self.save_done = Some((event, result));
                 return true;
             }
+            MediaEvent::Prefetched { tag, event, result } => {
+                if !self.fetching(&event) || !self.fetch_views.accepts(&tag) {
+                    return false;
+                }
+                self.fetching = None;
+                if self.transfer.as_ref().map(|t| &t.0) == Some(&event) { self.transfer = None; }
+                match result {
+                    Ok(()) => { self.fetched.insert(event); }
+                    Err(_) => { self.stopped.insert(event); }
+                }
+                return true;
+            }
             MediaEvent::Progress { tag, event, received, total } => {
-                let ours = (self.saving.as_ref() == Some(&event) && self.save_views.accepts(&tag)) || (self.large.as_ref() == Some(&event) && self.large_views.accepts(&tag));
+                // Only a fetch the user asked for shows its progress: the ones the app starts run quietly.
+                let fetch = self.fetching.as_ref().is_some_and(|(e, manual)| *manual && *e == event) && self.fetch_views.accepts(&tag);
+                let ours = fetch || (self.saving.as_ref() == Some(&event) && self.save_views.accepts(&tag)) || (self.large.as_ref() == Some(&event) && self.large_views.accepts(&tag));
                 if ours {
                     self.transfer = Some((event, received, total));
                 }
@@ -473,5 +553,85 @@ mod tests {
             media.take_audio(),
             Some((e, Err(MediaError::Failed))) if e == event
         ));
+    }
+
+    fn fetch_scope() -> RoomScope {
+        RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:fixture.invalid") }
+    }
+
+    fn started(media: &mut LiveMedia, event: &str, manual: bool) -> Option<(matrix_engine::RequestTag, usize)> {
+        if !media.request_fetch(fetch_scope(), EventId::new(event), 1000, manual) {
+            return None;
+        }
+        let Some(MediaCommand::Prefetch { tag, max_bytes, event: asked }) = media.fetch_command.take() else {
+            panic!("a fetch asks the engine to prefetch");
+        };
+        assert_eq!(asked.as_str(), event);
+        Some((tag, max_bytes))
+    }
+
+    #[test]
+    fn a_fetch_runs_alone_and_a_finished_one_is_remembered_and_not_asked_again() {
+        let mut media = LiveMedia::default();
+        let (tag, max) = started(&mut media, "$a", false).unwrap();
+        assert_eq!(max, 1000);
+        assert!(started(&mut media, "$b", false).is_none(), "one at a time");
+        assert!(media.apply(MediaEvent::Prefetched { tag, event: EventId::new("$a"), result: Ok(()) }));
+        assert!(media.fetched(&EventId::new("$a")) && !media.fetching(&EventId::new("$a")));
+        assert!(started(&mut media, "$a", true).is_none(), "already in memory");
+        assert!(started(&mut media, "$b", false).is_some(), "the lane is free again");
+    }
+
+    #[test]
+    fn a_failed_fetch_is_not_retried_by_itself_but_the_button_asks_again() {
+        let mut media = LiveMedia::default();
+        let (tag, _) = started(&mut media, "$a", false).unwrap();
+        assert!(media.apply(MediaEvent::Prefetched { tag, event: EventId::new("$a"), result: Err(MediaError::TooLarge) }));
+        assert!(media.fetch_stopped(&EventId::new("$a")) && !media.fetched(&EventId::new("$a")));
+        assert!(started(&mut media, "$a", false).is_none());
+        assert!(started(&mut media, "$a", true).is_some(), "the user's button starts it again");
+        assert!(!media.fetch_stopped(&EventId::new("$a")));
+    }
+
+    #[test]
+    fn a_fetch_the_user_asks_for_replaces_the_one_the_app_started_and_only_it_shows_progress() {
+        let mut media = LiveMedia::default();
+        let (quiet, _) = started(&mut media, "$auto", false).unwrap();
+        let progress = |tag: &matrix_engine::RequestTag, event: &str| MediaEvent::Progress { tag: tag.clone(), event: EventId::new(event), received: 5, total: Some(10) };
+        assert!(!media.apply(progress(&quiet, "$auto")) && media.transfer().is_none(), "the app's own fetches run quietly");
+        let (shown, _) = started(&mut media, "$mine", true).unwrap();
+        assert!(quiet.is_cancelled() && !media.fetching(&EventId::new("$auto")));
+        assert!(!media.fetch_stopped(&EventId::new("$auto")), "it may start again later");
+        assert!(media.apply(progress(&shown, "$mine")));
+        assert_eq!(media.transfer().map(|t| (t.0.as_str(), t.1, t.2)), Some(("$mine", 5, Some(10))));
+        // A late answer of the replaced one is dropped.
+        assert!(!media.apply(MediaEvent::Prefetched { tag: quiet, event: EventId::new("$auto"), result: Ok(()) }));
+        // Cancel: the transfer goes, and it does not start again by itself.
+        media.cancel_transfer();
+        assert!(shown.is_cancelled() && media.transfer().is_none() && media.fetch_stopped(&EventId::new("$mine")));
+        assert!(!media.apply(MediaEvent::Prefetched { tag: shown, event: EventId::new("$mine"), result: Ok(()) }));
+        assert!(!media.fetched(&EventId::new("$mine")));
+    }
+
+    #[test]
+    fn cancelling_a_download_of_another_file_leaves_the_quiet_fetch_alone() {
+        let mut media = LiveMedia::default();
+        let (tag, _) = started(&mut media, "$auto", false).unwrap();
+        media.cancel_transfer();
+        assert!(!tag.is_cancelled() && media.fetching(&EventId::new("$auto")) && !media.fetch_stopped(&EventId::new("$auto")));
+    }
+
+    #[test]
+    fn a_closed_channel_stops_the_fetch_and_leaving_the_room_cancels_it() {
+        let mut media = LiveMedia::default();
+        let (tag, _) = started(&mut media, "$a", false).unwrap();
+        media.fetch_command = Some(MediaCommand::Prefetch { tag, event: EventId::new("$a"), max_bytes: 1 });
+        let (mut sender, receiver) = matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap());
+        drop(receiver);
+        media.flush(&mut sender);
+        assert!(!media.fetching(&EventId::new("$a")) && media.fetch_stopped(&EventId::new("$a")));
+        let (tag, _) = started(&mut media, "$b", false).unwrap();
+        media.clear();
+        assert!(tag.is_cancelled() && !media.fetching(&EventId::new("$b")));
     }
 }

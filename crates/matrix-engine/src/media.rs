@@ -36,6 +36,13 @@ pub enum MediaCommand {
         tag: crate::RequestTag,
         event: EventId,
     },
+    /// Fetch the original of any attachment into the in-memory auto cache (never to disk), refusing more than
+    /// `max_bytes` while it is received; Open, Save and the picture read it from there afterwards.
+    Prefetch {
+        tag: crate::RequestTag,
+        event: EventId,
+        max_bytes: usize,
+    },
 }
 
 pub enum MediaEvent {
@@ -61,6 +68,12 @@ pub enum MediaEvent {
         result: Result<OpenedAudio, MediaError>,
     },
     Saved {
+        tag: crate::RequestTag,
+        event: EventId,
+        result: Result<(), MediaError>,
+    },
+    /// The answer of a `Prefetch`: the bytes are in the auto cache when it is `Ok`.
+    Prefetched {
         tag: crate::RequestTag,
         event: EventId,
         result: Result<(), MediaError>,
@@ -131,6 +144,9 @@ pub const MAX_MEDIA_BYTES: usize = 25 * 1024 * 1024;
 /// Cap for saving one attachment or opening one video.
 pub const MAX_SAVE_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_IMAGE_PIXELS: u64 = 40_000_000;
+
+/// Budget of the auto cache: what the app fetched by itself (see `MediaCommand::Prefetch`), in memory only.
+pub const AUTO_BUDGET: usize = if cfg!(any(target_os = "ios", target_os = "android")) { 64 << 20 } else { 128 << 20 };
 
 /// Thumbnail and original are separate resources with separate cache entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,5 +227,77 @@ impl MediaCache {
         self.used += data.len();
         self.entries.push_back((key, data));
         true
+    }
+}
+
+/// The auto cache: one per process, keyed by account, room and event, so a hit can only be served to the scope that asked.
+fn auto_cache() -> &'static std::sync::Mutex<MediaCache> {
+    static AUTO: std::sync::OnceLock<std::sync::Mutex<MediaCache>> = std::sync::OnceLock::new();
+    AUTO.get_or_init(|| std::sync::Mutex::new(MediaCache::new(AUTO_BUDGET)))
+}
+
+fn auto_key(scope: &RoomScope, event: &EventId) -> MediaKey {
+    MediaKey { variant: MediaVariant::Original, scope: scope.clone(), event_id: event.clone() }
+}
+
+/// The original of `event` if the app fetched it by itself and it is still in memory (a hit is the most recent again).
+pub(crate) fn auto_get(scope: &RoomScope, event: &EventId) -> Option<Vec<u8>> {
+    auto_cache().lock().ok()?.get(&auto_key(scope, event)).map(<[u8]>::to_vec)
+}
+
+/// Keeps `bytes` for `event`, evicting the least recently used ones; false when they do not fit the budget at all.
+pub(crate) fn auto_put(scope: &RoomScope, event: &EventId, bytes: Vec<u8>) -> bool {
+    auto_cache().lock().is_ok_and(|mut cache| cache.insert(auto_key(scope, event), bytes))
+}
+
+/// For the integration tests, which cannot reach `auto_clear`.
+#[doc(hidden)]
+pub fn auto_clear_for_test(account: matrix_domain::AccountId) {
+    auto_clear(account);
+}
+
+/// Forgets everything of an account (logout, end of its session).
+pub(crate) fn auto_clear(account: matrix_domain::AccountId) {
+    if let Ok(mut cache) = auto_cache().lock() {
+        cache.clear_account(account);
+    }
+}
+
+#[cfg(test)]
+mod auto_tests {
+    use super::*;
+    use matrix_domain::{AccountId, RoomId};
+
+    fn scope(account: u64) -> RoomScope {
+        RoomScope { account_id: AccountId::new(account), room_id: RoomId::new("!auto:fixture.invalid") }
+    }
+
+    #[test]
+    fn the_auto_cache_serves_only_the_scope_that_stored_and_forgets_a_logged_out_account() {
+        let (a, b) = (scope(9101), scope(9102));
+        let event = EventId::new("$doc:fixture.invalid");
+        assert!(auto_get(&a, &event).is_none());
+        assert!(auto_put(&a, &event, vec![1, 2, 3]));
+        assert_eq!(auto_get(&a, &event), Some(vec![1, 2, 3]));
+        assert!(auto_get(&b, &event).is_none(), "another account never reads it");
+        auto_clear(a.account_id);
+        assert!(auto_get(&a, &event).is_none());
+    }
+
+    #[test]
+    fn the_auto_cache_keeps_to_its_budget_dropping_the_least_recently_used_and_refusing_what_never_fits() {
+        assert_eq!(AUTO_BUDGET, if cfg!(any(target_os = "ios", target_os = "android")) { 64 << 20 } else { 128 << 20 });
+        let s = scope(9103);
+        let (one, two, three) = (EventId::new("$1"), EventId::new("$2"), EventId::new("$3"));
+        let third = AUTO_BUDGET / 3 + 1;
+        assert!(auto_put(&s, &one, vec![1; third]));
+        assert!(auto_put(&s, &two, vec![2; third]));
+        assert!(auto_get(&s, &one).is_some(), "reading one makes it the most recent");
+        assert!(auto_put(&s, &three, vec![3; third]));
+        assert!(auto_get(&s, &two).is_none(), "the least recently used went");
+        assert!(auto_get(&s, &one).is_some() && auto_get(&s, &three).is_some());
+        assert!(!auto_put(&s, &EventId::new("$huge"), vec![0; AUTO_BUDGET + 1]));
+        assert!(auto_get(&s, &EventId::new("$huge")).is_none());
+        auto_clear(s.account_id);
     }
 }
