@@ -40,7 +40,7 @@ eframe = { version = "0.37", default-features = false, features = ["accesskit"] 
 zip = { version = "=9.8.2", default-features = false, features = ["deflate-flate2"] }
 # Password prompt without echo for `gnobbi account` (MIT/Apache-2.0).
 rpassword = "=7.5.5"
-rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 arboard = { version = "=3.7.0", default-features = false }
 # `room-open.log` (room_open / paginate_backwards timings) in the data dir.
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
