@@ -276,6 +276,31 @@ pub async fn forward(
     results
 }
 
+/// `forward` for the message `target` of `scope`, looked up in the room's timeline; every room fails alike when it is not found.
+#[cfg(feature = "sdk")]
+pub(crate) async fn forward_event(
+    client: &matrix_sdk::Client,
+    timelines: &crate::room_sync::Timelines,
+    account: matrix_domain::AccountId,
+    scope: &matrix_domain::RoomScope,
+    target: &matrix_domain::EventId,
+    rooms: &[String],
+) -> Vec<(String, Result<(), ForwardError>)> {
+    let room = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).ok().and_then(|id| client.get_room(&id)).filter(|_| scope.account_id == account);
+    let id = matrix_sdk::ruma::EventId::parse(target.as_str()).ok();
+    let item = match (room, id) {
+        (Some(room), Some(id)) => match timelines.get(&room).await {
+            Ok(t) => t.item_by_event_id(&id).await,
+            Err(_) => None,
+        },
+        _ => None,
+    };
+    match item {
+        Some(item) => forward(client, scope.room_id.as_str(), &item, rooms).await,
+        None => rooms.iter().map(|r| (r.clone(), Err(ForwardError::NotForwardable))).collect(),
+    }
+}
+
 #[cfg(feature = "sdk")]
 async fn send_to(client: &matrix_sdk::Client, room_id: &str, source: &Source<'_>) -> Result<(), ForwardError> {
     use matrix_sdk::{

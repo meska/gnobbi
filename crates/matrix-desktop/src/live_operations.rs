@@ -330,6 +330,7 @@ impl LiveOperations {
             | OperationResult::RoomLeft { .. }
             | OperationResult::SpaceLeft { .. }
             | OperationResult::SpaceDeleted { .. }
+            | OperationResult::Forwarded { .. }
             | OperationResult::Profile { .. }
             | OperationResult::Ignored { .. }
             | OperationResult::MemberRights { .. }

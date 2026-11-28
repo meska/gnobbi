@@ -378,6 +378,12 @@ pub enum OperationCommand {
         scope: RoomScope,
         forget: bool,
     },
+    /// «Inoltra»: the message `target` of `scope` into each room of `rooms` (room IDs); answered with `OperationResult::Forwarded`.
+    Forward {
+        scope: RoomScope,
+        target: EventId,
+        rooms: Vec<String>,
+    },
     /// «Elimina spazio» (soft delete, Matrix has no real one): unlink the children, kick the members, leave and forget.
     DeleteSpace {
         scope: RoomScope,
@@ -544,6 +550,10 @@ pub enum OperationResult {
     SpaceDeleted {
         scope: RoomScope,
         result: Result<SpaceDeleted, OperationError>,
+    },
+    /// One result per destination room, in the order asked; a message that is queued appears in that room's timeline as any sent one.
+    Forwarded {
+        results: Vec<(String, Result<(), crate::forward::ForwardError>)>,
     },
     UserSearch {
         state: SearchState,
@@ -762,6 +772,8 @@ pub struct MessagePermissions {
     pub edit: bool,
     pub redact: bool,
     pub react: bool,
+    /// `forward::can_forward_item`: a sent, readable message of a forwardable kind.
+    pub forward: bool,
 }
 pub struct MessageDetails {
     pub body: String,
@@ -858,6 +870,7 @@ pub(crate) async fn details(
                     levels.user_can_redact_event_of_other(user)
                 },
                 react: levels.user_can_send_message(user, MessageLikeEventType::Reaction),
+                forward: crate::forward::can_forward_item(&item),
             },
         })
     })

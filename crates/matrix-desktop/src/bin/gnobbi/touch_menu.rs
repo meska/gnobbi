@@ -92,6 +92,7 @@ pub fn long_press(ctx: &egui::Context) -> Option<Pos2> {
 pub enum Action {
     Reply,
     Thread,
+    Forward,
     Copy,
     Edit,
     Sticker,
@@ -106,6 +107,7 @@ impl Action {
         match self {
             Action::Reply => Icon::ArrowUUpLeft,
             Action::Thread => Icon::Chats,
+            Action::Forward => Icon::PaperPlaneRight,
             Action::Copy => Icon::Copy,
             Action::Edit => Icon::PencilSimple,
             Action::Sticker => Icon::Sticker,
@@ -120,6 +122,7 @@ impl Action {
         match (self, confirm) {
             (Action::Reply, _) => i18n::t("Reply"),
             (Action::Thread, _) => i18n::t("Reply in thread"),
+            (Action::Forward, _) => i18n::t("Forward"),
             (Action::Copy, _) => i18n::t("Copy"),
             (Action::Edit, _) => i18n::t("Edit"),
             (Action::Sticker, _) => i18n::t("Add to my stickers"),
@@ -135,7 +138,7 @@ impl Action {
 /// What the menu offers for a message, right-click and long press alike: the engine's permissions, `text` = it has text to copy,
 /// `picture` = a picture or sticker that can join the own stickers, `end_poll` = `LiveOperations::can_end_poll`.
 pub fn actions(p: MessagePermissions, text: bool, picture: bool, end_poll: bool) -> Vec<Action> {
-    [(p.reply, Action::Reply), (p.reply, Action::Thread), (text, Action::Copy), (p.edit, Action::Edit), (picture, Action::Sticker), (end_poll, Action::EndPoll), (p.redact, Action::Delete)].into_iter().filter_map(|(on, a)| on.then_some(a)).collect()
+    [(p.reply, Action::Reply), (p.reply, Action::Thread), (p.forward, Action::Forward), (text, Action::Copy), (p.edit, Action::Edit), (picture, Action::Sticker), (end_poll, Action::EndPoll), (p.redact, Action::Delete)].into_iter().filter_map(|(on, a)| on.then_some(a)).collect()
 }
 
 /// The message the menu is open on.
@@ -295,6 +298,14 @@ pub fn apply(ctx: &egui::Context, s: &mut Session, action: Action) {
             if let Some(root) = root {
                 s.open_thread(root);
             }
+        }
+        Action::Forward => {
+            let from = s.ops.selection().and_then(|id| match &id.id {
+                matrix_domain::TimelineId::Server(event) => Some((id.scope.clone(), event.clone())),
+                _ => None,
+            });
+            s.close_menu();
+            s.forward = from.map(|(scope, event)| crate::forward_picker::Open::new(scope, event));
         }
         Action::Copy => {
             if let Some(e) = selected(s) {
@@ -775,9 +786,11 @@ mod tests {
     fn entries_follow_permissions_and_message_type() {
         use Action::*;
         let none = MessagePermissions::default();
-        let all = MessagePermissions { reply: true, edit: true, redact: true, react: true };
+        let all = MessagePermissions { reply: true, edit: true, redact: true, react: true, forward: false };
         // Own text message.
         assert_eq!(actions(all, true, false, false), [Reply, Thread, Copy, Edit, Delete]);
+        // A forwardable message gets «Forward» right after the replies.
+        assert_eq!(actions(MessagePermissions { forward: true, ..all }, true, false, false), [Reply, Thread, Forward, Copy, Edit, Delete]);
         // Someone else's text: no edit, no delete; a moderator may delete it.
         let theirs = MessagePermissions { reply: true, react: true, ..none };
         assert_eq!(actions(theirs, true, false, false), [Reply, Thread, Copy]);
@@ -799,7 +812,7 @@ mod tests {
         // Every mix of permissions and message kind (text, picture or sticker, own poll).
         for bits in 0..128u32 {
             let on = |n: u32| bits & (1 << n) != 0;
-            let p = MessagePermissions { reply: on(0), edit: on(1), redact: on(2), react: on(3) };
+            let p = MessagePermissions { reply: on(0), edit: on(1), redact: on(2), react: on(3), forward: false };
             let list = actions(p, on(4), on(5), on(6));
             assert_eq!(list.contains(&Action::Delete), p.redact);
             assert!(list.iter().position(|a| *a == Action::Delete).is_none_or(|i| i == list.len() - 1), "{list:?}");
@@ -819,8 +832,8 @@ mod tests {
     #[test]
     fn entries_by_kind_of_message() {
         use Action::*;
-        let own = MessagePermissions { reply: true, edit: true, redact: true, react: true };
-        let theirs = MessagePermissions { reply: true, edit: false, redact: false, react: true };
+        let own = MessagePermissions { reply: true, edit: true, redact: true, react: true, forward: false };
+        let theirs = MessagePermissions { reply: true, edit: false, redact: false, react: true, forward: false };
         // (permissions, text to copy, picture or sticker) as `entries` reads them from the message.
         assert_eq!(actions(own, true, false, false), [Reply, Thread, Copy, Edit, Delete], "own text");
         assert_eq!(actions(theirs, true, false, false), [Reply, Thread, Copy], "someone else's text");

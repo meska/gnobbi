@@ -886,6 +886,10 @@ impl RoomListWorker {
                                         crate::operations::leave_space(&operation_client, account, &scope, forget).await;
                                     OperationResult::SpaceLeft { scope, is_last_owner, result }
                                 }
+                                OperationCommand::Forward { scope, target, rooms } => {
+                                    let results = crate::forward::forward_event(&operation_client, &operation_timelines, account, &scope, &target, &rooms).await;
+                                    OperationResult::Forwarded { results }
+                                }
                                 OperationCommand::DeleteSpace { scope } => {
                                     let result = crate::operations::delete_space(&operation_client, account, &scope).await;
                                     OperationResult::SpaceDeleted { scope, result }

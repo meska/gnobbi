@@ -218,6 +218,55 @@ fn confirm(ui: &mut egui::Ui, rect: Rect, s: &Picker, t: &DesignTokens) -> bool 
     resp.clicked()
 }
 
+/// «Inoltra» in progress: the message and the picker over the chats of the account.
+pub struct Open {
+    scope: matrix_domain::RoomScope,
+    event: matrix_domain::EventId,
+    picker: Picker,
+    finished: bool,
+}
+
+impl Open {
+    pub fn new(scope: matrix_domain::RoomScope, event: matrix_domain::EventId) -> Self {
+        Self { scope, event, picker: Picker { query: String::new(), chats: Vec::new(), selected: Vec::new(), phase: Phase::Loading }, finished: false }
+    }
+
+    /// The engine's answer, one result per chat: the ones that took it leave the choice, the others stay ticked for a retry.
+    pub fn done(&mut self, results: &[(String, Result<(), matrix_engine::forward::ForwardError>)]) {
+        self.picker.selected.retain(|key| results.iter().any(|(room, r)| room == key && r.is_err()));
+        self.finished = self.picker.selected.is_empty();
+        self.picker.phase = Phase::Failed(i18n::t("Failed").to_owned());
+    }
+}
+
+/// Draws the picker when one is open, fills it from the account's chats (newest first, filtered by the search) and acts on it.
+pub fn drive(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignTokens) {
+    let Some(open) = &mut s.forward else { return };
+    let query = open.picker.query.trim().to_lowercase();
+    let mut rooms: Vec<_> = s.sidebar.rooms().iter().filter(|r| !r.info.invited && !r.info.is_space).collect();
+    open.picker.phase = match (&open.picker.phase, rooms.is_empty()) {
+        (Phase::Loading | Phase::Pick, true) => Phase::Loading,
+        (Phase::Loading, false) => Phase::Pick,
+        (phase, _) => phase.clone(),
+    };
+    rooms.retain(|r| r.name.to_lowercase().contains(&query));
+    rooms.sort_by_key(|r| std::cmp::Reverse(r.info.last_event_ts));
+    open.picker.chats = rooms.iter().map(|r| Chat { key: r.scope.room_id.as_str().to_owned(), name: r.name.clone(), initials: r.initials.clone(), color: r.color, avatar: crate::avatar::lookup(&s.avatars, r.info.avatar.as_deref()) }).collect();
+    if open.finished {
+        s.forward = None;
+        return;
+    }
+    match show(ctx, &mut open.picker, t) {
+        Some(Action::Cancel) => s.forward = None,
+        Some(Action::Forward) => {
+            open.picker.phase = Phase::Sending;
+            let (scope, event, rooms) = (open.scope.clone(), open.event.clone(), open.picker.selected.clone());
+            s.forward_send(scope, event, rooms);
+        }
+        None => {}
+    }
+}
+
 /// Debug builds, GNOBBI_EGUI_VIEW=forward[-selected|-long|-no-results|-empty|-loading|-sending|-error]: the picker alone with
 /// made-up chats, for screenshots without an account.
 #[cfg(debug_assertions)]

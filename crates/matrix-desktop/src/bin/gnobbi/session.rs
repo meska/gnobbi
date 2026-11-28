@@ -200,6 +200,8 @@ pub struct Session {
     pub space_choices: Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>,
     /// «Aggiungi a uno spazio» window: the room and the space picked so far.
     pub space_pick: Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>,
+    /// «Inoltra a…» is open on a message.
+    pub forward: Option<crate::forward_picker::Open>,
     /// Window of the selected space («Info spazio» / «Membri»).
     pub space_view: Option<crate::space::SpaceView>,
     /// What «Esci dallo spazio» is judged on, for the space whose «⋮» was opened last; `None` inside until the engine answers.
@@ -615,6 +617,7 @@ impl Session {
             sticker_from: None,
             space_choices: None,
             space_pick: None,
+            forward: None,
             space_view: None,
             space_facts: None,
             space_exit: None,
@@ -1458,6 +1461,10 @@ impl Session {
                 if result.as_ref().is_ok_and(|d| matches!(d.left, Some(Ok(_)))) { self.sidebar.space_left(scope, Ok(())); }
                 self.space_report = Some((name, result.clone()));
                 self.space_facts_for(scope.clone());
+                return Some(true);
+            }
+            OperationResult::Forwarded { results } => {
+                if let Some(open) = &mut self.forward { open.done(results); }
                 return Some(true);
             }
             OperationResult::SpaceChoices { scope, result } => {
@@ -2495,6 +2502,11 @@ impl Session {
     pub fn end_poll(&mut self) {
         self.ops.submit(Operation::EndPoll, matrix_engine::sending::fresh_transaction_id());
         self.close_menu_keep_selection();
+    }
+
+    /// The chosen chats of the open picker get the message; their send queues show it as any sent one.
+    pub fn forward_send(&mut self, scope: matrix_domain::RoomScope, target: EventId, rooms: Vec<String>) {
+        self.op_queue.push(OperationCommand::Forward { scope, target, rooms });
     }
 
     pub fn delete(&mut self) {

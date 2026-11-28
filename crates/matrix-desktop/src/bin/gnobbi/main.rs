@@ -23,7 +23,6 @@ mod customize;
 mod devices;
 mod dir;
 mod explore;
-#[cfg_attr(not(debug_assertions), allow(dead_code))] // look only: the forward flow that calls it comes next
 mod forward_picker;
 #[cfg(target_os = "linux")]
 mod desktop_entry;
@@ -2053,6 +2052,7 @@ impl App {
             explore::show(ui.ctx(), s, t);
         }
         if let Some(s) = &mut self.session {
+            forward_picker::drive(ui.ctx(), s, t);
             list::space_picker(ui.ctx(), s);
             space::window(ui.ctx(), s, t);
             space::exit_window(ui.ctx(), s, t);
