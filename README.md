@@ -18,6 +18,7 @@ Open source [Matrix](https://matrix.org/) client for desktop and mobile, written
 Main features:
 
 - sign in with ID and password on your own homeserver (Synapse and Tuwunel are the reference servers);
+- multiple accounts, even on different homeservers, signed in at the same time, with a combined chat list;
 - end-to-end encryption through the official [Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk);
 - native Wayland (and X11) interface on Linux; builds for macOS, Windows, iOS and Android.
 
