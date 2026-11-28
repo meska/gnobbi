@@ -41,6 +41,13 @@ pub fn engine_placeholder(text: &str) -> &str {
         "Location" => i18n::t("Location"),
         "Verification request" => i18n::t("Verification request"),
         "Message without text" => i18n::t("Message without text"),
+        "Sticker" => i18n::t("Sticker"),
+        "Poll" => i18n::t("Poll"),
+        "Message deleted" => i18n::t("Message deleted"),
+        "Encrypted message" => i18n::t("Encrypted message"),
+        "Call" => i18n::t("Call"),
+        "Room update" => i18n::t("Room update"),
+        "New message" => i18n::t("New message"),
         _ => text,
     }
 }

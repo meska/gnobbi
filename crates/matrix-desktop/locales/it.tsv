@@ -689,6 +689,8 @@ menu	Bring All to Front	Porta tutto in primo piano
 # engine placeholders
 	Location	Posizione
 	Message without text	Messaggio senza testo
+	Call	Chiamata
+	Room update	Aggiornamento della stanza
 	Image.png	Immagine.png
 
 # update

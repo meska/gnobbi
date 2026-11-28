@@ -494,3 +494,31 @@ fn latest_event_ts_is_none_for_no_event_and_for_invites() {
     };
     assert_eq!(latest_event_ts(&invite), None, "invite stamp is client receipt time");
 }
+
+#[test]
+fn activity_fallback_keeps_the_date_until_the_stamp_moves() {
+    let mut seen = BTreeMap::new();
+    assert_eq!(activity_fallback(&mut seen, "!a", Some(5), 100), 100);
+    assert_eq!(activity_fallback(&mut seen, "!a", Some(5), 200), 100, "same stamp, same date");
+    assert_eq!(activity_fallback(&mut seen, "!a", Some(6), 300), 300, "new activity");
+    assert_eq!(activity_fallback(&mut seen, "!b", None, 400), 400);
+}
+
+#[test]
+fn latest_event_labels_and_date_cover_every_content_type() {
+    use matrix_sdk::ruma::MilliSecondsSinceUnixEpoch;
+    use matrix_sdk_ui::timeline::{LatestEventValue, TimelineDetails, TimelineItemContent as C};
+    let ts = MilliSecondsSinceUnixEpoch(1_700_000_000_123_u64.try_into().unwrap());
+    let remote = |content| LatestEventValue::Remote {
+        timestamp: ts,
+        sender: matrix_sdk::ruma::user_id!("@a:t").to_owned(),
+        is_own: false,
+        profile: TimelineDetails::Unavailable,
+        content,
+    };
+    for (content, want) in [(C::CallInvite, "Call"), (C::MsgLike(matrix_sdk_ui::timeline::MsgLikeContent::redacted()), "Message deleted")] {
+        let v = remote(content);
+        assert_eq!(latest_event_text(&v).as_deref(), Some(want));
+        assert_eq!(latest_event_ts(&v), Some(1_700_000_000_123), "{want}: date without text");
+    }
+}

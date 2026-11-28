@@ -1226,6 +1226,8 @@ pub struct RoomSync {
     timeline_heads: BTreeMap<String, matrix_domain::EventId>,
     /// Rooms whose SDK latest event is being tracked (a store written before sliding sync has none).
     latest_watched: std::collections::BTreeSet<String>,
+    /// Per room: the SDK recency stamp and the local time it was first seen (date fallback, see `activity_fallback`).
+    activity_seen: BTreeMap<String, (Option<u64>, u64)>,
     /// SDK space graph, created at the first projection.
     spaces: Option<matrix_sdk_ui::spaces::SpaceService>,
     timelines: Timelines,
@@ -1300,6 +1302,7 @@ impl RoomSync {
             previous: BTreeMap::new(),
             timeline_heads: BTreeMap::new(),
             latest_watched: Default::default(),
+            activity_seen: Default::default(),
             spaces: None,
             timelines: Default::default(),
             operation_state: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
@@ -1610,6 +1613,14 @@ impl RoomSync {
                 Vec::new()
             };
             let latest = matrix_sdk_ui::timeline::RoomExt::latest_event(&room).await;
+            let unread = room.num_unread_notifications();
+            let (preview, last_event_ts) = if matches!(latest, matrix_sdk_ui::timeline::LatestEventValue::None) && (unread > 0 || room.is_marked_unread()) {
+                // The SDK has no latest event (e.g. not decryptable, call): label and date from the room's own activity.
+                let stamp = room.recency_stamp().map(u64::from);
+                (Some("New message".to_owned()), Some(activity_fallback(&mut self.activity_seen, &id, stamp, now_ms())))
+            } else {
+                (latest_event_text(&latest), latest_event_ts(&latest))
+            };
             let children = children_of.remove(&id).unwrap_or_default();
             let (tags, favourite_order) = match room.tags().await {
                 Ok(Some(tags)) => (crate::room_tags::group_names(&tags), crate::room_tags::favourite_order(&tags)),
@@ -1631,13 +1642,13 @@ impl RoomSync {
                         room_id: RoomId::new(id.clone()),
                     },
                     name: room_label(room.display_name().await.ok(), &id),
-                    unread: room.num_unread_notifications(),
+                    unread,
                     info: crate::RoomInfo {
                         edit_rights,
                         child_rights,
                         public_read_receipts: peer_receipts,
-                        preview: latest_event_text(&latest),
-                        last_event_ts: latest_event_ts(&latest),
+                        preview,
+                        last_event_ts,
                         invited: room.state() == RoomState::Invited,
                         topic: room.topic(),
                         topic_view: room_topic_view(&room).await,
@@ -1734,34 +1745,59 @@ impl RoomSync {
 }
 
 /// Preview text from the SDK latest event (`LatestEventValue`, kept by the SDK across edits,
-/// redactions and unsent local messages); None when it is not a message.
+/// redactions and unsent local messages); a short English label (translated when drawn, see
+/// `row_text::engine_placeholder`) for anything without text. None only for no event and invites.
 fn latest_event_text(latest: &matrix_sdk_ui::timeline::LatestEventValue) -> Option<String> {
-    use matrix_sdk_ui::timeline::LatestEventValue;
+    use matrix_sdk_ui::timeline::{LatestEventValue, MsgLikeKind, TimelineItemContent as C};
     let (LatestEventValue::Remote { content, .. } | LatestEventValue::Local { content, .. }) = latest
     else {
         return None;
     };
-    if let Some(poll) = content.as_poll() {
-        return Some(poll.results().question);
+    let label = |s: &str| Some(s.to_owned());
+    match content {
+        C::MsgLike(m) => match &m.kind {
+            MsgLikeKind::Poll(p) => Some(p.results().question).filter(|q| !q.is_empty()).or_else(|| label("Poll")),
+            MsgLikeKind::Message(message) => Some(match message.msgtype() {
+                MessageType::Image(_) => "Image".to_owned(),
+                MessageType::Audio(a) if a.voice.is_some() => "Voice message".to_owned(),
+                other if other.body().trim().is_empty() => "Message without text".to_owned(),
+                other => other.body().to_owned(),
+            }),
+            MsgLikeKind::Sticker(_) => label("Sticker"),
+            MsgLikeKind::Redacted => label("Message deleted"),
+            MsgLikeKind::UnableToDecrypt(_) => label("Encrypted message"),
+            MsgLikeKind::LiveLocation(_) => label("Location"),
+            MsgLikeKind::Other(_) => label("New message"),
+        },
+        C::CallInvite | C::RtcNotification { .. } => label("Call"),
+        C::MembershipChange(_) | C::ProfileChange(_) | C::OtherState(_) | C::FailedToParseState { .. } => label("Room update"),
+        C::FailedToParseMessageLike { .. } => label("New message"),
     }
-    let message = content.as_message()?;
-    Some(match message.msgtype() {
-        MessageType::Image(_) => "Image".to_owned(),
-        MessageType::Audio(a) if a.voice.is_some() => "Voice message".to_owned(),
-        _ => message.body().to_owned(),
-    })
 }
 
-/// Timestamp (ms since epoch) of the latest *message*; None for no event, a non-message event (state, redaction)
-/// or an invite (its stamp is the local receipt time, not the event's), so the row never shows a time without a message.
+/// Timestamp (ms since epoch) of the latest event, text or not; None for no event or an invite
+/// (its stamp is the local receipt time, not the event's).
 pub(crate) fn latest_event_ts(latest: &matrix_sdk_ui::timeline::LatestEventValue) -> Option<u64> {
     use matrix_sdk_ui::timeline::LatestEventValue::{Local, Remote};
     match latest {
-        Remote { timestamp, content, .. } | Local { timestamp, content, .. } if content.as_message().is_some() => {
-            Some(timestamp.0.into())
-        }
+        Remote { timestamp, .. } | Local { timestamp, .. } => Some(timestamp.0.into()),
         _ => None,
     }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// Date for a room whose latest event the SDK cannot give: the SDK exposes only the room's recency
+/// stamp (an opaque counter, not a time), so the date is the local time that stamp was first seen.
+// shortcut: not persisted, so after a restart it is the launch time; upgrade if the SDK ever exposes the bump time.
+pub(crate) fn activity_fallback(seen: &mut BTreeMap<String, (Option<u64>, u64)>, room: &str, stamp: Option<u64>, now: u64) -> u64 {
+    let entry = seen.entry(room.to_owned()).or_insert((stamp, now));
+    if entry.0 != stamp {
+        *entry = (stamp, now);
+    }
+    entry.1
 }
 
 /// Name shown in the room list: the SDK-computed display name; «Stanza vuota» for an unnamed room with
