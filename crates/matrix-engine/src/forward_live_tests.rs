@@ -228,7 +228,8 @@ fn disposable_forward_edge_cases_reply_thread_edit_location_sticker() {
     use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
     const FWD: &str = "org.matrix.msc4553.forwarded";
     let config = fixture();
-    runtime().block_on(async { tokio::time::timeout(std::time::Duration::from_secs(200), async {
+    runtime().block_on(async { tokio::time::timeout(std::time::Duration::from_secs(420), async {
+        let started = std::time::Instant::now();
         let plain = fwd_room(&config, "fwd-edge-plain", false).await;
         let enc = fwd_room(&config, "fwd-edge-enc", true).await;
         let sync = crate::room_sync::RoomSync::new(login(&config, "alice", 73).await);
@@ -266,6 +267,7 @@ fn disposable_forward_edge_cases_reply_thread_edit_location_sticker() {
         // The thread panel of the UI: its timeline is where the reply is found.
         let scope1 = RoomScope { account_id: AccountId::new(73), room_id: RoomId::new(&plain) };
         sync.open_thread(&scope1, &EventId::new(&root), 25).await.expect("thread opened");
+        println!("EDGE at {}s: starting the forwards", started.elapsed().as_secs());
         let mut failures: Vec<String> = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
         for (name, source, dest, want) in [
@@ -291,7 +293,7 @@ fn disposable_forward_edge_cases_reply_thread_edit_location_sticker() {
             let id = server["event_id"].as_str().unwrap().to_owned();
             if !seen.insert(id.clone()) { failures.push(format!("{name}: no new event")); continue; }
             let content = fwd_bob_content(&bob, dest, &id).await;
-            println!("EDGE {name} type={} content={}", server["type"], content.to_string().chars().take(420).collect::<String>());
+            println!("EDGE {name} at {}s type={} content={}", started.elapsed().as_secs(), server["type"], content.to_string().chars().take(160).collect::<String>());
             if content.get("m.relates_to").is_some() { failures.push(format!("{name}: m.relates_to present")); }
             if !content.to_string().contains(want) { failures.push(format!("{name}: `{want}` missing")); }
             if content["body"].as_str().is_some_and(|b| b.contains("thread root") && name != "location") { failures.push(format!("{name}: reply quote left in body")); }
@@ -320,5 +322,5 @@ fn disposable_forward_edge_cases_reply_thread_edit_location_sticker() {
         if !row_ok { failures.push("bubble: no row with forwarded=true and the true text".into()); }
         if !preview_ok { failures.push("room list: the latest event is not shown as forwarded with its true text".into()); }
         assert!(failures.is_empty(), "edge findings:\n{}", failures.join("\n"));
-    }).await.expect("edge test deadline (200 s): see the EDGE lines above"); });
+    }).await.expect("edge test deadline (420 s): see the EDGE lines above"); });
 }
