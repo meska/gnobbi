@@ -12,8 +12,8 @@ pub mod notification_avatar;
 pub mod notifications;
 pub mod push;
 pub mod search_list;
-// In-app updater: Windows and Linux only (macOS ships through the App Store/TestFlight, mobile through the stores).
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+// In-app updater: Windows, Linux and the Android `direct` flavor (macOS ships through the App Store/TestFlight, iOS and the Play build through the stores).
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "android"))]
 pub mod update;
 
 /// The Linux build pins DejaVu; Windows has no DejaVu.

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Debug APK. The cdylib is built on the Linux CT first:
 #   ANDROID_NDK_HOME=/opt/android-ndk-r28c cargo ndk -P 26 -t arm64-v8a -o artifacts/android/jniLibs rustc --locked -p matrix-desktop --example gnobbi --features android-vault --crate-type cdylib
-# Then: packaging/android/build-apk.sh  (or ./gradlew assembleDebug in packaging/android) -> artifacts/android/gnobbi-debug.apk
+# Then: packaging/android/build-apk.sh  (or ./gradlew assembleDirectDebug in packaging/android) -> artifacts/android/gnobbi-debug.apk
 # Needs the Android SDK (ANDROID_HOME) and a JDK 17-21.
 set -eu
 cd "$(dirname "$0")"
@@ -10,7 +10,7 @@ if [ -n "${GOOGLE_SERVICES_JSON:-}" ]; then
     trap 'rm -f app/google-services.json' EXIT
     cp "$GOOGLE_SERVICES_JSON" app/google-services.json
 fi
-./gradlew assembleDebug
+./gradlew assembleDirectDebug
 mkdir -p ../../artifacts/android
-cp app/build/outputs/apk/debug/app-debug.apk ../../artifacts/android/gnobbi-debug.apk
+cp app/build/outputs/apk/direct/debug/app-direct-debug.apk ../../artifacts/android/gnobbi-debug.apk
 ls -la ../../artifacts/android/gnobbi-debug.apk

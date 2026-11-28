@@ -86,6 +86,9 @@ pub fn release_build(distributed: bool, build: &str) -> bool {
     distributed && super::build_number(build).is_some()
 }
 
+/// Folder of the staged APK inside the app cache; `file_provider_paths.xml` exposes `.cache/gnobbi/updates/`.
+const UPDATES_DIR: &str = "updates";
+
 fn target(channel: &Channel) -> &Path {
     match channel {
         Channel::AppImage { target } => target,
@@ -95,10 +98,11 @@ fn target(channel: &Channel) -> &Path {
 }
 
 fn artifact_key(channel: &Channel, os: &str, arch: &str) -> Option<&'static str> {
-    use super::verify::{LINUX_APPIMAGE, WINDOWS_ZIP};
+    use super::verify::{ANDROID_APK, LINUX_APPIMAGE, WINDOWS_ZIP};
     match (channel, os, arch) {
         (Channel::AppImage { .. }, "linux", "x86_64") => Some(LINUX_APPIMAGE),
         (Channel::WindowsPortable { .. }, "windows", "x86_64") => Some(WINDOWS_ZIP),
+        (Channel::AndroidDirect, "android", "aarch64") => Some(ANDROID_APK),
         _ => None,
     }
 }
@@ -149,7 +153,16 @@ mod online {
         let c = Candidate { version: o.version.clone(), build: o.build, file_name: o.url.rsplit('/').next().unwrap_or_default().into(), sha256: o.sha256.clone(), size: o.size };
         static ATTEMPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let id = ATTEMPT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let staging = target(channel).with_file_name(format!(".gnobbi.{}.{}.{}.new", c.build, std::process::id(), id));
+        let staging = match channel {
+            // The app's cache (`updates/`, the FileProvider folder); only the latest download is kept.
+            Channel::AndroidDirect => {
+                let dir = dirs.cache.join(UPDATES_DIR);
+                let _ = std::fs::remove_dir_all(&dir);
+                if let Err(e) = std::fs::create_dir_all(&dir) { eprintln!("update: {e}"); return None; }
+                dir.join(format!("gnobbi-{}.apk", c.build))
+            }
+            _ => target(channel).with_file_name(format!(".gnobbi.{}.{}.{}.new", c.build, std::process::id(), id)),
+        };
         let client = match reqwest::Client::builder().user_agent("Gnobbi").connect_timeout(READ_TIMEOUT).read_timeout(READ_TIMEOUT).redirect(crate::update::github::redirect_policy()).build() {
             Ok(c) => c,
             Err(e) => { eprintln!("update: client: {e}"); return None; }
@@ -217,13 +230,18 @@ mod tests {
         assert_eq!(artifact_key(&appimage(), "linux", "aarch64"), None);
         assert_eq!(artifact_key(&win, "windows", "aarch64"), None);
         assert_eq!(artifact_key(&win, "linux", "x86_64"), None);
+        assert_eq!(artifact_key(&Channel::AndroidDirect, "android", "aarch64"), Some(super::super::verify::ANDROID_APK));
+        assert_eq!(super::super::verify::ANDROID_APK, "android-arm64-apk");
+        assert_eq!(artifact_key(&Channel::AndroidDirect, "android", "x86_64"), None);
+        assert_eq!(artifact_key(&Channel::AndroidDirect, "linux", "aarch64"), None);
+        assert_eq!(artifact_key(&Channel::Unknown, "android", "aarch64"), None, "Android without the flag: no artifact");
     }
 
     #[test]
     fn decision_table() {
         let now = 1_000_000;
         let win = Channel::WindowsPortable { exe: PathBuf::from("g.exe") };
-        for ch in [appimage(), win] {
+        for ch in [appimage(), win, Channel::AndroidDirect] {
             assert!(should_check(&ch, &prefs(true, None), now));
             assert!(should_check(&ch, &prefs(true, Some(now - 6 * H)), now));
             assert!(!should_check(&ch, &prefs(true, Some(now - 6 * H + 1)), now));

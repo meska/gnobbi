@@ -78,7 +78,7 @@ fn choice_in(ui: &mut egui::Ui, salt: &str, label: &str, selected: &str, add: im
 }
 
 /// One line: «Update available · v» with «Update», or «Updating…», or the error line. Nothing when idle.
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "android"))]
 fn update_row(ui: &mut egui::Ui, dirs: Option<&AppDirs>) {
     use matrix_desktop::update::{self, Status};
     let status = update::status();
@@ -168,9 +168,9 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                         section(ui, tr("System"), t);
                         changed |= switch(ui, tr("Close to tray"), &mut p.close_to_tray, t);
                     }
-                    // The updater engine exists on Linux and Windows only.
-                    #[cfg(any(target_os = "linux", target_os = "windows"))]
-                    {
+                    // The updater engine exists on Linux, Windows and the Android `direct` build (the Play build has no updater).
+                    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "android"))]
+                    if cfg!(not(target_os = "android")) || matrix_desktop::update::self_updates() {
                         changed |= switch(ui, tr("Automatic updates"), &mut p.update_check_enabled, t);
                         update_row(ui, dirs);
                     }

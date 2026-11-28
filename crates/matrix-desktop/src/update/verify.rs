@@ -34,6 +34,7 @@ pub const SCHEMA: u64 = 1;
 /// Artifact keys of `artifacts` (MANIFEST_SIGNING.md §2); pass one as `platform`.
 pub const LINUX_APPIMAGE: &str = "linux-x86_64-appimage";
 pub const WINDOWS_ZIP: &str = "windows-x64-zip";
+pub const ANDROID_APK: &str = "android-arm64-apk";
 
 /// Trusted public keys: 1 or 2, in file order. The first signs releases, the second is the
 /// next key (rotation). A signature is accepted only from the key whose key id it carries.

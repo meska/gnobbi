@@ -179,7 +179,7 @@ where
     refuse_pending(dirs)?;
     // No marker and a backup that is the same inode as the target: an orphan link, not a copy.
     drop_backup(&paths, &remove).map_err(|e| message(&e))?;
-    reverify(&paths, ready)?;
+    reverify(&paths.new, ready)?;
     // With this transaction's identity: attempts=0 is the first start.
     let mark = || startup::write_pending(dirs, &Pending { from_build: running_build(), to_build: ready.build, attempts: 0 });
     match swap(&paths, &link, mark, &rename) {
@@ -270,7 +270,7 @@ pub fn install_staged(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> Resul
         let paths = paths_for(channel, ready)?;
         // The helper runs after this process is gone and cannot report: refuse here what it would.
         refuse_pending(dirs)?;
-        reverify(&paths, ready)?;
+        reverify(&paths.new, ready)?;
         return super::helper::start(&super::helper::Request::install(paths.target, ready));
     }
     install_with(dirs, channel, ready, |a, b| std::fs::hard_link(a, b), |a, b| std::fs::rename(a, b), relaunch, |p| std::fs::remove_file(p))
@@ -279,28 +279,47 @@ pub fn install_staged(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> Resul
 /// Production entry for the UI: on failure it returns the error and the process stays alive;
 /// it exits only once the new build has started.
 pub fn install_and_restart(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> Result<std::convert::Infallible, String> {
+    if matches!(channel, Channel::AndroidDirect) {
+        // The system installer takes over after the user confirms; Android restarts the app, so nothing exits here.
+        return Err(install_apk(ready, super::android::open_installer));
+    }
     install_staged(dirs, channel, ready)?;
     std::process::exit(0)
 }
 
+/// Android: size and hash again, then the system installer (`Native.installApk` also checks the signer). No lock file, marker or
+/// exit: the caller's send lock (`stage_then_install`) is the only gate. Always one line for the drawer.
+pub(super) fn install_apk(ready: &Ready, open: impl FnOnce(&Path) -> i32) -> String {
+    use super::android::{OPENED, PERMISSION, SIGNATURE};
+    if let Err(line) = reverify(&ready.path, ready) {
+        return line;
+    }
+    match open(&ready.path) {
+        OPENED => crate::i18n::t("Update ready to install").into(),
+        SIGNATURE => failed(crate::i18n::t("signature differs from the installed app")),
+        PERMISSION => failed(crate::i18n::t("allow installs from Gnobbi, then update again")),
+        _ => failed(crate::i18n::t("installer not available")),
+    }
+}
+
 /// Size and hash again, immediately before the swap, then the bytes to the disk.
-pub(super) fn reverify(paths: &Paths, ready: &Ready) -> Result<(), String> {
+pub(super) fn reverify(new: &Path, ready: &Ready) -> Result<(), String> {
     let candidate = Candidate {
         version: ready.version.clone(),
         build: ready.build,
-        file_name: paths.new.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        file_name: new.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
         sha256: ready.sha256.clone(),
         size: ready.size,
     };
-    if let Err(e) = verify::verify_file(&paths.new, &candidate) {
+    if let Err(e) = verify::verify_file(new, &candidate) {
         // Altered staging is useless and must not be reused; the target is the intact copy.
         if matches!(e, UpdateError::SizeMismatch { .. } | UpdateError::Sha256Mismatch) {
-            let _ = std::fs::remove_file(&paths.new);
+            let _ = std::fs::remove_file(new);
         }
         return Err(describe(e));
     }
     // write(true) without truncate: Windows FlushFileBuffers is denied on a read-only handle.
-    std::fs::OpenOptions::new().write(true).open(&paths.new).and_then(|f| f.sync_all()).map_err(|e| message(&e))
+    std::fs::OpenOptions::new().write(true).open(new).and_then(|f| f.sync_all()).map_err(|e| message(&e))
 }
 
 fn describe(e: UpdateError) -> String {

@@ -7,6 +7,16 @@ import android.util.Log;
 final class Native {
     private Native() {}
 
+    /** `BuildConfig.SELF_UPDATE`, read by the Rust updater (update/android.rs): true only in the `direct` flavor. */
+    static boolean selfUpdate() {
+        return BuildConfig.SELF_UPDATE;
+    }
+
+    /** Verifies the signer of a staged APK and opens the system installer: one of the SelfUpdate codes. Refuses in the Play build. */
+    static int installApk(Context ctx, String path) {
+        return BuildConfig.SELF_UPDATE ? SelfUpdate.install(ctx, path) : SelfUpdate.UNAVAILABLE;
+    }
+
     private static native void nativeOnPermission();
 
     private static native void nativeOnMicPermission(boolean granted);

@@ -1,5 +1,5 @@
 //! Update channel detection (AUTO_UPDATE.md §0.1-0.2). Pure: all facts come from [`Env`].
-//! Only `AppImage` and `WindowsPortable` are updated in-app; every other channel does nothing.
+//! Only `AppImage`, `WindowsPortable` and `AndroidDirect` are updated in-app; every other channel does nothing.
 
 use std::path::{Path, PathBuf};
 
@@ -10,6 +10,8 @@ pub enum Channel {
     AppImage { target: PathBuf },
     /// Windows `gnobbi.exe` in a writable folder.
     WindowsPortable { exe: PathBuf },
+    /// Android APK of the `direct` flavor (`BuildConfig.SELF_UPDATE`): the system installer applies the update.
+    AndroidDirect,
     /// Mac App Store / TestFlight (Apple updates it).
     MacStore,
     Flatpak,
@@ -22,7 +24,7 @@ pub enum Channel {
 impl Channel {
     /// True when the app may check for and download updates itself.
     pub fn self_updates(&self) -> bool {
-        matches!(self, Channel::AppImage { .. } | Channel::WindowsPortable { .. })
+        matches!(self, Channel::AppImage { .. } | Channel::WindowsPortable { .. } | Channel::AndroidDirect)
     }
 }
 
@@ -43,6 +45,8 @@ pub struct Env {
     pub mas_receipt: bool,
     /// Windows: the folder of `gnobbi.exe` is writable.
     pub exe_dir_writable: bool,
+    /// Android: `BuildConfig.SELF_UPDATE` (true only in the `direct` flavor, never in the Play build).
+    pub android_direct: bool,
 }
 
 impl Env {
@@ -67,6 +71,7 @@ impl Env {
                 !d.to_string_lossy().contains("Program Files")
                     && std::fs::metadata(d).is_ok_and(|m| !m.permissions().readonly())
             }),
+            android_direct: android_direct(),
             home,
             current_exe,
         }
@@ -79,6 +84,7 @@ pub fn detect_channel(env: &Env) -> Channel {
     match env.os.as_str() {
         "linux" => detect_linux(env),
         "macos" if env.mas_receipt => Channel::MacStore,
+        "android" if env.android_direct => Channel::AndroidDirect,
         "windows" => match &env.current_exe {
             Some(exe) if env.exe_dir_writable && !in_target(exe) => {
                 Channel::WindowsPortable { exe: exe.clone() }
@@ -87,6 +93,17 @@ pub fn detect_channel(env: &Env) -> Channel {
         },
         _ => Channel::Unknown,
     }
+}
+
+/// `BuildConfig.SELF_UPDATE` through `Native.selfUpdate()`; any JNI failure counts as the Play build (no updater).
+#[cfg(target_os = "android")]
+fn android_direct() -> bool {
+    super::android::self_update().unwrap_or(false)
+}
+
+#[cfg(not(target_os = "android"))]
+fn android_direct() -> bool {
+    false
 }
 
 fn detect_linux(env: &Env) -> Channel {
@@ -188,7 +205,17 @@ mod tests {
     }
 
     #[test]
-    fn only_two_channels_self_update() {
+    fn android_updates_itself_only_in_the_direct_flavor() {
+        let android = Env { os: "android".into(), current_exe: Some("/data/app/net.meskatech.gnobbi/lib/arm64/libgnobbi.so".into()), ..Env::default() };
+        assert_eq!(detect_channel(&Env { android_direct: true, ..android.clone() }), Channel::AndroidDirect);
+        assert!(Channel::AndroidDirect.self_updates());
+        assert_eq!(detect_channel(&android), Channel::Unknown, "play build: no updater");
+        // the flag means nothing outside Android
+        assert_eq!(detect_channel(&Env { android_direct: true, ..linux() }), Channel::Unknown);
+    }
+
+    #[test]
+    fn only_three_channels_self_update() {
         assert!(Channel::AppImage { target: "x".into() }.self_updates());
         assert!(!Channel::MacStore.self_updates());
         assert!(!Channel::Unknown.self_updates());
