@@ -27,9 +27,10 @@ jobs:
             echo "stale=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # annotated tags: ls-remote lists the tag object and the peeled commit (^{}); fresh if gitea.sha is either
           remote="$(git -c http.extraHeader="Authorization: token ${{ gitea.token }}" \
-            ls-remote "${{ gitea.server_url }}/${{ gitea.repository }}.git" "${{ gitea.ref }}" | cut -f1)"
-          if [ -n "$remote" ] && [ "$remote" != "${{ gitea.sha }}" ]; then
+            ls-remote "${{ gitea.server_url }}/${{ gitea.repository }}.git" "${{ gitea.ref }}" "${{ gitea.ref }}^{}" | cut -f1)"
+          if [ -n "$remote" ] && ! printf '%s\n' "$remote" | grep -qx "${{ gitea.sha }}"; then
             echo "ref ${{ gitea.ref }} moved to $remote; run for ${{ gitea.sha }} is stale"
             echo "stale=true" >> "$GITHUB_OUTPUT"
           else
