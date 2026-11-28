@@ -510,6 +510,12 @@ menu	Bring All to Front	Porta tutto in primo piano
 	Create	Crea
 	#room:server or !id:server	#stanza:server o !id:server
 	Search people	Cerca persone
+# forward_picker
+	Forward to…	Inoltra a…
+	Forward	Inoltra
+@plural	Forward to {n} chat	Inoltra a {n} chat|Inoltra a {n} chat
+	No chats	Nessuna chat
+	Sending…	Invio…
 # pick
 	Images	Immagini
 # time_fmt
