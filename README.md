@@ -30,7 +30,7 @@ Choose a beta or desktop release from the links above, or build from source (see
 
 ### Android APK (outside Google Play)
 
-The [nightly release](https://github.com/meska/gnobbi/releases/tag/nightly) has a signed `gnobbi-*-android-arm64.apk`.
+The [nightly release](https://github.com/meska/gnobbi/releases/tag/nightly) has a signed `gnobbi-*-android-arm64.apk`. It updates itself and asks for confirmation before installing.
 
 - It is signed with a different key than the Play version: to switch between the two you must uninstall, which deletes the local data (keep your recovery key).
 - Push notifications go through Firebase (FCM), so they need Google Play Services. Without them the app works, but push notifications do not arrive.
