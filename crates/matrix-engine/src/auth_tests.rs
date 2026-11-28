@@ -34,6 +34,7 @@ include!("reaction_retry_tests.rs");
 include!("redaction_retry_tests.rs");
 include!("send_queue_tests.rs");
 include!("sliding_cache_tests.rs");
+include!("forward_live_tests.rs");
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
