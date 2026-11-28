@@ -2,7 +2,7 @@
 
 Open source [Matrix](https://matrix.org/) client for desktop and mobile, written in Rust with an [egui](https://github.com/emilk/egui) (eframe) interface. Gnobbi talks directly to your homeserver, with no gateways or middle services: account, messages and keys stay between the client and the server you chose.
 
-**[TestFlight beta (iPhone and iPad)](https://testflight.apple.com/join/ZGYennpy) · Google Play: coming soon · [Desktop releases](https://github.com/meska/gnobbi/releases)**
+**[TestFlight beta (iPhone and iPad)](https://testflight.apple.com/join/ZGYennpy) · Google Play: coming soon · [Desktop releases](https://github.com/meska/gnobbi/releases) · [Android APK](https://github.com/meska/gnobbi/releases/tag/nightly)**
 
 <table>
   <tr>
@@ -26,6 +26,14 @@ Main features:
 ## Try it
 
 Choose a beta or desktop release from the links above, or build from source (see below).
+
+### Android APK (outside Google Play)
+
+The [nightly release](https://github.com/meska/gnobbi/releases/tag/nightly) has a signed `gnobbi-*-android-arm64.apk`.
+
+- It is signed with a different key than the Play version: to switch between the two you must uninstall, which deletes the local data (keep your recovery key).
+- Push notifications go through Firebase (FCM), so they need Google Play Services. Without them the app works, but push notifications do not arrive.
+- If you need UnifiedPush, open an issue.
 
 ## Translations
 
