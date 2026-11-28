@@ -11,7 +11,7 @@ use matrix_sdk::{
         api::client::{
             profile::{get_avatar_url, get_display_name}, room::get_room_event, state::get_state_event_for_key,
         },
-        events::StateEventType,
+        events::{StateEventType, room::encrypted::Relation},
     },
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
 };
@@ -42,12 +42,15 @@ pub enum Outcome {
         sender_id: String,
         body: String,
         room: Option<String>,
+        /// Root event of the thread the message belongs to (`m.relates_to` with `m.thread`); None outside threads.
+        thread_root: Option<String>,
     },
     /// Message of another kind (image, file, call...): show the sender, keep the generic text.
     Other {
         sender: String,
         sender_id: String,
         room: Option<String>,
+        thread_root: Option<String>,
     },
     /// Encrypted and the key is not (yet) available.
     Encrypted,
@@ -141,6 +144,10 @@ fn classify(event: &Value, sender_name: Option<String>, room: Option<String>) ->
     if event["type"] == "m.room.redaction" || content["m.relates_to"]["rel_type"] == "m.replace" {
         return Outcome::Suppress;
     }
+    let thread_root = match serde_json::from_value::<Relation>(content["m.relates_to"].clone()) {
+        Ok(Relation::Thread(t)) => Some(t.event_id.to_string()),
+        _ => None,
+    };
     let sender_id = event["sender"].as_str().unwrap_or_default().to_owned();
     let sender = sender_name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| sender_id.clone());
     let text = event["type"] == "m.room.message"
@@ -154,8 +161,9 @@ fn classify(event: &Value, sender_name: Option<String>, room: Option<String>) ->
             sender_id,
             body: body.to_owned(),
             room,
+            thread_root,
         },
-        _ => Outcome::Other { sender, sender_id, room },
+        _ => Outcome::Other { sender, sender_id, room, thread_root },
     }
 }
 
@@ -432,21 +440,21 @@ fn group_name<'a>(sender: &str, room: Option<&'a str>) -> Option<&'a str> {
 
 fn to_json(o: &Outcome) -> Value {
     match o {
-        Outcome::Message { sender, sender_id, body, room } => {
+        Outcome::Message { sender, sender_id, body, room, thread_root } => {
             let s = shown(sender, sender_id, room.as_deref(), body);
             // `text`: the body without the room prefix, for the group intent (iOS shows the group name itself).
             json!({"kind": "message", "title": s.title, "subtitle": s.subtitle, "body": s.body, "text": trim_body(body),
-                   "sender_id": sender_id, "group": group_name(sender, room.as_deref())})
+                   "sender_id": sender_id, "group": group_name(sender, room.as_deref()), "thread_root": thread_root})
         }
-        Outcome::Other { sender, sender_id, room } => {
-            json!({"kind": "other", "title": sender, "sender_id": sender_id, "group": group_name(sender, room.as_deref())})
+        Outcome::Other { sender, sender_id, room, thread_root } => {
+            json!({"kind": "other", "title": sender, "sender_id": sender_id, "group": group_name(sender, room.as_deref()), "thread_root": thread_root})
         }
         Outcome::Encrypted => json!({"kind": "encrypted"}),
         Outcome::Suppress => json!({"kind": "suppress"}),
     }
 }
 
-/// C ABI. Returns 0 and a malloc'd JSON `{kind, title?, subtitle?, body?, text?, sender_id?, group?}` in `*out` (and, when the sender
+/// C ABI. Returns 0 and a malloc'd JSON `{kind, title?, subtitle?, body?, text?, sender_id?, group?, thread_root?}` in `*out` (and, when the sender
 /// has a picture, its bytes in `*avatar`/`*avatar_len`, freed with [`gnobbi_nse_free_bytes`]), or 1 with `*out` NULL (the shell then shows
 /// the generic text). Free with [`gnobbi_nse_free`]. `data_dir` is the App Group data dir (`.../Library/Application Support/Gnobbi`).
 ///
@@ -576,7 +584,8 @@ mod tests {
                 sender: "Ann".into(),
                 sender_id: "@a:h".into(),
                 body: "hi".into(),
-                room: Some("Team".into())
+                room: Some("Team".into()),
+                thread_root: None
             }
         );
         assert_eq!(
@@ -585,7 +594,8 @@ mod tests {
                 sender: "@a:h".into(),
                 sender_id: "@a:h".into(),
                 body: "hi".into(),
-                room: None
+                room: None,
+                thread_root: None
             }
         );
         assert_eq!(
@@ -593,7 +603,8 @@ mod tests {
             Outcome::Other {
                 sender: "@a:h".into(),
                 sender_id: "@a:h".into(),
-                room: None
+                room: None,
+                thread_root: None
             }
         );
         assert_eq!(
@@ -601,7 +612,8 @@ mod tests {
             Outcome::Other {
                 sender: "@a:h".into(),
                 sender_id: "@a:h".into(),
-                room: None
+                room: None,
+                thread_root: None
             }
         );
         let edit = json!({"type": "m.room.message", "sender": "@a:h", "content": {"msgtype": "m.text", "body": "* hi", "m.relates_to": {"rel_type": "m.replace", "event_id": "$e"}}});
@@ -614,6 +626,24 @@ mod tests {
             ),
             Outcome::Suppress
         );
+    }
+
+    #[test]
+    fn thread_root_comes_from_the_thread_relation_only() {
+        let msg = |rel: Value| json!({"type": "m.room.message", "sender": "@a:h", "content": {"msgtype": "m.text", "body": "hi", "m.relates_to": rel}});
+        let root = |e: &Value| match classify(e, None, None) {
+            Outcome::Message { thread_root, .. } | Outcome::Other { thread_root, .. } => thread_root,
+            o => panic!("{o:?}"),
+        };
+        let thread = msg(json!({"rel_type": "m.thread", "event_id": "$root", "is_falling_back": true, "m.in_reply_to": {"event_id": "$last"}}));
+        assert_eq!(root(&thread), Some("$root".into()));
+        assert_eq!(to_json(&classify(&thread, None, None))["thread_root"], "$root");
+        // a plain reply (not in a thread), a reference and a plain message have no thread root
+        assert_eq!(root(&msg(json!({"m.in_reply_to": {"event_id": "$x"}}))), None);
+        assert_eq!(root(&msg(json!({"rel_type": "m.reference", "event_id": "$x"}))), None);
+        let plain = json!({"type": "m.room.message", "sender": "@a:h", "content": {"msgtype": "m.text", "body": "hi"}});
+        assert_eq!(root(&plain), None);
+        assert_eq!(to_json(&classify(&plain, None, None))["thread_root"], Value::Null);
     }
 
     #[test]
@@ -676,14 +706,14 @@ mod tests {
         let s = shown("Mario Rossi 🇮🇹", &id, None, "ciao");
         assert_eq!((s.title.as_str(), s.subtitle.as_deref()), ("Mario Rossi 🇮🇹", Some(id.as_str())));
         // JSON handed to the Swift shell
-        let j = to_json(&Outcome::Message { sender: "Ann".into(), sender_id: "@a:h".into(), body: "\n\nhi\n\n\nyo".into(), room: Some("Team".into()) });
+        let j = to_json(&Outcome::Message { sender: "Ann".into(), sender_id: "@a:h".into(), body: "\n\nhi\n\n\nyo".into(), room: Some("Team".into()), thread_root: None });
         assert_eq!(
             j,
-            json!({"kind": "message", "title": "Ann", "subtitle": "@a:h", "body": "Team: hi\nyo", "text": "hi\nyo", "sender_id": "@a:h", "group": "Team"})
+            json!({"kind": "message", "title": "Ann", "subtitle": "@a:h", "body": "Team: hi\nyo", "text": "hi\nyo", "sender_id": "@a:h", "group": "Team", "thread_root": null})
         );
         // DM (room named like the sender) or no room: not a group
-        let dm = to_json(&Outcome::Other { sender: "Ann".into(), sender_id: "@a:h".into(), room: Some("Ann".into()) });
-        assert_eq!(dm, json!({"kind": "other", "title": "Ann", "sender_id": "@a:h", "group": null}));
+        let dm = to_json(&Outcome::Other { sender: "Ann".into(), sender_id: "@a:h".into(), room: Some("Ann".into()), thread_root: None });
+        assert_eq!(dm, json!({"kind": "other", "title": "Ann", "sender_id": "@a:h", "group": null, "thread_root": null}));
     }
 
     #[test]

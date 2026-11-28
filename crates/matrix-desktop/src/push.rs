@@ -312,7 +312,7 @@ mod tests {
     }
 
     fn msg() -> Result<Outcome, Fail> {
-        Ok(Outcome::Message { sender: "Ann".into(), sender_id: "@a:t".into(), body: "\n\nhi\n\n\nthere ".into(), room: Some("Team".into()) })
+        Ok(Outcome::Message { sender: "Ann".into(), sender_id: "@a:t".into(), body: "\n\nhi\n\n\nthere ".into(), room: Some("Team".into()), thread_root: None })
     }
 
     #[test]
@@ -327,7 +327,7 @@ mod tests {
         for failed in [Err(Fail::Net), Err(Fail::Store), Err(Fail::BadInput), Ok(Outcome::Encrypted)] {
             assert_eq!(alert(true, true, || failed), Alert::Generic);
         }
-        assert_eq!(alert(true, true, || Ok(Outcome::Other { sender: "Ann".into(), sender_id: "@a:t".into(), room: None })), Alert::Sender("Ann".into()));
+        assert_eq!(alert(true, true, || Ok(Outcome::Other { sender: "Ann".into(), sender_id: "@a:t".into(), room: None, thread_root: None })), Alert::Sender("Ann".into()));
         assert_eq!(alert(true, true, || Ok(Outcome::Suppress)), Alert::Suppress);
     }
 

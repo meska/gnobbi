@@ -464,7 +464,7 @@ mod tests {
         let read = |account: &'static str| tokio::task::spawn_blocking(move || read_live(account, "!r:t", "$e:t", Duration::from_secs(5)));
         assert_eq!(
             read("3:1:accounts/3").await.unwrap(),
-            Some(Ok(Outcome::Message { sender: "@b:t".into(), sender_id: "@b:t".into(), body: "ciao".into(), room: None }))
+            Some(Ok(Outcome::Message { sender: "@b:t".into(), sender_id: "@b:t".into(), body: "ciao".into(), room: None, thread_root: None }))
         );
         assert!(log.lock().unwrap().iter().any(|l| l.contains("/event/")));
         assert_eq!(read("3:2:accounts/3").await.unwrap(), None);

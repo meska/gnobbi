@@ -96,6 +96,8 @@ final class NotificationService: UNNotificationServiceExtension {
         let ids = tag.split(separator: ":", maxSplits: 2)
         var user = content.userInfo
         user["gnobbi"] = "\(ids[0]):\(ids[1]):\(room)"
+        // Contract with the tap handler: `room_id` and `event_id` already come with the push; `thread_root` only for a thread message.
+        if let root = reply["thread_root"] as? String, !root.isEmpty { user["thread_root"] = root }
         content.userInfo = user
         // Communication Notification: the sender's picture instead of the app icon. Only with a picture; without one, or if
         // the system refuses the intent, the notification stays exactly as built above.
