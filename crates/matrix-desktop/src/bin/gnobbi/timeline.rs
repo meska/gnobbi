@@ -89,6 +89,19 @@ impl AutoView {
     }
 }
 
+#[cfg(test)]
+pub fn test_media(id: &str, kind: matrix_engine::history::MediaKind, label: &str, size: Option<u64>) -> DemoEvent {
+    let scope = matrix_domain::RoomScope { account_id: matrix_domain::AccountId::new(1), room_id: matrix_domain::RoomId::new("!r:fixture.invalid") };
+    DemoEvent {
+        server_confirmed: true, redacted: false, annotation: String::new(), reactions: Vec::new(), transaction_id: None,
+        id: matrix_domain::ScopedTimelineId { scope, id: matrix_domain::TimelineId::Server(matrix_domain::EventId::new(id)) },
+        text: String::new(), outgoing: false, send_state: None, timestamp_ms: 0, styles: Vec::new(), mentions: Vec::new(),
+        highlighted: false, thread: None, thread_root: None, reply_to: None, status: false, status_row: None, utd: false,
+        video: None, audio: None, poll: None, attachment_name: None, attachment_size: size, sender: None, time: String::new(),
+        media: Some(matrix_engine::history::Media { kind, label: label.into(), animated: false, dims: None, album: None }),
+    }
+}
+
 /// Where the menu was asked for on the bubble `rect` this frame: a right click, or a long press (`acts.held` then carries the bubble).
 /// Read from the input, not a widget over the bubble: a click-sensing widget on top would swallow the clicks of the link and the download button.
 fn menu_at(ui: &egui::Ui, rect: egui::Rect, e: &DemoEvent, acts: &mut Acts) -> Option<egui::Pos2> {
@@ -139,6 +152,31 @@ pub(crate) fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWe
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_download_button_shows_only_where_the_settings_hold_the_file_back() {
+        use super::AutoView;
+        use matrix_desktop::auto_download::{Kind, Limit, Network};
+        use matrix_engine::history::MediaKind::{File, Image};
+        let id = matrix_domain::EventId::new("$f");
+        let file = super::test_media("$f", File, "File", Some(8 << 20));
+        let mut view = AutoView { net: Network::Wifi, ..Default::default() };
+        view.policy.set(Kind::File, Network::Wifi, Limit::Mb5);
+        assert_eq!(view.button(&file), Some(Some(8 << 20)), "over the limit: the button, with the size");
+        view.policy.set(Kind::File, Network::Wifi, Limit::Always);
+        assert_eq!(view.button(&file), None, "fetched by itself: no button");
+        view.stopped.insert(id.clone());
+        assert_eq!(view.button(&file), Some(Some(8 << 20)), "stopped: the button is back");
+        view.fetched.insert(id);
+        assert_eq!(view.button(&file), None, "in memory");
+        view.fetched.clear();
+        view.policy.set(Kind::File, Network::Wifi, Limit::Mb5);
+        let mut gone = super::test_media("$f", File, "File", Some(8 << 20));
+        gone.redacted = true;
+        assert_eq!(view.button(&gone), None, "a deleted message");
+        view.policy.set(Kind::Photo, Network::Wifi, Limit::Never);
+        assert_eq!(view.button(&super::test_media("$f", Image, "Sticker", Some(1 << 20))), None);
+    }
     use eframe::egui;
 
     #[test]

@@ -908,31 +908,12 @@ impl Session {
     fn drive_media(&mut self, ctx: &egui::Context) -> bool {
         let mut changed = false;
         if let (Some(messages), Some(scope)) = (&self.messages, &self.draft_scope) {
-            use matrix_desktop::auto_download::{Decision, Kind};
             let (policy, net) = self.auto;
-            let mut videos = Vec::new();
-            let mut wanted = Vec::new();
-            let mut files = Vec::new();
             let thread = self.thread.iter().filter_map(|th| th.history.as_ref()).flat_map(|h| h.events());
             let on_screen: std::collections::HashSet<&EventId> = self.heights.on_screen.iter().chain(self.thread.iter().flat_map(|th| th.heights.on_screen.iter())).collect();
-            for e in messages.events().iter().chain(thread).rev() {
-                let (Some(media), TimelineId::Server(id)) = (&e.media, &e.id.id) else { continue };
-                let sticker = e.text.is_empty() && media.label == "Sticker";
-                // Only rows on screen are fetched for, and only as far as the settings go (a stopped or finished fetch is the button's).
-                let fetch = !sticker && on_screen.contains(id) && policy.decide(Kind::of(media.kind).unwrap_or(Kind::File), net, e.attachment_size) == Decision::Fetch;
-                match media.kind {
-                    MediaKind::Video => videos.push(id.clone()),
-                    MediaKind::Image => {}
-                    MediaKind::File if fetch => { files.push((id.clone(), Kind::File)); continue; }
-                    _ => continue,
-                }
-                if media.kind == MediaKind::Video && fetch { files.push((id.clone(), Kind::Video)); }
-                // A picture comes when the settings let it, or once the user's button brought it; a video's poster always (it is small).
-                let loads = media.kind == MediaKind::Video || sticker || (on_screen.contains(id) && (fetch || self.media.fetched(id)));
-                if loads && !self.pictures.contains_key(id) {
-                    wanted.push(id.clone());
-                }
-            }
+            let media = &self.media;
+            let MediaPick { mut videos, mut wanted, files } = pick_media(messages.events().iter().chain(thread).rev(), &on_screen, policy, net, |id| media.fetched(id));
+            wanted.retain(|id| !self.pictures.contains_key(id));
             for (id, kind) in files {
                 if self.media.request_fetch(scope.clone(), id, matrix_desktop::auto_download::cap(kind) as usize, false) { break; }
             }
@@ -961,6 +942,11 @@ impl Session {
         if let Some(rx) = &self.opener && let Ok(ok) = rx.try_recv() {
             self.opener = None;
             if !ok { self.notice = Some(i18n::t("Cannot open the content").to_owned()); }
+            changed = true;
+        }
+        if self.media.take_fetch_failed() {
+            self.notice_shown = None;
+            self.notice = Some(i18n::t("Download failed").to_owned());
             changed = true;
         }
         if let Some((id, result)) = self.media.take_saved() {
@@ -3015,6 +3001,85 @@ fn restore_gave_up(status: matrix_desktop::HistoryStatus, pages: u8, waited: std
 /// (the list's own first pick, moved or not by later diffs, is not a choice), or after a while (a room that left the list must not pop up later).
 fn restore_over(want: &str, now: Option<&str>, user_picked: bool, waited: std::time::Duration) -> bool {
     now == Some(want) || user_picked || waited > std::time::Duration::from_secs(20)
+}
+
+/// What the media of the rows ask for: `files` to fetch (video and file originals), `videos` to mark, `wanted` thumbnails.
+#[derive(Default, Debug, PartialEq)]
+struct MediaPick {
+    videos: Vec<EventId>,
+    wanted: Vec<EventId>,
+    files: Vec<(EventId, matrix_desktop::auto_download::Kind)>,
+}
+
+/// Only rows on screen are fetched for, and only as far as the settings go (a stopped or finished fetch is the button's).
+/// A picture comes when the settings let it, or once the user's button brought it (`fetched`); a video's poster and a sticker always.
+fn pick_media<'a>(
+    events: impl Iterator<Item = &'a matrix_desktop::DemoEvent>,
+    on_screen: &std::collections::HashSet<&EventId>,
+    policy: matrix_desktop::auto_download::AutoDownload,
+    net: matrix_desktop::auto_download::Network,
+    fetched: impl Fn(&EventId) -> bool,
+) -> MediaPick {
+    use matrix_desktop::auto_download::{Decision, Kind};
+    let mut out = MediaPick::default();
+    for e in events {
+        let (Some(media), TimelineId::Server(id)) = (&e.media, &e.id.id) else { continue };
+        let sticker = e.text.is_empty() && media.label == "Sticker";
+        let shown = on_screen.contains(id);
+        let fetch = !sticker && shown && policy.decide(Kind::of(media.kind).unwrap_or(Kind::File), net, e.attachment_size) == Decision::Fetch;
+        match media.kind {
+            MediaKind::Video => {
+                out.videos.push(id.clone());
+                if fetch { out.files.push((id.clone(), Kind::Video)); }
+            }
+            MediaKind::File => {
+                if fetch { out.files.push((id.clone(), Kind::File)); }
+                continue;
+            }
+            MediaKind::Image => {}
+            _ => continue,
+        }
+        if media.kind == MediaKind::Video || sticker || (shown && (fetch || fetched(id))) {
+            out.wanted.push(id.clone());
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod media_pick_tests {
+    use super::*;
+    use matrix_desktop::auto_download::{AutoDownload, Kind, Limit, Network};
+
+    fn pick(events: &[matrix_desktop::DemoEvent], seen: &[&str], policy: AutoDownload, fetched: &[&str]) -> MediaPick {
+        let ids: Vec<EventId> = seen.iter().map(|s| EventId::new(*s)).collect();
+        let on_screen = ids.iter().collect();
+        pick_media(events.iter(), &on_screen, policy, Network::Wifi, |id| fetched.contains(&id.as_str()))
+    }
+
+    #[test]
+    fn media_is_fetched_for_rows_on_screen_only_and_as_far_as_the_settings_go() {
+        use MediaKind::{File, Image, Video};
+        let id = |s: &str| EventId::new(s);
+        let rows = [crate::timeline::test_media("$file", File, "File", Some(1 << 20)), crate::timeline::test_media("$photo", Image, "Image", Some(1 << 20))];
+        assert_eq!(pick(&rows, &[], AutoDownload::default(), &[]), MediaPick::default(), "off screen: no fetch, no thumbnail");
+        let on = pick(&rows, &["$file", "$photo"], AutoDownload::default(), &[]);
+        assert_eq!(on.files, [(id("$file"), Kind::File)], "a file under the limit on screen");
+        assert_eq!(on.wanted, [id("$photo")]);
+        let big = [crate::timeline::test_media("$file", File, "File", Some(100 << 20))];
+        assert!(pick(&big, &["$file"], AutoDownload::default(), &[]).files.is_empty(), "over the limit: the button's");
+        // Photo set to Never: no thumbnail until the button brought it.
+        let mut never = AutoDownload::default();
+        never.set(Kind::Photo, Network::Wifi, Limit::Never);
+        assert!(pick(&rows, &["$photo"], never, &[]).wanted.is_empty());
+        assert_eq!(pick(&rows, &["$photo"], never, &["$photo"]).wanted, [id("$photo")]);
+        assert!(pick(&rows, &[], never, &["$photo"]).wanted.is_empty(), "and still only on screen");
+        // A video's poster and a sticker always, the video's original only on screen.
+        let rows = [crate::timeline::test_media("$video", Video, "Video", Some(1 << 20)), crate::timeline::test_media("$sticker", Image, "Sticker", None)];
+        let off = pick(&rows, &[], never, &[]);
+        assert_eq!((off.videos, off.wanted, off.files), (vec![id("$video")], vec![id("$video"), id("$sticker")], vec![]));
+        assert_eq!(pick(&rows, &["$video", "$sticker"], never, &[]).files, [(id("$video"), Kind::Video)]);
+    }
 }
 
 #[cfg(test)]

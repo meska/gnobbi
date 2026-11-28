@@ -99,6 +99,11 @@ fn roundtrip_keeps_values() {
         language: matrix_desktop::i18n::Preference::Fixed("it"),
         text_size: matrix_desktop::TextSize::Large,
         density: matrix_desktop::Density::Compact,
+        auto_download: {
+            let mut a = matrix_desktop::auto_download::AutoDownload::default();
+            a.set(matrix_desktop::auto_download::Kind::Video, matrix_desktop::auto_download::Network::Mobile, matrix_desktop::auto_download::Limit::Mb5);
+            a
+        },
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);

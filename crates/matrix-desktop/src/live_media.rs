@@ -44,6 +44,8 @@ pub struct LiveMedia {
     fetched: HashSet<EventId>,
     /// Fetches that failed or were cancelled by the user: never started again by themselves.
     stopped: HashSet<EventId>,
+    /// A fetch the user asked for failed (not cancelled): the app says so once.
+    fetch_failed: bool,
     /// The download of a file (save or open) now running: `(file, bytes received, size the sender declared)`.
     transfer: Option<(EventId, u64, Option<u64>)>,
 }
@@ -162,6 +164,10 @@ impl LiveMedia {
     /// The finished save (ok or error), once.
     pub fn take_saved(&mut self) -> Option<(EventId, Result<(), MediaError>)> {
         self.save_done.take()
+    }
+    /// True once after a download the user asked for with the button failed.
+    pub fn take_fetch_failed(&mut self) -> bool {
+        std::mem::take(&mut self.fetch_failed)
     }
     /// Ask for the full-resolution picture of `event`, replacing any earlier original request.
     pub fn request_original(&mut self, scope: RoomScope, event: EventId) {
@@ -348,11 +354,14 @@ impl LiveMedia {
                 if !self.fetching(&event) || !self.fetch_views.accepts(&tag) {
                     return false;
                 }
-                self.fetching = None;
+                let manual = self.fetching.take().is_some_and(|(_, manual)| manual);
                 if self.transfer.as_ref().map(|t| &t.0) == Some(&event) { self.transfer = None; }
                 match result {
                     Ok(()) => { self.fetched.insert(event); }
-                    Err(_) => { self.stopped.insert(event); }
+                    Err(e) => {
+                        self.fetch_failed |= manual && !matches!(e, MediaError::Cancelled);
+                        self.stopped.insert(event);
+                    }
                 }
                 return true;
             }
@@ -588,8 +597,15 @@ mod tests {
         let (tag, _) = started(&mut media, "$a", false).unwrap();
         assert!(media.apply(MediaEvent::Prefetched { tag, event: EventId::new("$a"), result: Err(MediaError::TooLarge) }));
         assert!(media.fetch_stopped(&EventId::new("$a")) && !media.fetched(&EventId::new("$a")));
+        assert!(!media.take_fetch_failed(), "an automatic fetch fails quietly");
         assert!(started(&mut media, "$a", false).is_none());
-        assert!(started(&mut media, "$a", true).is_some(), "the user's button starts it again");
+        let (tag, _) = started(&mut media, "$a", true).expect("the user's button starts it again");
+        assert!(media.apply(MediaEvent::Prefetched { tag, event: EventId::new("$a"), result: Err(MediaError::Failed) }));
+        assert!(media.take_fetch_failed() && !media.take_fetch_failed(), "the user's failed download is told once");
+        let (tag, _) = started(&mut media, "$a", true).unwrap();
+        assert!(media.apply(MediaEvent::Prefetched { tag, event: EventId::new("$a"), result: Err(MediaError::Cancelled) }));
+        assert!(!media.take_fetch_failed(), "a cancelled one is not a failure");
+        started(&mut media, "$a", true).unwrap();
         assert!(!media.fetch_stopped(&EventId::new("$a")));
     }
 

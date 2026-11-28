@@ -11,15 +11,19 @@ pub fn current() -> Network {
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub fn current() -> Network {
     static LAST: std::sync::Mutex<Option<(std::time::Instant, Network)>> = std::sync::Mutex::new(None);
-    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
-    match *last {
-        Some((at, net)) if at.elapsed() < std::time::Duration::from_secs(5) => net,
-        _ => {
-            let net = network_of(platform_metered());
-            *last = Some((std::time::Instant::now(), net));
-            net
-        }
+    cached(&mut LAST.lock().unwrap_or_else(|e| e.into_inner()), platform_metered)
+}
+
+/// The cache keeps only a known answer: an unknown one (the iOS monitor has not reported yet) is asked again at the next frame.
+#[cfg_attr(not(any(test, target_os = "ios", target_os = "android")), allow(dead_code))]
+fn cached(last: &mut Option<(std::time::Instant, Network)>, ask: impl FnOnce() -> Option<bool>) -> Network {
+    if let Some((at, net)) = *last && at.elapsed() < std::time::Duration::from_secs(5) {
+        return net;
     }
+    let metered = ask();
+    let net = network_of(metered);
+    *last = metered.map(|_| (std::time::Instant::now(), net));
+    net
 }
 
 /// Unknown is mobile data.
@@ -96,5 +100,14 @@ mod tests {
         assert_eq!(network_of(Some(false)), Network::Wifi);
         assert_eq!(network_of(Some(true)), Network::Mobile);
         assert_eq!(network_of(None), Network::Mobile);
+    }
+
+    #[test]
+    fn the_cache_keeps_a_known_answer_and_asks_again_after_an_unknown_one() {
+        let mut last = None;
+        assert_eq!(cached(&mut last, || None), Network::Mobile);
+        assert!(last.is_none(), "unknown is not kept");
+        assert_eq!(cached(&mut last, || Some(false)), Network::Wifi);
+        assert_eq!(cached(&mut last, || panic!("asked again within 5 s")), Network::Wifi);
     }
 }
