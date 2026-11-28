@@ -676,6 +676,10 @@ menu	Bring All to Front	Всички най-отпред
 	Update failed: restored {version}	Актуализацията не успя: възстановена е {version}
 	Update failed: error	Актуализацията не успя: грешка
 	Update postponed: message not sent	Актуализацията е отложена: съобщението не е изпратено
+	Update ready to install	Актуализацията е готова за инсталиране
+	signature differs from the installed app	подписът се различава от този на инсталираното приложение
+	Allow installs from Gnobbi, then update again	Разрешете инсталациите от Gnobbi, след това актуализирайте отново
+	installer not available	инсталаторът не е наличен
 
 # update
 	backup differs from the binary, kept	резервното копие се различава от файла, запазено

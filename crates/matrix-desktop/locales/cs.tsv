@@ -600,6 +600,10 @@ menu	Bring All to Front	Všechna okna do popředí
 	Update failed: restored {version}	Aktualizace se nezdařila: obnovena verze {version}
 	Update failed: error	Aktualizace se nezdařila: chyba
 	Update postponed: message not sent	Aktualizace odložena: zpráva nebyla odeslána
+	Update ready to install	Aktualizace je připravena k instalaci
+	signature differs from the installed app	podpis se liší od nainstalované aplikace
+	Allow installs from Gnobbi, then update again	Povolte instalace z Gnobbi a pak aktualizujte znovu
+	installer not available	instalátor není k dispozici
 	backup differs from the binary, kept	záloha se liší od binárního souboru, ponechána
 	gnobbi-keys.txt	gnobbi-keys.txt
 	Filter: {label}	Filtr: {label}

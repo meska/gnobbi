@@ -601,6 +601,10 @@ menu	Bring All to Front	모두 앞으로 가져오기
 	Update failed: restored {version}	업데이트 실패: {version} 복원됨
 	Update failed: error	업데이트 실패: 오류
 	Update postponed: message not sent	업데이트 보류: 메시지가 전송되지 않았습니다
+	Update ready to install	업데이트를 설치할 준비가 되었습니다
+	signature differs from the installed app	서명이 설치된 앱과 다릅니다
+	Allow installs from Gnobbi, then update again	Gnobbi의 설치를 허용한 뒤 다시 업데이트하세요
+	installer not available	설치 프로그램을 사용할 수 없습니다
 	backup differs from the binary, kept	백업이 바이너리와 달라 유지함
 	gnobbi-keys.txt	gnobbi-keys.txt
 	Filter: {label}	필터: {label}

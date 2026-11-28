@@ -601,6 +601,10 @@ menu	Bring All to Front	Traer todo al frente
 	Update failed: restored {version}	Error de actualización: restaurada {version}
 	Update failed: error	Error de actualización: error
 	Update postponed: message not sent	Actualización aplazada: mensaje no enviado
+	Update ready to install	Actualización lista para instalar
+	signature differs from the installed app	la firma difiere de la de la app instalada
+	Allow installs from Gnobbi, then update again	Permite las instalaciones desde Gnobbi y vuelve a actualizar
+	installer not available	instalador no disponible
 	backup differs from the binary, kept	la copia difiere del binario, conservada
 	gnobbi-keys.txt	gnobbi-keys.txt
 	Filter: {label}	Filtro: {label}

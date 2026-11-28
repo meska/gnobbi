@@ -676,6 +676,10 @@ menu	Bring All to Front	Đưa tất cả lên trước
 	Update failed: restored {version}	Cập nhật thất bại: đã khôi phục {version}
 	Update failed: error	Cập nhật thất bại: lỗi
 	Update postponed: message not sent	Hoãn cập nhật: tin nhắn chưa được gửi
+	Update ready to install	Bản cập nhật sẵn sàng để cài đặt
+	signature differs from the installed app	chữ ký khác với ứng dụng đã cài
+	Allow installs from Gnobbi, then update again	Cho phép cài đặt từ Gnobbi, rồi cập nhật lại
+	installer not available	trình cài đặt không khả dụng
 
 # update
 	backup differs from the binary, kept	bản sao lưu khác với tệp thực thi, đã giữ lại

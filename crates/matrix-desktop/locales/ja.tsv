@@ -600,6 +600,10 @@ menu	Bring All to Front	すべてを手前に移動
 	Update failed: restored {version}	アップデートに失敗しました: {version} に復元しました
 	Update failed: error	アップデートに失敗しました: エラー
 	Update postponed: message not sent	アップデートを延期しました: メッセージは未送信です
+	Update ready to install	アップデートをインストールできます
+	signature differs from the installed app	署名がインストール済みのアプリと異なります
+	Allow installs from Gnobbi, then update again	Gnobbi からのインストールを許可して、もう一度更新してください
+	installer not available	インストーラーを利用できません
 	backup differs from the binary, kept	バックアップがバイナリと異なるため、保持しました
 	gnobbi-keys.txt	gnobbi-keys.txt
 	Filter: {label}	フィルター: {label}

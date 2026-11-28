@@ -181,17 +181,17 @@ jobs:
         # Same command as tools/android-build.sh; GNOBBI_BUILD switches the updater on (build.rs). The runner's NDK is used.
         run: |
           rustup target add aarch64-linux-android
-          cargo install cargo-ndk --locked
+          cargo install cargo-ndk --locked --version 4.1.2
           cargo ndk -P 26 -t arm64-v8a -o artifacts/android/jniLibs rustc --locked --profile dist -p matrix-desktop --example gnobbi --features android-vault --crate-type cdylib
       - name: APK
         env:
           GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
         run: |
           set -euo pipefail
+          trap 'rm -f packaging/android/app/google-services.json' EXIT
           (umask 077; printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 -d > packaging/android/app/google-services.json)
           cd packaging/android
           ./gradlew --no-daemon -q assembleDirectRelease -PgnobbiVersionCode="$GNOBBI_BUILD" -PgnobbiVersionName="$VERSION"
-          rm -f app/google-services.json
       - name: Sign
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_DIRECT_KEYSTORE_B64 }}

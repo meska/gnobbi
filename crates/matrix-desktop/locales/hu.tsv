@@ -601,6 +601,10 @@ menu	Bring All to Front	Összes előtérbe hozása
 	Update failed: restored {version}	A frissítés sikertelen: visszaállítva: {version}
 	Update failed: error	A frissítés sikertelen: hiba
 	Update postponed: message not sent	Frissítés elhalasztva: az üzenet nem lett elküldve
+	Update ready to install	A frissítés telepítésre kész
+	signature differs from the installed app	az aláírás eltér a telepített alkalmazásétól
+	Allow installs from Gnobbi, then update again	Engedélyezd a telepítést a Gnobbiból, majd frissíts újra
+	installer not available	a telepítő nem érhető el
 	backup differs from the binary, kept	a mentés eltér a binárisról, megtartva
 	gnobbi-keys.txt	gnobbi-kulcsok.txt
 	Filter: {label}	Szűrő: {label}

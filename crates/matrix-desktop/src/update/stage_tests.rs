@@ -232,10 +232,19 @@ fn apk_is_verified_but_never_executed() {
     let t = t("apk");
     let apk = b"PK\x03\x04 not an executable";
     let c = Candidate { file_name: "gnobbi-android-arm64-42.apk".into(), ..cand(apk, 7) };
-    let r = stage(&t, apk, &c, T10).unwrap();
-    assert_eq!(std::fs::read(&r.path).unwrap(), apk);
-    use std::os::unix::fs::PermissionsExt;
-    assert_eq!(std::fs::metadata(&r.path).unwrap().permissions().mode() & 0o111, 0, "no exec bit, no --self-test");
+    // The skip follows the platform, not the name: off Android an `.apk` still goes through chmod and `--self-test`.
+    #[cfg(target_os = "android")]
+    {
+        let r = stage(&t, apk, &c, T10).unwrap();
+        assert_eq!(std::fs::read(&r.path).unwrap(), apk);
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&r.path).unwrap().permissions().mode() & 0o111, 0, "no exec bit, no --self-test");
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        assert!(stage(&t, apk, &c, T10).is_err(), "self-test runs on the name too");
+        assert!(!t.staging.exists());
+    }
     let t = self::t("apk-bad");
     let bad = Candidate { sha256: "0".repeat(64), ..c };
     assert!(matches!(stage(&t, apk, &bad, T10), Err(StageError::Verify(_))));

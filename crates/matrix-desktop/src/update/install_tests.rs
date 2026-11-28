@@ -538,7 +538,7 @@ fn android_opens_the_installer_only_for_the_verified_file() {
     assert!(ready.path.exists(), "the installer reads it after we return");
     for (code, line) in [
         (SIGNATURE, "Update failed: signature differs from the installed app"),
-        (PERMISSION, "Update failed: allow installs from Gnobbi, then update again"),
+        (PERMISSION, "Allow installs from Gnobbi, then update again"),
         (UNAVAILABLE, "Update failed: installer not available"),
     ] {
         assert_eq!(install::install_apk(&ready, |_| code), line);

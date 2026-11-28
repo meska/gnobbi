@@ -99,8 +99,8 @@ fn run(c: &Candidate, body: impl Read, staging: &Path, timeout: Duration) -> Res
         (c.size, c.sha256.clone())
     };
     let mut guard = Guard(staging, false);
-    // An APK is not executable: the system installer checks it (hash here, signature in `Native.installApk`).
-    if !c.file_name.ends_with(".apk") {
+    // On Android the staged file is an APK, not executable: the system installer checks it (hash here, signature in `Native.installApk`).
+    if !cfg!(target_os = "android") {
         // Step 9.
         #[cfg(unix)]
         std::fs::set_permissions(staging, std::os::unix::fs::PermissionsExt::from_mode(0o755)).map_err(StageError::Io)?;

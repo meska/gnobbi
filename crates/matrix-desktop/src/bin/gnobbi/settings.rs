@@ -101,7 +101,16 @@ fn update_row(ui: &mut egui::Ui, dirs: Option<&AppDirs>) {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(500)); // the worker thread cannot wake the UI
         }
         Status::Error(line) => {
-            ui.label(line);
+            ui.horizontal(|ui| {
+                ui.with_layout(crate::dir::row_rev(egui::Align::Center), |ui| {
+                    if update::retryable() && ui.button(tr("Update")).clicked()
+                        && let Some(d) = dirs
+                    {
+                        update::start_update(d.clone(), matrix_engine::lock_for_update);
+                    }
+                    ui.add(egui::Label::new(line).wrap());
+                });
+            });
             ui.ctx().request_repaint_after(std::time::Duration::from_secs(2));
         }
     }
