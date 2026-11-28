@@ -311,7 +311,7 @@ impl Tray {
     pub fn start() -> Option<Self> {
         let (tx, rx): (Sender<TrayAction>, _) = crate::tray_menu::channel_pair();
         let click_tx = tx.clone();
-        MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+        MenuEvent::set_event_handler(Some(std::sync::Arc::new(move |event: MenuEvent| {
             // Menu actions run on the main thread on macOS, where the panel must be opened.
             #[cfg(target_os = "macos")]
             if event.id.as_ref() == "about" {
@@ -320,7 +320,7 @@ impl Tray {
             if let Some(action) = decode(event.id.as_ref()) {
                 let _ = tx.send(action);
             }
-        }));
+        })));
         TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
             if let Some(action) = click_action(&event) {
                 // A hidden app gets no frames, so nobody would read the action: bring the app back right here.
