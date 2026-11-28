@@ -76,6 +76,8 @@ pub fn shortcode_from(text: &str) -> String {
 
 #[cfg(feature = "sdk")]
 mod sdk {
+    use crate::media_sdk::checked_source;
+    use matrix_sdk::ruma::events::room::MediaSource;
     use super::*;
     use matrix_sdk::ruma::events::{GlobalAccountDataEventType, StateEventType, sticker::StickerEventContent};
     use matrix_sdk::ruma::{OwnedMxcUri, OwnedRoomId, UInt};
@@ -107,7 +109,11 @@ mod sdk {
             .iter()
             .filter_map(|(code, image)| {
                 let url = image.get("url")?.as_str()?;
-                if !OwnedMxcUri::from(url).is_valid() || !has_sticker_usage(image.get("usage")) {
+                if !has_sticker_usage(image.get("usage")) {
+                    return None;
+                }
+                if !checked_source(MediaSource::Plain(OwnedMxcUri::from(url))).is_ok() {
+                    tracing::warn!("sticker pack {id}: skipped an image with a bad mxc url");
                     return None;
                 }
                 let info = image.get("info");
@@ -129,7 +135,7 @@ mod sdk {
         Some(StickerPack {
             id: id.to_owned(),
             name: text("display_name").unwrap_or_else(|| fallback_name.to_owned()),
-            avatar: text("avatar_url").filter(|u| OwnedMxcUri::from(u.as_str()).is_valid()),
+            avatar: text("avatar_url").filter(|u| checked_source(MediaSource::Plain(OwnedMxcUri::from(u.as_str()))).is_ok()),
             own,
             enabled,
             stickers,
@@ -159,7 +165,8 @@ mod sdk {
     /// The pack content with one more image. Refuses a bad or taken shortcode and a pack that would not fit an event;
     /// everything else in the content (other clients' fields) is kept.
     pub fn with_sticker(mut content: Value, sticker: &Sticker) -> Result<Value, OperationError> {
-        if !valid_shortcode(&sticker.shortcode) || !OwnedMxcUri::from(sticker.url.as_str()).is_valid() {
+        if !valid_shortcode(&sticker.shortcode) || !checked_source(MediaSource::Plain(OwnedMxcUri::from(sticker.url.as_str()))).is_ok() {
+            tracing::warn!("sticker skipped: bad mxc url");
             return Err(OperationError::InvalidInput);
         }
         let images = images(&mut content);
@@ -280,10 +287,10 @@ mod sdk {
 
     /// `m.sticker` content with the plain `url` only.
     pub fn content_of(sticker: &Sticker) -> Result<StickerEventContent, OperationError> {
-        let url = OwnedMxcUri::from(sticker.url.as_str());
-        if !url.is_valid() || sticker.body.is_empty() {
+        if !checked_source(MediaSource::Plain(OwnedMxcUri::from(sticker.url.as_str()))).is_ok() || sticker.body.is_empty() {
             return Err(OperationError::InvalidInput);
         }
+        let url = OwnedMxcUri::from(sticker.url.as_str());
         let mut info = matrix_sdk::ruma::events::room::ImageInfo::new();
         info.mimetype = sticker.mimetype.clone();
         info.width = sticker.width.map(UInt::from);
@@ -446,7 +453,8 @@ mod sdk {
             Some(file) => file.url.to_string(),
             None => content.get("url")?.as_str()?.to_owned(),
         };
-        if !url.starts_with("mxc://") {
+        if !checked_source(MediaSource::Plain(OwnedMxcUri::from(url.as_str()))).is_ok() {
+            tracing::warn!("sticker message skipped: bad mxc url");
             return None;
         }
         let info = content.get("info");
@@ -747,6 +755,37 @@ mod sdk {
             assert_eq!(ready(b"not a picture", false).err(), Some(OperationError::InvalidInput));
             assert_eq!(ready(&[], true).err(), Some(OperationError::InvalidInput));
             assert_eq!(prepare(2, 2, &[0; 3], false).err(), Some(OperationError::InvalidInput));
+        }
+
+        fn long_mxc() -> String {
+            format!("mxc://{}/x", "a".repeat(250))
+        }
+
+        #[test]
+        fn a_pack_skips_an_image_and_an_avatar_with_an_overlong_mxc_server() {
+            let long = long_mxc();
+            let content = pack(&format!(r#"{{"images":{{"bad":{{"url":"{long}"}},"ok":{{"url":"mxc://x/a"}}}},"pack":{{"avatar_url":"{long}"}}}}"#));
+            let p = parse_pack("k", "n", &content, false, false).unwrap();
+            assert_eq!((p.stickers.len(), p.stickers[0].shortcode.as_str(), p.avatar), (1, "ok", None));
+        }
+
+        #[test]
+        fn an_overlong_mxc_server_is_refused_when_adding_or_sending_a_sticker() {
+            let bad = Sticker { url: long_mxc(), ..sticker("a") };
+            assert_eq!(with_sticker(json!({}), &bad).err(), Some(OperationError::InvalidInput));
+            assert_eq!(content_of(&bad).err(), Some(OperationError::InvalidInput));
+        }
+
+        #[test]
+        fn a_picture_message_with_an_overlong_mxc_server_is_not_a_sticker() {
+            let long = long_mxc();
+            let file = |url: &str| json!({"url": url, "key": {"kty": "oct", "key_ops": ["encrypt", "decrypt"], "alg": "A256CTR", "k": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ext": true}, "iv": "aaaaaaaaaaaaaaaaaaaaaa", "hashes": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v": "v2"});
+            let event = |content: Value| json!({"type": "m.room.message", "content": content});
+            let info = json!({"mimetype": "image/png"});
+            assert!(original_of(&event(json!({"msgtype": "m.image", "body": "a", "url": long, "info": info}))).is_none());
+            let encrypted = |url: &str| event(json!({"msgtype": "m.image", "body": "a", "file": file(url), "info": info}));
+            assert!(original_of(&encrypted("mxc://x/a")).is_some_and(|(_, f)| f.is_some()), "control: the encrypted fixture parses");
+            assert!(original_of(&encrypted(&long)).is_none());
         }
 
         #[test]
