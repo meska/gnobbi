@@ -29,15 +29,15 @@ fn listed(sidebar: &Sidebar) -> Vec<&str> {
 }
 
 #[test]
-fn confirmed_leave_of_the_selected_room_drops_the_row_moves_the_selection_and_retires_the_panels() {
+fn confirmed_leave_of_the_selected_room_drops_the_row_empties_the_panel_and_retires_the_panels() {
     let mut sidebar = three_rooms();
     let b = scope("!b:t.invalid");
     assert!(sidebar.select(&b));
     let revision = sidebar.navigation_revision();
     sidebar.room_left(&b, Ok(()));
     assert!(!listed(&sidebar).contains(&"b"), "ordinary list still shows the left room");
-    let now = sidebar.selected().expect("another room takes the selection").scope.clone();
-    assert_ne!(now, b);
+    // Two columns: an empty panel, not the first row of the list (review I5).
+    assert!(sidebar.selected().is_none());
     // Everything bound to the old revision (open panels, pending navigation) is dead.
     assert!(sidebar.navigation_revision() > revision);
     assert_eq!(sidebar.leave_error(&b), None);

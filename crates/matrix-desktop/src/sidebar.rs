@@ -201,8 +201,10 @@ impl Sidebar {
                 self.selected = selected
                     .and_then(|scope| self.rooms.iter().position(|room| room.scope == scope));
                 self.set_query(&self.query.clone());
-                // Fallback: first visible row, never a space (spaces are not in `visible`).
-                self.selected = self.selected.or_else(|| self.visible.first().copied());
+                // Fallback: first visible row, never a space (spaces are not in `visible`). Not after the open chat was left: the panel stays empty.
+                if self.selected.is_none() && !self.emptied {
+                    self.selected = self.visible.first().copied();
+                }
                 return old_len != self.rooms.len();
             }
         };
