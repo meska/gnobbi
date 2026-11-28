@@ -80,7 +80,7 @@ tracing-subscriber = { version = "=0.3.23", default-features = false, features =
 [target.'cfg(target_os = "macos")'.dependencies]
 tray-icon = { version = "=0.27.0", default-features = false }
 # Hide/unhide the whole app (an orderOut window gets no frames, so the tray click would never be seen).
-cocoa = "=0.26.0"
+cocoa = "=0.27.0"
 objc = "=0.2.7"
 # Native date/time formatter (CFDateFormatter) for time_fmt.
 objc2-core-foundation = "=0.3.2"
