@@ -887,8 +887,10 @@ impl RoomListWorker {
                                     OperationResult::SpaceLeft { scope, is_last_owner, result }
                                 }
                                 OperationCommand::Forward { scope, target, rooms } => {
-                                    let results = crate::forward::forward_event(&operation_client, &operation_timelines, account, &scope, &target, &rooms).await;
-                                    OperationResult::Forwarded { results }
+                                    // Not awaited here: a re-upload downloads and uploads a whole file; search and the other commands go on.
+                                    let (client, timelines) = (operation_client.clone(), operation_timelines.clone());
+                                    joins.spawn(async move { OperationResult::Forwarded { results: crate::forward::forward_event(&client, &timelines, account, &scope, &target, &rooms).await } });
+                                    continue;
                                 }
                                 OperationCommand::DeleteSpace { scope } => {
                                     let result = crate::operations::delete_space(&operation_client, account, &scope).await;
@@ -2031,6 +2033,22 @@ impl Timelines {
     ) -> Result<std::sync::Arc<matrix_sdk_ui::timeline::Timeline>, crate::history::HistoryError>
     {
         self.focused(room, None).await
+    }
+
+    /// The timeline item of `id`: in the room's own timeline (threaded replies are hidden there), else in one of its open threads.
+    pub(crate) async fn item(&self, room: &matrix_sdk::Room, id: &matrix_sdk::ruma::EventId) -> Option<matrix_sdk_ui::timeline::EventTimelineItem> {
+        if let Ok(main) = self.get(room).await
+            && let Some(item) = main.item_by_event_id(id).await
+        {
+            return Some(item);
+        }
+        let threads: Vec<_> = self.0.lock().await.iter().filter(|(k, _)| k.1.is_some() && k.0 == room.room_id()).map(|(_, t)| t.clone()).collect();
+        for thread in threads {
+            if let Some(item) = thread.item_by_event_id(id).await {
+                return Some(item);
+            }
+        }
+        None
     }
 
     /// The timeline of one thread (same cache and same SDK `Timeline` type as the room's).

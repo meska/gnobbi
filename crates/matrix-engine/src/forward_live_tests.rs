@@ -158,7 +158,8 @@ fn disposable_forward_file_and_picture_between_plain_and_encrypted_rooms() {
             for (name, bytes, mime) in &files {
                 let room_sdk = sdk_room(room);
                 let timeline = timelines.get(&room_sdk).await.expect("timeline");
-                let event = crate::sending::queue_attachment_waiting(&alice, &room_sdk, &timeline, (name.to_string(), bytes.clone()), mime.parse().unwrap(), AttachmentConfig::default(), None)
+                let info = name.ends_with(".png").then(|| matrix_sdk::attachment::AttachmentInfo::Image(matrix_sdk::attachment::BaseImageInfo { width: matrix_sdk::ruma::UInt::new(160), height: matrix_sdk::ruma::UInt::new(120), ..Default::default() }));
+                let event = crate::sending::queue_attachment_waiting(&alice, &room_sdk, &timeline, (name.to_string(), bytes.clone()), mime.parse().unwrap(), AttachmentConfig { info, ..Default::default() }, None)
                     .await.expect("source sent");
                 sources.insert((label, *name), event.as_str().to_owned());
             }
@@ -202,9 +203,14 @@ fn disposable_forward_file_and_picture_between_plain_and_encrypted_rooms() {
                     if content.get("url").is_some() { failures.push(format!("{flow}: decrypted content has a plain `url`")); }
                     if content.get("m.relates_to").is_some() { failures.push(format!("{flow}: decrypted content has m.relates_to")); }
                     if content["file"]["url"].is_null() { failures.push(format!("{flow}: no encrypted `file`")); }
-                } else if content["file"]["key"].is_object() {
-                    println!("FWD NOTE {flow}: the file key {{k,..}} travels in a PLAIN room event (server can decrypt that media); same exposure as the plain room's own text");
+                } else {
+                    // Encrypted -> plain: the file is uploaded again in the clear; no key of the old upload may be in the event.
+                    if content.get("file").is_some() || content.to_string().contains("\"key\"") { failures.push(format!("{flow}: a file key in the plain room's event")); }
+                    if server_content.get("url").is_none() { failures.push(format!("{flow}: no plain `url` on the server")); }
                 }
+                // The attribution and the metadata of the original go with every path, reused or uploaded again.
+                if content["org.matrix.msc4553.forwarded"]["sender"] != "@alice:matrix-desktop.test" { failures.push(format!("{flow}: no forward mark")); }
+                if name.ends_with(".png") && (content["info"]["w"] != 160 || content["info"]["h"] != 120) { failures.push(format!("{flow}: info {}", content["info"])); }
                 let got = fwd_bob_download(&bob, &content).await;
                 let (want_hash, got_hash) = (fwd_sha256(bytes), fwd_sha256(&got));
                 println!("FWD {flow} SHA256 original={want_hash} received={got_hash} len={}/{}", bytes.len(), got.len());
@@ -220,6 +226,7 @@ fn disposable_forward_file_and_picture_between_plain_and_encrypted_rooms() {
 #[ignore = "requires disposable Synapse; run with tools/auth_smoke.py"]
 fn disposable_forward_edge_cases_reply_thread_edit_location_sticker() {
     use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
+    const FWD: &str = "org.matrix.msc4553.forwarded";
     let config = fixture();
     runtime().block_on(async { tokio::time::timeout(std::time::Duration::from_secs(200), async {
         let plain = fwd_room(&config, "fwd-edge-plain", false).await;
@@ -256,6 +263,9 @@ fn disposable_forward_edge_cases_reply_thread_edit_location_sticker() {
         let scope0 = RoomScope { account_id: AccountId::new(73), room_id: RoomId::new(&plain) };
         let opened = sync.open_history(crate::ViewRequests::new().start(scope0).unwrap(), crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0, public_receipts: true }).await.unwrap();
         println!("EDGE setup done, room opened with {} events", opened.0.events.len());
+        // The thread panel of the UI: its timeline is where the reply is found.
+        let scope1 = RoomScope { account_id: AccountId::new(73), room_id: RoomId::new(&plain) };
+        sync.open_thread(&scope1, &EventId::new(&root), 25).await.expect("thread opened");
         let mut failures: Vec<String> = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
         for (name, source, dest, want) in [
@@ -286,6 +296,14 @@ fn disposable_forward_edge_cases_reply_thread_edit_location_sticker() {
             if !content.to_string().contains(want) { failures.push(format!("{name}: `{want}` missing")); }
             if content["body"].as_str().is_some_and(|b| b.contains("thread root") && name != "location") { failures.push(format!("{name}: reply quote left in body")); }
             if name == "location" && content["info"].get("thumbnail_url").is_some() { failures.push("location: plain thumbnail_url sent into an encrypted room".into()); }
+            let kind_check = match name {
+                "edit" => content["body"].as_str().is_some_and(|b| b.contains("after edit") && !b.contains("before edit")) && content[FWD]["content"]["body"] == "after edit",
+                "location" => content["geo_uri"] == "geo:45.4064,11.8768" && content[FWD]["content"]["geo_uri"] == "geo:45.4064,11.8768",
+                "sticker" => content["url"] == "mxc://matrix-desktop.test/plainsticker" && content["body"] == "wave",
+                _ => content[FWD]["content"]["body"] == want,
+            };
+            if !kind_check { failures.push(format!("{name}: content not as expected")); }
+            if content[FWD]["sender"] != "@alice:matrix-desktop.test" { failures.push(format!("{name}: no forward mark")); }
             if name == "sticker" { println!("EDGE sticker NOTE: url in decrypted content = {} (stickers keep a plain mxc, as Element does)", content["url"]); }
         }
         assert!(failures.is_empty(), "edge findings:\n{}", failures.join("\n"));
