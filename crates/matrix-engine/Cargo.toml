@@ -30,14 +30,14 @@ matrix-sdk-ui = { version = "=0.19.1", optional = true, default-features = false
 matrix-sdk = { version = "=0.19.1", optional = true, default-features = false, features = ["e2e-encryption", "bundled-sqlite", "rustls-aws-lc-rs", "markdown", "experimental-search"] }
 reqwest = { version = "=0.13.5", optional = true, default-features = false, features = ["rustls"] }
 serde_json = { version = "=1.0.151", optional = true }
-url = { version = "=2.5.8", optional = true }
-tokio = { version = "=1.53.2", optional = true, default-features = false, features = ["rt", "time", "macros", "sync"] }
+url = { version = "=2.5.9", optional = true }
+tokio = { version = "=1.53.3", optional = true, default-features = false, features = ["rt", "time", "macros", "sync"] }
 
 tracing = { version = "=0.1.44", optional = true, default-features = false, features = ["std"] }
 eyeball-im = { version = "=0.9.1", optional = true }
 futures-util = { version = "=0.3.34", optional = true, default-features = false }
 # Markdown of the room topic (already in the lock through ruma-events); raw HTML is turned into text.
-pulldown-cmark = { version = "=0.13.5", optional = true, default-features = false, features = ["html"] }
+pulldown-cmark = { version = "=0.13.6", optional = true, default-features = false, features = ["html"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 secret-service = { version = "=5.2.0", optional = true, default-features = false, features = ["rt-async-io-crypto-rust"] }
@@ -71,7 +71,7 @@ required-features = ["sdk"]
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
 futures-util = { version = "=0.3.34", default-features = false }
 # Fake homeserver and paused clock of tests/sync_flapping.rs.
-tokio = { version = "=1.53.2", default-features = false, features = ["rt", "time", "macros", "sync", "net", "io-util", "test-util"] }
+tokio = { version = "=1.53.3", default-features = false, features = ["rt", "time", "macros", "sync", "net", "io-util", "test-util"] }
 
 [[test]]
 name = "caption_variants"

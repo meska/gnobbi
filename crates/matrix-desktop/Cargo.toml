@@ -14,7 +14,7 @@ sha2 = "=0.10.9"
 # Seed of the gnome picture (md5 of the account id); tiny, no dependencies.
 md5 = "=0.7.0"
 unicode-normalization = "=0.1.25"
-url = "=2.5.8"
+url = "=2.5.9"
 zeroize = "=1.9.1"
 cpal = "=0.18.2"
 # Update signature check only (MIT, no dependencies); see src/update/verify.rs.
@@ -22,7 +22,7 @@ minisign-verify = "=0.3.0"
 # Update check only (same version and features as matrix-engine).
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
 # Update scheduler runtime (check + download); same version as the dev-dependency.
-tokio = { version = "=1.53.2", default-features = false, features = ["rt", "time"] }
+tokio = { version = "=1.53.3", default-features = false, features = ["rt", "time"] }
 sys-locale = "=0.3.2"
 unicode-segmentation = "=1.13.3"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
@@ -107,7 +107,7 @@ tray-icon = { version = "=0.26.1", default-features = false, features = ["ksni"]
 zbus = { version = "=5.19.0", default-features = false, features = ["blocking-api"] }
 
 [dev-dependencies]
-tokio = { version = "=1.53.2", default-features = false, features = ["rt", "time", "macros", "sync"] }
+tokio = { version = "=1.53.3", default-features = false, features = ["rt", "time", "macros", "sync"] }
 
 [[bin]]
 name = "gnobbi"
