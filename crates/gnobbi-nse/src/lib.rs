@@ -647,6 +647,20 @@ mod tests {
     }
 
     #[test]
+    fn malformed_thread_relation_gives_no_thread_root_and_keeps_the_message() {
+        let msg = |rel: Value| json!({"type": "m.room.message", "sender": "@a:h", "content": {"msgtype": "m.text", "body": "hi", "m.relates_to": rel}});
+        for rel in [json!({"rel_type": "m.thread"}), json!({"rel_type": "m.thread", "event_id": 5}), json!({"rel_type": "m.thread", "event_id": null}), json!("x"), json!([])] {
+            match classify(&msg(rel.clone()), None, None) {
+                Outcome::Message { thread_root: None, body, .. } => assert_eq!(body, "hi", "{rel}"),
+                o => panic!("{rel}: {o:?}"),
+            }
+        }
+        // a non-text thread message (image) keeps its root on the generic path
+        let img = json!({"type": "m.room.message", "sender": "@a:h", "content": {"msgtype": "m.image", "body": "i.png", "m.relates_to": {"rel_type": "m.thread", "event_id": "$r"}}});
+        assert!(matches!(classify(&img, None, None), Outcome::Other { thread_root: Some(r), .. } if r == "$r"));
+    }
+
+    #[test]
     fn body_is_trimmed_and_line_breaks_collapse() {
         assert_eq!(trim_body("\n\n  ciao\n\n\nmondo  "), "ciao\nmondo");
         assert_eq!(trim_body("a\n \t\n\nb"), "a\nb");

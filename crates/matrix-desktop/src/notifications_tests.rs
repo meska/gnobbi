@@ -358,4 +358,23 @@ fn tap_with_thread_root_opens_the_thread_and_without_it_only_the_chat() {
         remember_thread_tap(room, root, event);
         assert_eq!(route_tap(scope.clone()), TapRoute::Chat(scope.clone()), "{room} {root:?} {event:?}");
     }
+    thread_tap_edge_cases_root_equal_to_event_empty_ids_and_hint_replaced_by_a_plain_tap();
+}
+
+// Not a #[test]: THREAD_TAP is a process-wide static, so it runs inside the one test that owns it (parallel tests would race).
+fn thread_tap_edge_cases_root_equal_to_event_empty_ids_and_hint_replaced_by_a_plain_tap() {
+    let scope = RoomScope { account_id: AccountId::new(7), room_id: RoomId::new("!r:fixture.invalid") };
+    // root == event: still a thread route on that id.
+    remember_thread_tap("!r:fixture.invalid", Some("$same"), Some("$same"));
+    assert_eq!(route_tap(scope.clone()), TapRoute::Thread { scope: scope.clone(), root: "$same".into(), event: "$same".into() });
+    // empty strings are not event ids.
+    remember_thread_tap("!r:fixture.invalid", Some(""), Some(""));
+    assert_eq!(route_tap(scope.clone()), TapRoute::Chat(scope.clone()));
+    // a thread tap not consumed, then a plain tap on the same room: the plain one wins (no stale thread).
+    remember_thread_tap("!r:fixture.invalid", Some("$root"), Some("$e"));
+    remember_thread_tap("!r:fixture.invalid", None, None);
+    assert_eq!(route_tap(scope.clone()), TapRoute::Chat(scope.clone()));
+    // a hint for another room is not consumed by this room's route and does not leak into it.
+    remember_thread_tap("!other:s", Some("$root"), Some("$e"));
+    assert_eq!(route_tap(scope.clone()), TapRoute::Chat(scope));
 }
