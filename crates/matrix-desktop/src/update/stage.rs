@@ -34,6 +34,8 @@ pub struct UpdateState {
     pub working: bool,
     /// One line of the last failed «Aggiorna».
     pub error: Option<String>,
+    /// One line of the last failed background check (cleared by the next good one).
+    pub check_error: Option<String>,
     /// Transient failures: skipped for this session only.
     pub bad_session: BTreeSet<u64>,
 }

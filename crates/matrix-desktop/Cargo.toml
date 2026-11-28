@@ -54,6 +54,8 @@ android_logger = "0.15"
 jni = "=0.22.4"
 ndk-context = "=0.1.1"
 libc = "=0.2.191"
+# Update check/download and gnome fetch: reqwest's platform verifier cannot be initialised in a NativeActivity app (src/http.rs).
+webpki-root-certs = "=1.0.12"
 log = "0.4"
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
 

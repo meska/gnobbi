@@ -75,7 +75,7 @@ async fn get(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, CheckError>
 /// statuses are `CheckError::Status`; connection problems and 5xx are the caller's cue to fall
 /// back to the site.
 pub(super) async fn fetch(platform: &str, running_version: &str) -> Result<Option<Found>, CheckError> {
-    let client = reqwest::Client::builder()
+    let client = crate::http::client_builder()
         .user_agent(format!("Gnobbi/{running_version}"))
         .timeout(TIMEOUT)
         .redirect(redirect_policy())

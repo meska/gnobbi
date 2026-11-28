@@ -73,10 +73,11 @@ pub fn status() -> Status {
 
 fn status_of(state: &Mutex<stage::UpdateState>) -> Status {
     let s = state.lock().unwrap_or_else(|e| e.into_inner());
-    match (&s.error, s.working, &s.available) {
-        (_, true, _) => Status::Working,
-        (Some(line), _, _) => Status::Error(line.clone()),
-        (_, _, Some(o)) => Status::Available { version: o.version.clone() },
+    match (&s.error, s.working, &s.available, &s.check_error) {
+        (_, true, ..) => Status::Working,
+        (Some(line), ..) => Status::Error(line.clone()),
+        (_, _, Some(o), _) => Status::Available { version: o.version.clone() },
+        (.., Some(line)) => Status::Error(line.clone()),
         _ => Status::Idle,
     }
 }
@@ -242,6 +243,16 @@ mod status_tests {
         assert_eq!(status_of(&st), Status::Error("Update failed: error".into()));
         st.lock().unwrap().working = true;
         assert_eq!(status_of(&st), Status::Working);
+    }
+
+    /// A failed background check shows a line, a good one clears it; an offer still wins over it.
+    #[test]
+    fn failed_check_shows_a_line_not_silence() {
+        let st = Mutex::new(stage::UpdateState::default());
+        st.lock().unwrap().check_error = Some("Update failed: error".into());
+        assert_eq!(status_of(&st), Status::Error("Update failed: error".into()));
+        st.lock().unwrap().available = Some(offer());
+        assert!(matches!(status_of(&st), Status::Available { .. }));
     }
 
     /// «allow installs» and «installer closed» end as error lines: the offer stays and so does «Update».

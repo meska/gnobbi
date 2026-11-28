@@ -3626,6 +3626,7 @@ dependencies = [
  "unicode-normalization",
  "unicode-segmentation",
  "url",
+ "webpki-root-certs",
  "windows 0.61.3",
  "zbus",
  "zeroize",
