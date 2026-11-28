@@ -77,6 +77,30 @@ fn save_offered(f: &Form, dirty: bool) -> bool {
     dirty && !f.editor.as_ref().is_some_and(Editor::busy)
 }
 
+/// «Genera gnomo» / «Genera gnoma»: both off while a picture is on its way, the spinner only beside the one that was pressed. Returns the pressed gender (true = female).
+fn gnome_buttons(ui: &mut egui::Ui, f: &Form) -> Option<bool> {
+    let mut asked = None;
+    ui.add_enabled_ui(!f.editor.as_ref().is_some_and(Editor::busy), |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for (female, label) in [(false, "Generate gnome"), (true, "Generate female gnome")] {
+                if ui.button(i18n::t(label)).clicked() {
+                    asked = Some(female);
+                }
+                if f.gnome_female == female && f.editor.as_ref().is_some_and(Editor::busy) {
+                    ui.spinner();
+                }
+            }
+        });
+    });
+    asked
+}
+
+/// A gnome of this gender was asked: it takes that gender's next counter and its button gets the spinner.
+fn ask_gnome(f: &mut Form, female: bool, make: impl FnOnce(u32) -> Editor) {
+    f.gnome_female = female;
+    f.editor = Some(make(f.next_gnome(female)));
+}
+
 /// The card of the account on screen. False until the profile has arrived (the plain row is drawn instead).
 fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::Path, logout: &mut bool, t: &DesignTokens) -> bool {
     let Some(v) = &mut s.verification else { return false };
@@ -99,8 +123,8 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
             Ok(p) => f.pick(p.into(), profile, ui.ctx()),
             Err(_) => {}
         }
-        // GNOBBI_EGUI_GNOME presses «Genera gnomo» once.
-        gnome = matrix_desktop::hooks::var_os("GNOBBI_EGUI_GNOME").is_some().then_some(false);
+        // GNOBBI_EGUI_GNOME presses «Genera gnomo» once; the value `f` presses «Genera gnoma».
+        gnome = matrix_desktop::hooks::var("GNOBBI_EGUI_GNOME").ok().map(|v| v == "f");
         f.hook_save = matrix_desktop::hooks::var_os("GNOBBI_EGUI_CONFIRM").is_some();
         // With the confirm hook the retouch window applies the picture as it is.
         if let Some(e) = f.editor.as_mut().filter(|_| f.hook_save) {
@@ -165,18 +189,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         let sides = egui::containers::Sides::new().height(72.);
         if crate::dir::rtl() { sides.shrink_right().show(ui, |ui| *logout = sign_out_button(ui), main); } else { sides.shrink_left().show(ui, main, |ui| *logout = sign_out_button(ui)); }
         if can_photo {
-            ui.add_enabled_ui(!f.editor.as_ref().is_some_and(Editor::busy), |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for (female, label) in [(false, "Generate gnome"), (true, "Generate female gnome")] {
-                        if ui.button(i18n::t(label)).clicked() {
-                            gnome = Some(female);
-                        }
-                        if f.gnome_female == female && f.editor.as_ref().is_some_and(Editor::busy) {
-                            ui.spinner();
-                        }
-                    }
-                });
-            });
+            gnome = gnome_buttons(ui, f).or(gnome);
         }
         if can_name || can_photo {
             ui.add_space(4.);
@@ -205,8 +218,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         }
     });
     if let Some(female) = gnome {
-        f.gnome_female = female;
-        f.editor = Some(Editor::from_gnome(&id, f.next_gnome(female), female, draft(profile), ui.ctx()));
+        ask_gnome(f, female, |n| Editor::from_gnome(&id, n, female, draft(profile), ui.ctx()));
     }
     if f.hook_save && !f.editing() && !f.editor.as_ref().is_some_and(Editor::busy) {
         f.hook_save = false;
@@ -529,6 +541,8 @@ fn wipe_with(dir: &std::path::Path, cache: Option<PathBuf>, mut forget: impl FnM
 
 #[cfg(test)]
 mod tests {
+    use eframe::egui;
+
     #[test]
     fn each_gender_counts_its_gnomes_on_its_own() {
         let mut f = super::Form::default();
@@ -539,6 +553,73 @@ mod tests {
         assert_eq!(f.next_gnome(true), 1);
         let (m, w) = (crate::avatar_editor::gnome_url("a", 0, false), crate::avatar_editor::gnome_url("a", 0, true));
         assert!(m.ends_with("&g=m") && w.ends_with("&g=f") && m.replace("g=m", "g=f") == w);
+    }
+
+    /// One frame of the two gnome buttons in a wide window: (pressed gender, enabled [male, female], x-span of each button, x-span of every spinner).
+    type Seen = (Option<bool>, [bool; 2], Vec<(f32, f32)>, Vec<(f32, f32)>);
+
+    fn frame(ctx: &egui::Context, f: &super::Form, events: Vec<egui::Event>) -> Seen {
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600., 100.))), events, ..Default::default() };
+        let mut asked = None;
+        let mut out = ctx.run_ui(raw, |ui| asked = super::gnome_buttons(ui, f));
+        out.textures_delta.clear();
+        let nodes: Vec<_> = out.platform_output.accesskit_update.into_iter().flat_map(|u| u.nodes).map(|(_, n)| n).collect();
+        let span = |label: &str| nodes.iter().find(|n| n.label() == Some(label)).map(|n| (n.is_disabled(), n.bounds().map(|b| (b.x0 as f32, b.x1 as f32)).unwrap())).unwrap_or_else(|| panic!("no button «{label}»"));
+        let (male, female) = (span("Generate gnome"), span("Generate female gnome"));
+        let spinners = out.shapes.iter().filter_map(|s| match &s.shape { egui::Shape::Path(_) => Some(s.shape.visual_bounding_rect()), _ => None }).map(|r| (r.min.x, r.max.x)).collect();
+        (asked, [!male.0, !female.0], vec![male.1, female.1], spinners)
+    }
+
+    fn click(ctx: &egui::Context, f: &super::Form, label_x: f32) -> Option<bool> {
+        let pos = egui::pos2(label_x, 10.);
+        let btn = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(ctx, f, vec![egui::Event::PointerMoved(pos)]);
+        frame(ctx, f, vec![btn(true)]);
+        frame(ctx, f, vec![btn(false)]).0
+    }
+
+    #[test]
+    fn each_gnome_button_asks_its_own_gender_and_counter() {
+        let ctx = crate::icons::test_context();
+        ctx.enable_accesskit();
+        let mut f = super::Form::default();
+        frame(&ctx, &f, vec![]);
+        let (_, enabled, spans, spinners) = frame(&ctx, &f, vec![]);
+        assert!(enabled == [true, true] && spinners.is_empty() && spans[0].1 <= spans[1].0, "idle: both on, no spinner, male first: {enabled:?} {spans:?} {spinners:?}");
+        let mid = |s: (f32, f32)| (s.0 + s.1) / 2.;
+        // Each button reports its own gender (swapped array order fails here).
+        assert_eq!(click(&ctx, &f, mid(spans[0])), Some(false));
+        assert_eq!(click(&ctx, &f, mid(spans[1])), Some(true));
+        // The request takes that gender's counter: male 0, male 1, then the female one is still at 0.
+        let dir = std::env::temp_dir().join(format!("gnobbi-gnome-buttons-{}", std::process::id()));
+        let mut seen = Vec::new();
+        for female in [false, false, true] {
+            super::ask_gnome(&mut f, female, |n| { seen.push((female, n)); crate::avatar_editor::Editor::from_file(dir.join("none.png"), dir.join("draft.png"), &ctx) });
+        }
+        assert_eq!(seen, [(false, 0), (false, 1), (true, 0)]);
+        assert!(f.gnome_female, "the button that asked last is the one that works");
+    }
+
+    #[test]
+    fn busy_gnome_turns_both_buttons_off_and_spins_only_beside_the_pressed_one() {
+        let ctx = crate::icons::test_context();
+        ctx.enable_accesskit();
+        let dir = std::env::temp_dir().join(format!("gnobbi-gnome-busy-{}", std::process::id()));
+        for female in [false, true] {
+            let mut f = super::Form::default();
+            super::ask_gnome(&mut f, female, |_| crate::avatar_editor::Editor::from_file(dir.join("none.png"), dir.join("draft.png"), &ctx));
+            assert!(f.editor.as_ref().is_some_and(crate::avatar_editor::Editor::busy));
+            frame(&ctx, &f, vec![]);
+            let (asked, enabled, spans, spinners) = frame(&ctx, &f, vec![]);
+            assert_eq!((asked, enabled), (None, [false, false]), "both buttons off while busy (female={female})");
+            assert_eq!(spinners.len(), 1, "exactly one spinner (female={female}): {spinners:?}");
+            let (m, w, sp) = (spans[0], spans[1], spinners[0]);
+            // Male: between the buttons; female: after the second one.
+            assert!(if female { sp.0 >= w.1 - 1. } else { sp.0 >= m.1 - 1. && sp.1 <= w.0 + 1. }, "spinner beside the wrong button (female={female}): {sp:?} {spans:?}");
+            // A click on the off buttons asks nothing.
+            assert_eq!(click(&ctx, &f, (m.0 + m.1) / 2.), None);
+            assert_eq!(click(&ctx, &f, (w.0 + w.1) / 2.), None);
+        }
     }
 
     #[test]
