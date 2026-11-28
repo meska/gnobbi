@@ -9,20 +9,20 @@ license.workspace = true
 [dependencies]
 matrix-domain = { path = "../matrix-domain" }
 matrix-engine = { path = "../matrix-engine", features = ["sdk"] }
-serde_json = "=1.0.151"
+serde_json = "=1.0.154"
 sha2 = "=0.10.9"
 # Seed of the gnome picture (md5 of the account id); tiny, no dependencies.
 md5 = "=0.7.0"
-unicode-normalization = "=0.1.25"
+unicode-normalization = "=0.1.26"
 url = "=2.5.9"
-zeroize = "=1.9.1"
+zeroize = "=1.9.2"
 cpal = "=0.18.2"
 # Update signature check only (MIT, no dependencies); see src/update/verify.rs.
 minisign-verify = "=0.3.0"
 # Update check only (same version and features as matrix-engine).
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
 # Update scheduler runtime (check + download); same version as the dev-dependency.
-tokio = { version = "=1.53.3", default-features = false, features = ["rt", "time"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["rt", "time"] }
 sys-locale = "=0.3.2"
 unicode-segmentation = "=1.13.3"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
@@ -53,13 +53,13 @@ android-activity = "0.6"
 android_logger = "0.15"
 jni = "=0.22.4"
 ndk-context = "=0.1.1"
-libc = "=0.2.183"
+libc = "=0.2.191"
 log = "0.4"
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
 
 # iOS: stderr goes nowhere, so main() sends `log` and stderr to os_log.
 [target.'cfg(target_os = "ios")'.dependencies]
-libc = "=0.2.183"
+libc = "=0.2.191"
 log = "0.4"
 oslog = "0.2"
 # File/photo pickers (UIDocumentPicker, PHPicker); the share sheet is a few lines of objc2 in pick.rs.
@@ -96,18 +96,18 @@ windows = { version = "=0.61.3", features = ["Win32_Foundation", "Win32_Globaliz
 
 # Exe icon (packaging/windows/gnobbi.ico).
 [target.'cfg(target_os = "windows")'.build-dependencies]
-embed-resource = "=3.0.11"
+embed-resource = "=3.0.12"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # nl_langinfo_l for time_fmt (already in the tree).
-libc = "=0.2.183"
+libc = "=0.2.191"
 # StatusNotifierItem over D-Bus (ksni); the libappindicator default would need GTK.
 tray-icon = { version = "=0.26.1", default-features = false, features = ["ksni"] }
 # Is a StatusNotifierWatcher on the bus? (already in the tree through ksni)
 zbus = { version = "=5.19.0", default-features = false, features = ["blocking-api"] }
 
 [dev-dependencies]
-tokio = { version = "=1.53.3", default-features = false, features = ["rt", "time", "macros", "sync"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["rt", "time", "macros", "sync"] }
 
 [[bin]]
 name = "gnobbi"
