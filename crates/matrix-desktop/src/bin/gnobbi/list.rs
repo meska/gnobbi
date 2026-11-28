@@ -198,7 +198,9 @@ fn paint_row(ui: &mut egui::Ui, rect: egui::Rect, resp: &egui::Response, room: &
         ui.painter().text(flip(egui::pos2(rect.right() - 12., rect.top() + 10.)), crate::dir::align(Align2::RIGHT_TOP), s, FontId::proportional(12.), rgb(t.secondary));
     }
     let row_mark = mark(room.pinned(), room.low_priority());
-    let preview = one_line(ui, matrix_desktop::row_text::engine_placeholder(&room.preview), 13., rgb(t.secondary), (rect.right() - 12. - text_left - right_reserved(room.unread > 0, row_mark)).max(20.));
+    let said = matrix_desktop::row_text::engine_placeholder(&room.preview);
+    let said = if room.info.forwarded { format!("{} · {said}", i18n::t("Forwarded")) } else { said.to_owned() };
+    let preview = one_line(ui, &said, 13., rgb(t.secondary), (rect.right() - 12. - text_left - right_reserved(room.unread > 0, row_mark)).max(20.));
     ui.painter().galley(place(egui::pos2(text_left, rect.top() + 29.), &preview), preview, rgb(t.secondary));
     let mut mark_right = rect.right() - 12.;
     if room.unread > 0 {

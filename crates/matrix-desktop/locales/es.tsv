@@ -630,3 +630,11 @@ menu	Bring All to Front	Traer todo al frente
 	Updating…	Actualizando…
 	Automatic updates	Actualizaciones automáticas
 	Microphone access was denied. Allow it in the system settings and try again.	Acceso al micrófono denegado. Permítelo en los ajustes del sistema e inténtalo de nuevo.
+# forward_picker
+	Forward to…	Reenviar a…
+	Forward	Reenviar
+@plural	Forward to {n} chat	Reenviar a {n} chat|Reenviar a {n} chats
+	No chats	Sin chats
+	Sending…	Enviando…
+	Forwarded	Reenviado
+	Not forwarded to {name}	No reenviado a {name}

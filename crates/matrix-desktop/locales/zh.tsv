@@ -711,3 +711,11 @@ menu	Bring All to Front	全部置于前面
 	Male gnome	男地精
 	Female gnome	女地精
 	Could not get the gnome. Try again later.	无法获取地精，请稍后再试。
+# forward_picker
+	Forward to…	转发到…
+	Forward	转发
+@plural	Forward to {n} chat	转发到{n}个聊天
+	No chats	没有聊天
+	Sending…	正在发送…
+	Forwarded	已转发
+	Not forwarded to {name}	未能转发到{name}

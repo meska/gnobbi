@@ -1621,19 +1621,24 @@ impl RoomSync {
             let latest = matrix_sdk_ui::timeline::RoomExt::latest_event(&room).await;
             let unread = room.num_unread_notifications();
             let stamp = room.recency_stamp().map(u64::from);
-            let (preview, last_event_ts) = row_preview(&latest, unread > 0 || room.is_marked_unread(), &mut self.activity_seen, &id, stamp, now_ms());
+            let (mut preview, last_event_ts) = row_preview(&latest, unread > 0 || room.is_marked_unread(), &mut self.activity_seen, &id, stamp, now_ms());
+            let forwarded = forwarded_latest(&room);
+            if let Some(text) = forwarded.as_ref().filter(|t| !t.is_empty()) {
+                preview = Some(text.clone());
+            }
             let children = children_of.remove(&id).unwrap_or_default();
             let (tags, favourite_order) = match room.tags().await {
                 Ok(Some(tags)) => (crate::room_tags::group_names(&tags), crate::room_tags::favourite_order(&tags)),
                 _ => (Vec::new(), None),
             };
             // Unknown levels (not synced yet) or no own user id: no rights.
-            let (edit_rights, child_rights) = match (room.power_levels().await, client.user_id()) {
+            let (edit_rights, child_rights, read_only) = match (room.power_levels().await, client.user_id()) {
                 (Ok(levels), Some(me)) if room.state() == RoomState::Joined => (
                     crate::EditRights::from_levels(&levels, me),
                     room.is_space() && levels.user_can_send_state(me, matrix_sdk::ruma::events::StateEventType::SpaceChild),
+                    !levels.user_can_send_message(me, matrix_sdk::ruma::events::MessageLikeEventType::RoomMessage),
                 ),
-                _ => (crate::EditRights::default(), false),
+                _ => (crate::EditRights::default(), false, false),
             };
             current.insert(
                 id.clone(),
@@ -1647,8 +1652,10 @@ impl RoomSync {
                     info: crate::RoomInfo {
                         edit_rights,
                         child_rights,
+                        read_only,
                         public_read_receipts: peer_receipts,
                         preview,
+                        forwarded: forwarded.is_some(),
                         last_event_ts,
                         invited: room.state() == RoomState::Invited,
                         topic: room.topic(),
@@ -1758,12 +1765,7 @@ fn latest_event_text(latest: &matrix_sdk_ui::timeline::LatestEventValue) -> Opti
     match content {
         C::MsgLike(m) => match &m.kind {
             MsgLikeKind::Poll(p) => Some(p.results().question).filter(|q| !q.is_empty()).or_else(|| label("Poll")),
-            MsgLikeKind::Message(message) => Some(match message.msgtype() {
-                MessageType::Image(_) => "Image".to_owned(),
-                MessageType::Audio(a) if a.voice.is_some() => "Voice message".to_owned(),
-                other if other.body().trim().is_empty() => "Message without text".to_owned(),
-                other => other.body().to_owned(),
-            }),
+            MsgLikeKind::Message(message) => Some(msgtype_preview(message.msgtype())),
             MsgLikeKind::Sticker(_) => label("Sticker"),
             MsgLikeKind::Redacted => label("Message deleted"),
             MsgLikeKind::UnableToDecrypt(_) => label("Encrypted message"),
@@ -1774,6 +1776,25 @@ fn latest_event_text(latest: &matrix_sdk_ui::timeline::LatestEventValue) -> Opti
         C::MembershipChange(_) | C::ProfileChange(_) | C::OtherState(_) | C::FailedToParseState { .. } => label("Room update"),
         C::FailedToParseMessageLike { .. } => label("New message"),
     }
+}
+
+/// The one-line text of a message type in the room list.
+fn msgtype_preview(msgtype: &MessageType) -> String {
+    match msgtype {
+        MessageType::Image(_) => "Image".to_owned(),
+        MessageType::Audio(a) if a.voice.is_some() => "Voice message".to_owned(),
+        other if other.body().trim().is_empty() => "Message without text".to_owned(),
+        other => other.body().to_owned(),
+    }
+}
+
+/// The room's latest event when it is a forwarded message: its true text for the list (the SDK's typed value shows
+/// the fallback with the `matrix:` link), and that it is forwarded. `None` for any other latest event.
+pub(crate) fn forwarded_latest(room: &matrix_sdk::Room) -> Option<String> {
+    use matrix_sdk_base::latest_event::LatestEventValue;
+    let LatestEventValue::Remote(event) = room.latest_event() else { return None };
+    let content = event.raw().get_field::<serde_json::Value>("content").ok().flatten()?;
+    crate::forward::is_forwarded(&content).then(|| crate::forward::shown_message(&content).map(|m| msgtype_preview(&m)).unwrap_or_default())
 }
 
 /// Timestamp (ms since epoch) of the latest event, text or not; None for no event or an invite
@@ -2202,9 +2223,15 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
         let mut mentions = Vec::new();
         let mut poll = None;
         let mut media = None;
+        // The sender's own content: the typed one has lost the forward mark and its true text.
+        let own = matches!(content.kind, MsgLikeKind::Message(_) | MsgLikeKind::Sticker(_))
+            .then(|| event.original_json().and_then(|raw| raw.get_field::<serde_json::Value>("content").ok().flatten()))
+            .flatten();
+        let forwarded = own.as_ref().is_some_and(crate::forward::is_forwarded);
         let body = match &content.kind {
             MsgLikeKind::Message(message) => {
-                let msgtype = message.msgtype();
+                let shown = own.as_ref().filter(|_| !message.is_edited()).and_then(crate::forward::shown_message);
+                let msgtype = shown.as_ref().unwrap_or(message.msgtype());
                 attachment_name = match msgtype {
                     MessageType::Image(m) => Some(crate::history::proposed_name(m.filename())),
                     MessageType::Video(m) => Some(crate::history::proposed_name(m.filename())),
@@ -2231,7 +2258,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
                 };
                 let at_room = message.mentions().is_some_and(|m| m.room);
                 media = media_of(msgtype).map(|mut m| {
-                    m.album = event.original_json().and_then(|raw| raw.get_field::<serde_json::Value>("content").ok().flatten()).and_then(|c| crate::sending::Album::from_content(&c))
+                    m.album = own.as_ref().and_then(crate::sending::Album::from_content)
                         .or_else(|| event.transaction_id().and_then(|t| crate::sending::sent_album(t.as_str())));
                     m
                 });
@@ -2296,6 +2323,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
             attachment_name,
             attachment_size,
             poll,
+            forwarded,
         });
     }
     out
@@ -2520,6 +2548,7 @@ async fn status_row(
     // An invitation for you needs attention: `highlighted` keeps it out of the «hide status rows» filter.
     let for_me = matches!(status, Status::Invited) && shown.id == room.own_user_id().as_str();
     Some(crate::history::HistoryEvent {
+        forwarded: false,
         poll: None,
         event_id: matrix_domain::EventId::new(id.as_str()),
         body: String::new(),

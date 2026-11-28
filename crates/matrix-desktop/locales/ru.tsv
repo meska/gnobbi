@@ -711,3 +711,11 @@ menu	Bring All to Front	Все окна — на передний план
 	Male gnome	Гном
 	Female gnome	Гномиха
 	Could not get the gnome. Try again later.	Не удалось получить гнома. Попробуйте позже.
+# forward_picker
+	Forward to…	Переслать в…
+	Forward	Переслать
+@plural	Forward to {n} chat	Переслать в {n} чат|Переслать в {n} чата|Переслать в {n} чатов
+	No chats	Нет чатов
+	Sending…	Отправка…
+	Forwarded	Переслано
+	Not forwarded to {name}	Не переслано в {name}

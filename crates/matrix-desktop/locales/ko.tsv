@@ -626,3 +626,11 @@ menu	Bring All to Front	모두 앞으로 가져오기
 	Male gnome	노움(남)
 	Female gnome	노움(여)
 	Could not get the gnome. Try again later.	노움을 가져오지 못했습니다. 나중에 다시 시도하세요.
+# forward_picker
+	Forward to…	전달 대상…
+	Forward	전달
+@plural	Forward to {n} chat	{n}개 채팅으로 전달
+	No chats	채팅 없음
+	Sending…	전송 중…
+	Forwarded	전달됨
+	Not forwarded to {name}	{name}(으)로 전달하지 못했습니다

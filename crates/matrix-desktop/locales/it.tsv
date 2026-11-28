@@ -516,6 +516,8 @@ menu	Bring All to Front	Porta tutto in primo piano
 @plural	Forward to {n} chat	Inoltra a {n} chat|Inoltra a {n} chat
 	No chats	Nessuna chat
 	Sending…	Invio…
+	Forwarded	Inoltrato
+	Not forwarded to {name}	Non inoltrato a {name}
 # pick
 	Images	Immagini
 # time_fmt

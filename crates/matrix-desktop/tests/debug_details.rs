@@ -14,6 +14,7 @@ fn scope() -> RoomScope {
 fn server_message_exposes_its_event_id_and_unsent_one_does_not() {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        forwarded: false,
         poll: None,
         redacted: false,
         event_id: EventId::new("$abc:test"),

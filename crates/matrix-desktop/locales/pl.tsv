@@ -625,3 +625,11 @@ menu	Bring All to Front	Przesuń wszystko na wierzch
 	Male gnome	Gnom
 	Female gnome	Gnomka
 	Could not get the gnome. Try again later.	Nie udało się pobrać gnoma. Spróbuj ponownie później.
+# forward_picker
+	Forward to…	Przekaż do…
+	Forward	Przekaż
+@plural	Forward to {n} chat	Przekaż do {n} czatu|Przekaż do {n} czatów|Przekaż do {n} czatów
+	No chats	Brak czatów
+	Sending…	Wysyłanie…
+	Forwarded	Przekazano
+	Not forwarded to {name}	Nie przekazano do {name}

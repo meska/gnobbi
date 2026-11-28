@@ -14,6 +14,7 @@ fn scope() -> RoomScope {
 
 fn ev(id: &str, sender: &str, ts: u64, redacted: bool) -> HistoryEvent {
     HistoryEvent {
+        forwarded: false,
         poll: None,
         redacted,
         event_id: EventId::new(id),
@@ -182,7 +183,7 @@ fn locally_deleted_own_row_still_unsynced_returns_to_the_tail() {
     let mut a = LiveOperations::default();
     a.select(ScopedTimelineId { scope: scope(), id: TimelineId::Server(EventId::new("$own")) });
     let Some(OperationCommand::Inspect { tag, target }) = a.take_command() else { panic!() };
-    a.apply(OperationResult::Inspected { tag, target, details: Ok(MessageDetails { body: "ciao".into(), permissions: MessagePermissions { edit: true, reply: true, react: true, redact: true } }) });
+    a.apply(OperationResult::Inspected { tag, target, details: Ok(MessageDetails { body: "ciao".into(), permissions: MessagePermissions { edit: true, reply: true, react: true, redact: true, forward: false } }) });
     assert!(a.submit(Operation::Redact, TransactionId::new("tx2")));
     let Some(OperationCommand::Apply(request)) = a.take_command() else { panic!() };
     a.apply(OperationResult::Applied { request, result: Ok(EventId::new("$red")) });

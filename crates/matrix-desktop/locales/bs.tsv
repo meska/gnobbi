@@ -626,3 +626,11 @@ menu	Bring All to Front	Prebaci sve naprijed
 	Male gnome	Patuljak
 	Female gnome	Patuljica
 	Could not get the gnome. Try again later.	Nije moguće preuzeti patuljka. Pokušaj ponovo kasnije.
+# forward_picker
+	Forward to…	Proslijedi u…
+	Forward	Proslijedi
+@plural	Forward to {n} chat	Proslijedi u {n} chat|Proslijedi u {n} chata|Proslijedi u {n} chatova
+	No chats	Nema chatova
+	Sending…	Slanje…
+	Forwarded	Proslijeđeno
+	Not forwarded to {name}	Nije proslijeđeno u {name}

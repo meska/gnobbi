@@ -712,3 +712,11 @@ menu	Bring All to Front	Đưa tất cả lên trước
 	Male gnome	Chú lùn
 	Female gnome	Cô lùn
 	Could not get the gnome. Try again later.	Không tải được chú lùn. Hãy thử lại sau.
+# forward_picker
+	Forward to…	Chuyển tiếp tới…
+	Forward	Chuyển tiếp
+@plural	Forward to {n} chat	Chuyển tiếp tới {n} cuộc trò chuyện|Chuyển tiếp tới {n} cuộc trò chuyện
+	No chats	Không có cuộc trò chuyện
+	Sending…	Đang gửi…
+	Forwarded	Đã chuyển tiếp
+	Not forwarded to {name}	Không chuyển tiếp được tới {name}

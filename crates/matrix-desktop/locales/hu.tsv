@@ -626,3 +626,11 @@ menu	Bring All to Front	Összes előtérbe hozása
 	Male gnome	Manó
 	Female gnome	Mannó
 	Could not get the gnome. Try again later.	Nem sikerült letölteni a manót. Próbáld újra később.
+# forward_picker
+	Forward to…	Továbbítás ide…
+	Forward	Továbbítás
+@plural	Forward to {n} chat	Továbbítás {n} csevegésbe|Továbbítás {n} csevegésbe
+	No chats	Nincs csevegés
+	Sending…	Küldés…
+	Forwarded	Továbbítva
+	Not forwarded to {name}	Nem sikerült továbbítani ide: {name}

@@ -711,3 +711,11 @@ menu	Bring All to Front	Всички най-отпред
 	Male gnome	Гном
 	Female gnome	Гномка
 	Could not get the gnome. Try again later.	Гномът не можа да бъде получен. Опитайте отново по-късно.
+# forward_picker
+	Forward to…	Препрати към…
+	Forward	Препрати
+@plural	Forward to {n} chat	Препрати към {n} чат|Препрати към {n} чата
+	No chats	Няма чатове
+	Sending…	Изпращане…
+	Forwarded	Препратено
+	Not forwarded to {name}	Не е препратено към {name}

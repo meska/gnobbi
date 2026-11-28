@@ -711,3 +711,11 @@ menu	Bring All to Front	Lägg alla överst
 	Male gnome	Tomte
 	Female gnome	Tomtekvinna
 	Could not get the gnome. Try again later.	Det gick inte att hämta tomten. Försök igen senare.
+# forward_picker
+	Forward to…	Vidarebefordra till…
+	Forward	Vidarebefordra
+@plural	Forward to {n} chat	Vidarebefordra till {n} chatt|Vidarebefordra till {n} chattar
+	No chats	Inga chattar
+	Sending…	Skickar…
+	Forwarded	Vidarebefordrat
+	Not forwarded to {name}	Inte vidarebefordrat till {name}

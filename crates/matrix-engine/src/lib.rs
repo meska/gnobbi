@@ -105,6 +105,8 @@ pub struct RoomInfo {
     pub edit_rights: EditRights,
     /// A space whose children the user may change (`m.space.child` power level); false when unknown.
     pub child_rights: bool,
+    /// The power levels say the user cannot send messages here; false when unknown.
+    pub read_only: bool,
     /// Observed public peer markers only; empty means no known marker, not unread.
     pub public_read_receipts: Vec<receipts::PublicReadReceipt>,
     pub topic: Option<String>,
@@ -114,6 +116,8 @@ pub struct RoomInfo {
     pub avatar: Option<String>,
     /// Text of the SDK latest event when it is a message; None otherwise.
     pub preview: Option<String>,
+    /// The latest event is a forwarded message: `preview` is its true text, the row says «Forwarded».
+    pub forwarded: bool,
     /// Timestamp (ms since epoch) of the SDK latest event; None when the room has none yet.
     pub last_event_ts: Option<u64>,
     /// The user has an invitation to this room and has not answered it. Listed by the SDK

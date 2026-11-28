@@ -9,6 +9,7 @@ fn scope(room: &str) -> RoomScope {
 }
 fn event(id: &str) -> HistoryEvent {
     HistoryEvent {
+        forwarded: false,
         poll: None,
         redacted: false,
         event_id: EventId::new(id),

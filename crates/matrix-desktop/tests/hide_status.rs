@@ -6,6 +6,7 @@ const DAY: u64 = 86_400_000;
 
 fn ev(id: &str, sender: &str, ts: u64, status: bool, mine: bool) -> HistoryEvent {
     HistoryEvent {
+        forwarded: false,
         poll: None,
         redacted: false,
         event_id: EventId::new(id),

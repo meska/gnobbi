@@ -19,6 +19,7 @@ fn scope() -> RoomScope {
 fn msg(name: &str, lines: usize) -> DemoEvent {
     let text = (0..lines).map(|l| format!("{name} line {l}")).collect::<Vec<_>>().join("\n");
     DemoEvent {
+        forwarded: false,
         server_confirmed: true, redacted: false, annotation: String::new(), reactions: Vec::new(), transaction_id: None,
         id: ScopedTimelineId { scope: scope(), id: TimelineId::Server(EventId::new(format!("${name}:fixture.invalid"))) },
         text, outgoing: false, send_state: None, timestamp_ms: 0, styles: Vec::new(), mentions: Vec::new(),

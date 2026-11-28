@@ -306,6 +306,19 @@ fn disposable_forward_edge_cases_reply_thread_edit_location_sticker() {
             if content[FWD]["sender"] != "@alice:matrix-desktop.test" { failures.push(format!("{name}: no forward mark")); }
             if name == "sticker" { println!("EDGE sticker NOTE: url in decrypted content = {} (stickers keep a plain mxc, as Element does)", content["url"]); }
         }
+        // What the app shows: the bubble and the room-list line of the forwarded message are its true text, labelled forwarded.
+        let plain_room = alice.get_room(&matrix_sdk::ruma::RoomId::parse(&plain).unwrap()).unwrap();
+        let (mut row_ok, mut preview_ok) = (false, false);
+        for _ in 0..20 {
+            let timeline = timelines.get(&plain_room).await.expect("timeline");
+            let rows = crate::room_sync::loaded(&plain_room, &timeline).await.rows;
+            row_ok = rows.iter().any(|r| r.forwarded && r.body == "the reply text");
+            preview_ok = crate::room_sync::forwarded_latest(&plain_room).as_deref() == Some("the reply text");
+            if row_ok && preview_ok { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        if !row_ok { failures.push("bubble: no row with forwarded=true and the true text".into()); }
+        if !preview_ok { failures.push("room list: the latest event is not shown as forwarded with its true text".into()); }
         assert!(failures.is_empty(), "edge findings:\n{}", failures.join("\n"));
     }).await.expect("edge test deadline (200 s): see the EDGE lines above"); });
 }

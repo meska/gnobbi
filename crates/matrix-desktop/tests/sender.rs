@@ -13,6 +13,7 @@ fn scope() -> RoomScope {
 fn live_mapping_carries_sender_id_and_name() {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        forwarded: false,
         poll: None,
         redacted: false,
         event_id: EventId::new("$a"),
@@ -55,6 +56,7 @@ fn demo_incoming_events_have_sender_and_outgoing_do_not() {
 
 fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> HistoryEvent {
     HistoryEvent {
+        forwarded: false,
         poll: None,
         redacted: false,
         event_id: EventId::new(id),
@@ -98,6 +100,7 @@ fn sender_label_follows_the_rule_in_a_group() {
 #[test]
 fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
     let row = |id: &str, status: bool| HistoryEvent {
+        forwarded: false,
         poll: None,
         event_id: EventId::new(id),
         body: "meska ha invitato Marco".into(),

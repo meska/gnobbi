@@ -626,3 +626,11 @@ menu	Bring All to Front	Tümünü öne getir
 	Male gnome	Cüce
 	Female gnome	Dişi cüce
 	Could not get the gnome. Try again later.	Cüce alınamadı. Daha sonra tekrar deneyin.
+# forward_picker
+	Forward to…	İlet…
+	Forward	İlet
+@plural	Forward to {n} chat	{n} sohbete ilet|{n} sohbete ilet
+	No chats	Sohbet yok
+	Sending…	Gönderiliyor…
+	Forwarded	İletildi
+	Not forwarded to {name}	{name} sohbetine iletilemedi

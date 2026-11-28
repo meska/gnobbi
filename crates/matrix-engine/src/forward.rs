@@ -101,6 +101,16 @@ pub fn shown(content: &Value) -> Option<Value> {
     Some(out)
 }
 
+/// Whether the message carries a valid forward mark: it shows «Forwarded».
+pub fn is_forwarded(content: &Value) -> bool {
+    forwarded_ref(content).is_some()
+}
+
+/// The message type a forwarded message shows (see `shown`); `None` when it is not forwarded or its content does not read.
+pub fn shown_message(content: &Value) -> Option<matrix_sdk::ruma::events::room::message::MessageType> {
+    serde_json::from_value::<matrix_sdk::ruma::events::room::message::RoomMessageEventContent>(shown(content)?).ok().map(|c| c.msgtype)
+}
+
 /// The content to send to a room, or the upload to do first. `dest_encrypted`: the destination is an E2EE room.
 pub fn build(source: &Source, dest_encrypted: bool) -> Result<Forward, ForwardError> {
     let event_type = match source.event_type {
@@ -651,5 +661,23 @@ mod tests {
         let out = sent(build(&src(&swapped, None), false).unwrap());
         assert_eq!((out["url"].as_str(), out[FORWARDED]["content"]["url"].as_str()), (Some("mxc://hs.org/own"), Some("mxc://hs.org/own")));
         assert!(out["body"].as_str().unwrap().ends_with("\ncaption"));
+    }
+
+    #[test]
+    fn a_forwarded_message_shows_its_true_text_and_says_it_is_forwarded() {
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        let first = sent(build(&src(&json!({"msgtype": "m.text", "body": "hello <b>", "format": "org.matrix.custom.html", "formatted_body": "hello <b>x</b>"}), None), false).unwrap());
+        assert!(first["body"].as_str().unwrap().starts_with("Forwarded from"));
+        assert!(is_forwarded(&first));
+        let MessageType::Text(text) = shown_message(&first).unwrap() else { panic!("text") };
+        assert_eq!((text.body.as_str(), text.formatted.map(|f| f.body)), ("hello <b>", Some("hello <b>x</b>".to_owned())));
+        // A file: its own source, the caption of the mark.
+        let file = json!({"msgtype": "m.file", "body": "see this", "filename": "a.pdf", "url": "mxc://hs.org/a", "info": {"mimetype": "application/pdf"}});
+        let out = sent(build(&src(&file, None), false).unwrap());
+        let MessageType::File(f) = shown_message(&out).unwrap() else { panic!("file") };
+        assert_eq!((f.caption(), f.filename(), matches!(f.source, matrix_sdk::ruma::events::room::MediaSource::Plain(_))), (Some("see this"), "a.pdf", true));
+        // Not forwarded, or a mark that is no mark: nothing to show.
+        assert!(!is_forwarded(&json!({"msgtype": "m.text", "body": "x"})) && shown_message(&json!({"msgtype": "m.text", "body": "x"})).is_none());
+        assert!(!is_forwarded(&json!({"msgtype": "m.text", "body": "x", "m.forwarded": {"sender": "", "room_id": "", "event_id": "", "content": {"msgtype": "m.text", "body": "y"}}})));
     }
 }

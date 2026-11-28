@@ -711,3 +711,11 @@ menu	Bring All to Front	Όλα μπροστά
 	Male gnome	Νάνος
 	Female gnome	Νάνα
 	Could not get the gnome. Try again later.	Δεν ήταν δυνατή η λήψη του νάνου. Δοκιμάστε ξανά αργότερα.
+# forward_picker
+	Forward to…	Προώθηση σε…
+	Forward	Προώθηση
+@plural	Forward to {n} chat	Προώθηση σε {n} συνομιλία|Προώθηση σε {n} συνομιλίες
+	No chats	Καμία συνομιλία
+	Sending…	Αποστολή…
+	Forwarded	Προωθημένο
+	Not forwarded to {name}	Δεν προωθήθηκε σε {name}

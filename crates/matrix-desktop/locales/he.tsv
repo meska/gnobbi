@@ -626,3 +626,11 @@ menu	Bring All to Front	העברת הכול לחזית
 	Male gnome	גמד
 	Female gnome	גמדה
 	Could not get the gnome. Try again later.	לא ניתן היה לקבל את הגמד. נסו שוב מאוחר יותר.
+# forward_picker
+	Forward to…	העבר אל…
+	Forward	העבר
+@plural	Forward to {n} chat	העבר לצ'אט {n}|העבר ל־{n} צ'אטים|העבר ל־{n} צ'אטים
+	No chats	אין צ'אטים
+	Sending…	שולח…
+	Forwarded	הועבר
+	Not forwarded to {name}	לא הועבר אל {name}

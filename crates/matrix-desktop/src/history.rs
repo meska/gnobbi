@@ -80,6 +80,8 @@ pub struct DemoEvent {
     pub utd: bool,
     /// Reactions under the message (server state; the pending ones of this session are laid over it at draw time).
     pub reactions: Vec<matrix_engine::history::Reaction>,
+    /// A forwarded message: the bubble says «Forwarded» above the text.
+    pub forwarded: bool,
 }
 
 impl DemoEvent {
@@ -194,6 +196,7 @@ impl DemoHistory {
                     _ => "Link demo: https://example.invalid/docs?x=1&y=2\nNon apribile: javascript:alert(1)".to_owned(),
                 };
                 DemoEvent {
+                    forwarded: false,
                     server_confirmed: false,
                     redacted: false,
                     annotation: String::new(), reactions: Vec::new(),
@@ -273,6 +276,7 @@ impl DemoHistory {
             .checked_add(1)
             .expect("demo count overflow");
         self.events.push(DemoEvent {
+            forwarded: false,
             server_confirmed: false,
             redacted: false,
             annotation: String::new(), reactions: Vec::new(),
@@ -427,6 +431,7 @@ impl DemoHistory {
             .into_iter()
             .filter(|event| seen.insert(TimelineId::Server(event.event_id.clone())))
             .map(|event| DemoEvent {
+                forwarded: event.forwarded,
                 server_confirmed: true,
                 redacted: event.redacted,
                 annotation: String::new(),
@@ -567,6 +572,7 @@ impl DemoHistory {
                     .any(|row| row.id.id == TimelineId::Server(operation.event_id.clone()))
             {
                 self.events.push(DemoEvent {
+                    forwarded: false,
                     annotation: String::new(), reactions: Vec::new(),
                     transaction_id: None,
                     server_confirmed: true,
@@ -655,6 +661,7 @@ impl DemoHistory {
                 }
             } else {
                 self.events.push(DemoEvent {
+                    forwarded: false,
                     annotation: String::new(), reactions: Vec::new(),
                     id: item.identity.clone(),
                     server_confirmed: state.is_none(),

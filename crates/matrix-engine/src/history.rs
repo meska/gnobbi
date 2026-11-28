@@ -157,6 +157,8 @@ pub struct HistoryEvent {
     pub utd: bool,
     /// The reactions under the message, in order of first appearance.
     pub reactions: Vec<Reaction>,
+    /// The message carries a forward mark: the bubble says «Forwarded»; `body` is the true text, not the fallback.
+    pub forwarded: bool,
 }
 
 /// Names kept per reaction: the popup shows 10 and «+N»; `Reaction::count` is the true number.

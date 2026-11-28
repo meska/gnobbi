@@ -4,6 +4,7 @@ use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn ev(body: &str, utd: bool) -> HistoryEvent {
     HistoryEvent {
+        forwarded: false,
         redacted: false,
         event_id: EventId::new("$old"),
         body: body.into(),

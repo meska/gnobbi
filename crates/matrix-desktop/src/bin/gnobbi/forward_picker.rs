@@ -218,24 +218,32 @@ fn confirm(ui: &mut egui::Ui, rect: Rect, s: &Picker, t: &DesignTokens) -> bool 
     resp.clicked()
 }
 
+/// The error line after a forward: the chats that did not get the message, by name.
+fn failure(keys: &[String], names: &[(String, String)]) -> String {
+    let failed: Vec<&str> = keys.iter().filter_map(|k| names.iter().find(|(key, _)| key == k).map(|(_, name)| name.as_str())).collect();
+    if failed.is_empty() { i18n::t("Failed").to_owned() } else { i18n::t("Not forwarded to {name}").replace("{name}", &failed.join(", ")) }
+}
+
 /// «Inoltra» in progress: the message and the picker over the chats of the account.
 pub struct Open {
     scope: matrix_domain::RoomScope,
     event: matrix_domain::EventId,
     picker: Picker,
     finished: bool,
+    /// Key and name of every chat that can be chosen, whatever the search says: the error names the ones that failed.
+    names: Vec<(String, String)>,
 }
 
 impl Open {
     pub fn new(scope: matrix_domain::RoomScope, event: matrix_domain::EventId) -> Self {
-        Self { scope, event, picker: Picker { query: String::new(), chats: Vec::new(), selected: Vec::new(), phase: Phase::Loading }, finished: false }
+        Self { scope, event, picker: Picker { query: String::new(), chats: Vec::new(), selected: Vec::new(), phase: Phase::Loading }, finished: false, names: Vec::new() }
     }
 
     /// The engine's answer, one result per chat: the ones that took it leave the choice, the others stay ticked for a retry.
     pub fn done(&mut self, results: &[(String, Result<(), matrix_engine::forward::ForwardError>)]) {
         self.picker.selected.retain(|key| results.iter().any(|(room, r)| room == key && r.is_err()));
         self.finished = self.picker.selected.is_empty();
-        self.picker.phase = Phase::Failed(i18n::t("Failed").to_owned());
+        self.picker.phase = Phase::Failed(failure(&self.picker.selected, &self.names));
     }
 }
 
@@ -243,12 +251,14 @@ impl Open {
 pub fn drive(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignTokens) {
     let Some(open) = &mut s.forward else { return };
     let query = open.picker.query.trim().to_lowercase();
-    let mut rooms: Vec<_> = s.sidebar.rooms().iter().filter(|r| !r.info.invited && !r.info.is_space).collect();
+    // The chat the message comes from stays in the list, like on Telegram; a chat where the user cannot write does not.
+    let mut rooms: Vec<_> = s.sidebar.rooms().iter().filter(|r| !r.info.invited && !r.info.is_space && !r.info.read_only).collect();
     open.picker.phase = match (&open.picker.phase, rooms.is_empty()) {
         (Phase::Loading | Phase::Pick, true) => Phase::Loading,
         (Phase::Loading, false) => Phase::Pick,
         (phase, _) => phase.clone(),
     };
+    open.names = rooms.iter().map(|r| (r.scope.room_id.as_str().to_owned(), r.name.clone())).collect();
     rooms.retain(|r| r.name.to_lowercase().contains(&query));
     rooms.sort_by_key(|r| std::cmp::Reverse(r.info.last_event_ts));
     open.picker.chats = rooms.iter().map(|r| Chat { key: r.scope.room_id.as_str().to_owned(), name: r.name.clone(), initials: r.initials.clone(), color: r.color, avatar: crate::avatar::lookup(&s.avatars, r.info.avatar.as_deref()) }).collect();
@@ -324,6 +334,13 @@ mod tests {
     fn tap(at: egui::Pos2) -> Vec<Vec<egui::Event>> {
         let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
         vec![vec![egui::Event::PointerMoved(at)], vec![button(true)], vec![button(false)], vec![]]
+    }
+
+    #[test]
+    fn the_error_names_the_chats_that_failed() {
+        let names = [("!a".to_owned(), "Anna".to_owned()), ("!b".to_owned(), "Lavoro".to_owned())];
+        assert_eq!(failure(&["!b".into(), "!a".into()], &names), "Not forwarded to Lavoro, Anna");
+        assert_eq!(failure(&["!gone".into()], &names), "Failed");
     }
 
     #[test]

@@ -626,3 +626,11 @@ menu	Bring All to Front	إحضار الكل إلى المقدمة
 	Male gnome	قزم
 	Female gnome	قزمة
 	Could not get the gnome. Try again later.	تعذّر الحصول على القزم. حاول مرة أخرى لاحقًا.
+# forward_picker
+	Forward to…	إعادة توجيه إلى…
+	Forward	إعادة توجيه
+@plural	Forward to {n} chat	إعادة التوجيه إلى {n} محادثة|إعادة التوجيه إلى {n} محادثة|إعادة التوجيه إلى {n} محادثتين|إعادة التوجيه إلى {n} محادثات|إعادة التوجيه إلى {n} محادثة|إعادة التوجيه إلى {n} محادثة
+	No chats	لا توجد محادثات
+	Sending…	جارٍ الإرسال…
+	Forwarded	معاد توجيهها
+	Not forwarded to {name}	لم تُعَد الرسالة إلى {name}

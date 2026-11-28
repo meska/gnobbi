@@ -711,3 +711,11 @@ menu	Bring All to Front	ყველა წინ
 	Male gnome	გნომი
 	Female gnome	გნომი (მდედრ.)
 	Could not get the gnome. Try again later.	გნომის მიღება ვერ მოხერხდა. სცადეთ მოგვიანებით.
+# forward_picker
+	Forward to…	გადაგზავნა…
+	Forward	გადაგზავნა
+@plural	Forward to {n} chat	გადაგზავნა {n} ჩატში|გადაგზავნა {n} ჩატში
+	No chats	ჩატები არ არის
+	Sending…	იგზავნება…
+	Forwarded	გადაგზავნილი
+	Not forwarded to {name}	ვერ გადაიგზავნა: {name}

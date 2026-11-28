@@ -13,6 +13,7 @@ fn scope() -> RoomScope {
 
 fn root_row() -> DemoEvent {
     DemoEvent {
+        forwarded: false,
         server_confirmed: true, redacted: false, annotation: String::new(), reactions: Vec::new(), transaction_id: None,
         id: ScopedTimelineId { scope: scope(), id: TimelineId::Server(EventId::new("$root:fixture.invalid")) },
         text: ROOT_TEXT.into(), outgoing: false, send_state: None, timestamp_ms: 0, styles: Vec::new(), mentions: Vec::new(),
@@ -137,6 +138,7 @@ fn root_event(replies: Option<u32>) -> HistoryEvent {
 
 fn event(id: &str, body: &str, thread: Option<ThreadInfo>) -> HistoryEvent {
     HistoryEvent {
+        forwarded: false,
         poll: None, redacted: false, event_id: EventId::new(id), body: body.into(), outgoing: false, timestamp_ms: 0,
         sender: HistorySender::new("@anna:fixture.invalid", Some("Anna")), video: None, audio: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false, thread, thread_root: None, reply_to: None,

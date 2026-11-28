@@ -625,3 +625,11 @@ menu	Bring All to Front	すべてを手前に移動
 	Male gnome	ノーム（男）
 	Female gnome	ノーム（女）
 	Could not get the gnome. Try again later.	ノームを取得できませんでした。後でもう一度お試しください。
+# forward_picker
+	Forward to…	転送先…
+	Forward	転送
+@plural	Forward to {n} chat	{n}件のチャットに転送
+	No chats	チャットなし
+	Sending…	送信中…
+	Forwarded	転送済み
+	Not forwarded to {name}	{name}に転送できませんでした

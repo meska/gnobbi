@@ -93,6 +93,7 @@ impl AutoView {
 pub fn test_media(id: &str, kind: matrix_engine::history::MediaKind, label: &str, size: Option<u64>) -> DemoEvent {
     let scope = matrix_domain::RoomScope { account_id: matrix_domain::AccountId::new(1), room_id: matrix_domain::RoomId::new("!r:fixture.invalid") };
     DemoEvent {
+        forwarded: false,
         server_confirmed: true, redacted: false, annotation: String::new(), reactions: Vec::new(), transaction_id: None,
         id: matrix_domain::ScopedTimelineId { scope, id: matrix_domain::TimelineId::Server(matrix_domain::EventId::new(id)) },
         text: String::new(), outgoing: false, send_state: None, timestamp_ms: 0, styles: Vec::new(), mentions: Vec::new(),
@@ -566,6 +567,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             if let Some(name) = label {
                 w = w.max(measure(name, 12.));
             }
+            if e.forwarded {
+                w = w.max(measure(i18n::t("Forwarded"), 12.));
+            }
             let quote = e.reply_to.as_ref().map(|r| {
                 use matrix_engine::history::ReplyState as S;
                 let (Some(author), S::Resolved) = (r.author.as_deref(), r.state) else {
@@ -591,6 +595,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                             ui.add(egui::Label::new(RichText::new(id).size(10.).color(rgb(t.secondary))).truncate());
                         }
                     });
+                }
+                if e.forwarded {
+                    ui.add(egui::Label::new(RichText::new(i18n::t("Forwarded")).size(12.).color(rgb(t.secondary))).truncate().selectable(false));
                 }
                 if let (Some((author, preview)), Some(r)) = (&quote, &e.reply_to) {
                     // Telegram-style quote: accent bar, original author, one line of its text; a click scrolls to the original.

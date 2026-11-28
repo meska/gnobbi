@@ -3651,6 +3651,7 @@ dependencies = [
  "jni 0.22.4",
  "matrix-domain",
  "matrix-sdk",
+ "matrix-sdk-base",
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-ui",

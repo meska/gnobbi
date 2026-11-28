@@ -715,3 +715,11 @@ menu	Bring All to Front	Alle nach vorne bringen
 	Updating…	Wird aktualisiert…
 	Automatic updates	Automatische Updates
 	Microphone access was denied. Allow it in the system settings and try again.	Mikrofonzugriff verweigert. Erlaube ihn in den Systemeinstellungen und versuche es erneut.
+# forward_picker
+	Forward to…	Weiterleiten an…
+	Forward	Weiterleiten
+@plural	Forward to {n} chat	An {n} Chat weiterleiten|An {n} Chats weiterleiten
+	No chats	Keine Chats
+	Sending…	Wird gesendet…
+	Forwarded	Weitergeleitet
+	Not forwarded to {name}	Nicht weitergeleitet an {name}

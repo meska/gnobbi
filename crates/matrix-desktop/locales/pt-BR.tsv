@@ -626,3 +626,11 @@ menu	Bring All to Front	Trazer tudo para a frente
 	Male gnome	Gnomo
 	Female gnome	Gnoma
 	Could not get the gnome. Try again later.	Não foi possível obter o gnomo. Tente novamente mais tarde.
+# forward_picker
+	Forward to…	Encaminhar para…
+	Forward	Encaminhar
+@plural	Forward to {n} chat	Encaminhar para {n} conversa|Encaminhar para {n} conversas
+	No chats	Nenhuma conversa
+	Sending…	Enviando…
+	Forwarded	Encaminhada
+	Not forwarded to {name}	Não encaminhada para {name}

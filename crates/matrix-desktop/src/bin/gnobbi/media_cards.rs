@@ -457,6 +457,7 @@ mod tests {
     fn ev(index: u8, album: Option<&str>, who: &str) -> DemoEvent {
         let scope = matrix_domain::RoomScope { account_id: matrix_domain::AccountId::new(1), room_id: matrix_domain::RoomId::new("!r:fixture.invalid") };
         DemoEvent {
+            forwarded: false,
             server_confirmed: true, redacted: false, annotation: String::new(), reactions: Vec::new(), transaction_id: None,
             id: matrix_domain::ScopedTimelineId { scope, id: TimelineId::Server(matrix_domain::EventId::new(format!("$e{index}{who}{}", album.unwrap_or("-")))) },
             text: String::new(), outgoing: false, send_state: None, timestamp_ms: 0, styles: Vec::new(), mentions: Vec::new(),

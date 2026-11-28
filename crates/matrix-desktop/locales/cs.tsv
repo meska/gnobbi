@@ -625,3 +625,11 @@ menu	Bring All to Front	Všechna okna do popředí
 	Male gnome	Skřítek
 	Female gnome	Skřítka
 	Could not get the gnome. Try again later.	Skřítka se nepodařilo získat. Zkuste to později.
+# forward_picker
+	Forward to…	Přeposlat do…
+	Forward	Přeposlat
+@plural	Forward to {n} chat	Přeposlat do {n} chatu|Přeposlat do {n} chatů|Přeposlat do {n} chatů
+	No chats	Žádné chaty
+	Sending…	Odesílání…
+	Forwarded	Přeposláno
+	Not forwarded to {name}	Nepřeposláno do {name}
