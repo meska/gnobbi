@@ -214,7 +214,8 @@ fn paint_row(ui: &mut egui::Ui, rect: egui::Rect, resp: &egui::Response, room: &
 fn dim_leaving(ui: &mut egui::Ui, rect: egui::Rect, leaving: bool, t: &DesignTokens) {
     if !leaving { return; }
     ui.painter().rect_filled(rect, 0., crate::list_fill(t).gamma_multiply(0.6));
-    let at = crate::dir::flip_pos(rect, egui::pos2(rect.right() - 24., rect.center().y));
+    // Lower half, the unread badge's spot: the stamp above stays readable.
+    let at = crate::dir::flip_pos(rect, egui::pos2(rect.right() - 24., rect.top() + 38.));
     ui.put(egui::Rect::from_center_size(at, Vec2::splat(18.)), egui::Spinner::new().size(18.));
 }
 
