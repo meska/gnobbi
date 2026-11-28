@@ -307,6 +307,13 @@ fn a_push_delivered_while_the_app_was_closed_goes_once_the_room_is_read() {
     assert_eq!(removed(&d, "!r:s"), ["p1", "p2"]);
 }
 
+#[test]
+fn a_tap_clears_the_room_with_its_thread_alerts_and_no_other_room() {
+    // Thread pushes carry the room as thread id like the main ones (the extension sets it for every message).
+    let d = delivered(&[("main", "!r:s", "3:7:!r:s"), ("in-thread", "!r:s", "3:7:!r:s"), ("raw-thread", "!r:s", ""), ("elsewhere", "!q:s", "3:7:!q:s")]);
+    assert_eq!(removed(&d, "!r:s"), ["main", "in-thread", "raw-thread"]);
+}
+
 fn scope(room: &str) -> RoomScope {
     RoomScope { account_id: AccountId::new(7), room_id: RoomId::new(room) }
 }

@@ -521,6 +521,8 @@ mod macos {
                 };
                 if let Some((catalog, scope)) = target {
                     remember_thread_tap(scope.room_id.as_str(), text("thread_root").as_deref(), text("event_id").as_deref());
+                    // Opening the chat reads it: its other delivered alerts (thread ones too, same thread id) go with the tapped one.
+                    clear_rooms(catalog, vec![scope.clone()]);
                     let key = target_key(catalog, &scope);
                     let slot = SLOTS.lock().ok().and_then(|slots| slots.as_ref()?.get(&key).cloned());
                     match slot.as_ref().map(|slot| slot.lock()) {
