@@ -759,6 +759,18 @@ mod tests {
         assert!(inside(short, bar) && inside(short, list) && !bar.intersects(list), "{bar:?} {list:?}");
     }
 
+    /// The full emoji grid (the picker replaces the entries) under a long press on the last message of a 436 pt phone, own message in the bottom right corner.
+    #[test]
+    fn the_emoji_grid_of_the_last_message_stays_in_the_room_on_a_phone() {
+        let room = Rect::from_min_max(pos2(16., 100.), pos2(420., 760.));
+        let rows = matrix_desktop::EMOJI_SET.len().div_ceil((((WIDTH - 2. * PAD) / CELL).floor() as usize).max(1)) as f32 * CELL;
+        let grid = vec2(WIDTH, rows + 2. * PAD);
+        for bubble in [Rect::from_min_max(pos2(250., 710.), pos2(418., 750.)), Rect::from_min_max(pos2(20., 710.), pos2(200., 750.)), Rect::from_min_max(pos2(250., 600.), pos2(418., 760.))] {
+            let (bar, list) = place(room, bubble, BAR, grid);
+            assert!(inside(room, bar) && inside(room, list) && !bar.intersects(list), "{bubble:?}: {bar:?} {list:?}");
+        }
+    }
+
     #[test]
     fn entries_follow_permissions_and_message_type() {
         use Action::*;
@@ -867,6 +879,11 @@ mod tests {
     /// Draws the right-click menu through `desktop_menu`, the function `message_menu` uses (stand-in cards), over a clickable background,
     /// with the same close rule (`pressed_outside`); `closed_by_old_rule` is the rule before the fix (`area.response.contains_pointer()`).
     fn frame(ctx: &egui::Context, size: Vec2, events: Vec<egui::Event>, at: Pos2) -> Out {
+        frame_with(ctx, size, events, at, 0.)
+    }
+
+    /// `frame` with the entries card `list_h` tall at least (the real one is about 200 pt, the stand-in has no entries).
+    fn frame_with(ctx: &egui::Context, size: Vec2, events: Vec<egui::Event>, at: Pos2, list_h: f32) -> Out {
         let t = matrix_desktop::Theme::Dark.tokens();
         let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)), events, ..Default::default() };
         let mut out = Out { pill: Rect::NOTHING, list: Rect::NOTHING, timeline_clicked: false, closed: false, closed_by_old_rule: false };
@@ -876,7 +893,7 @@ mod tests {
             let (rects, area) = desktop_menu(&ctx, at, |ui, rects| {
                 let card = egui::Frame::menu(ui.style());
                 rects.push(card.show(ui, |ui| reaction_rows(ui, &|_| false, &t)).response.rect);
-                rects.push(card.show(ui, |ui| ui.set_width(200.)).response.rect);
+                rects.push(card.show(ui, |ui| { ui.set_width(200.); ui.set_min_height(list_h); }).response.rect);
             });
             out.closed = pressed_outside(&ctx, &rects);
             out.closed_by_old_rule = ctx.input(|i| i.pointer.any_pressed()) && !area.contains_pointer();
@@ -985,6 +1002,32 @@ mod tests {
             assert!(!down.closed, "the fixed rule must keep the menu at {at:?}");
             // Canary for the premise of the fix: if egui stops shifting the hit-test rect, the extra block and `in_menu` can go.
             assert_eq!(down.closed_by_old_rule, pushed, "old rule at {at:?}");
+        }
+    }
+
+    /// The grid opened from the chevron of a menu at the bottom edge, the right edge and the bottom right corner of a 1280x800 window:
+    /// the press is not an outside press (the area is pushed up, so `Response::contains_pointer` still sees the rect before the push),
+    /// the grid opens and the cards end up inside the window.
+    #[test]
+    fn the_arrow_opens_the_grid_inside_the_window_at_the_bottom_and_the_corner() {
+        let size = vec2(1280., 800.);
+        let window = Rect::from_min_size(Pos2::ZERO, size).shrink(8.);
+        for at in [pos2(600., 722.), pos2(600., 795.), pos2(1270., 400.), pos2(1270., 722.), pos2(1275., 795.)] {
+            let ctx = egui::Context::default();
+            let run = |events: Vec<egui::Event>| frame_with(&ctx, size, events, at, 200.);
+            let mut o = run(vec![]);
+            for _ in 0..3 { o = run(vec![]); }
+            assert!(window.expand(0.5).contains_rect(o.pill.union(o.list)), "closed menu leaves the window at {at:?}: {:?} {:?}", o.pill, o.list);
+            let pushed = o.pill.min != at;
+            run(vec![egui::Event::PointerMoved(arrow(o.pill))]);
+            let down = run(vec![press(arrow(o.pill), true)]);
+            let up = run(vec![press(arrow(o.pill), false)]);
+            assert!(!down.closed && !up.closed && !down.timeline_clicked && !up.timeline_clicked, "the arrow click closed the menu or reached the timeline at {at:?}");
+            assert_eq!(down.closed_by_old_rule, pushed, "old rule at {at:?}: it misses the arrow exactly when the menu was pushed");
+            assert!(more_open(&ctx), "the grid did not open at {at:?}");
+            for _ in 0..5 { o = run(vec![]); }
+            assert!(o.pill.height() > 150., "the pill did not grow into the grid at {at:?}: {:?}", o.pill);
+            assert!(window.expand(0.5).contains_rect(o.pill.union(o.list)), "the open grid leaves the window at {at:?}: {:?} {:?}", o.pill, o.list);
         }
     }
 
