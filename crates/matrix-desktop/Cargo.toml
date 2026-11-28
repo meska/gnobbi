@@ -12,7 +12,7 @@ matrix-engine = { path = "../matrix-engine", features = ["sdk"] }
 serde_json = "=1.0.154"
 sha2 = "=0.10.9"
 # Seed of the gnome picture (md5 of the account id); tiny, no dependencies.
-md5 = "=0.7.0"
+md5 = "=0.8.1"
 unicode-normalization = "=0.1.26"
 url = "=2.5.9"
 zeroize = "=1.9.2"
