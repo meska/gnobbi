@@ -23,6 +23,8 @@ mod customize;
 mod devices;
 mod dir;
 mod explore;
+#[cfg_attr(not(debug_assertions), allow(dead_code))] // look only: the forward flow that calls it comes next
+mod forward_picker;
 #[cfg(target_os = "linux")]
 mod desktop_entry;
 mod highlight;
@@ -849,6 +851,8 @@ impl eframe::App for App {
         stickers::demo(&ctx, &t);
         #[cfg(debug_assertions)]
         mention_popup::demo(&ctx, &t);
+        #[cfg(debug_assertions)]
+        forward_picker::demo(&ctx, &t);
         #[cfg(debug_assertions)]
         if matrix_desktop::hooks::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("avatar-editor") { self.account_form.demo(&ctx, &t); }
         #[cfg(debug_assertions)]
