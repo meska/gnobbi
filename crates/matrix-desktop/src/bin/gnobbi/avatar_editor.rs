@@ -252,7 +252,7 @@ fn fetch_gnome(url: &str) -> Result<Vec<u8>, &'static str> {
     let failed = i18n::t("Could not get the gnome. Try again later.");
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_| failed)?;
     runtime.block_on(async {
-        let client = reqwest::Client::builder().user_agent("Gnobbi").timeout(GNOME_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build().map_err(|_| failed)?;
+        let client = matrix_desktop::http::client_builder().user_agent("Gnobbi").timeout(GNOME_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build().map_err(|_| failed)?;
         let mut resp = client.get(url).send().await.map_err(|_| failed)?;
         if resp.status() != reqwest::StatusCode::OK {
             return Err(failed);

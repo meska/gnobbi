@@ -156,7 +156,7 @@ async fn fetch(
     keys: &UpdateKeys,
     now: SystemTime,
 ) -> Result<VerifiedManifest, CheckError> {
-    let client = reqwest::Client::builder()
+    let client = crate::http::client_builder()
         .user_agent("Gnobbi")
         .timeout(TIMEOUT)
         // Our URLs are fixed and relative: a redirect is never legitimate.

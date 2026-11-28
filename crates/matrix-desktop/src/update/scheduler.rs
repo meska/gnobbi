@@ -136,7 +136,11 @@ mod online {
     pub fn check(rt: &tokio::runtime::Runtime, dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, prefs: &mut Preferences) {
         let Ok(keys) = UpdateKeys::parse(KEYS) else { return eprintln!("update: bad embedded keys") };
         let seam = Seam { keys: &keys, build: crate::build_info::BUILD_INFO.build, host: check::UPDATE_HOST, now: SystemTime::now() };
-        let offer = check_offer(rt, dirs, state, channel, prefs, &seam);
+        // A panic (e.g. TLS not initialised) must not silently end the thread: the row shows an error.
+        let Ok(offer) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check_offer(rt, dirs, state, channel, prefs, &seam))) else {
+            state.lock().unwrap_or_else(|p| p.into_inner()).check_error = Some(install::failed(""));
+            return;
+        };
         state.lock().unwrap_or_else(|p| p.into_inner()).available = offer;
     }
 
@@ -160,7 +164,9 @@ mod online {
     pub(super) fn check_offer(rt: &tokio::runtime::Runtime, dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, prefs: &mut Preferences, seam: &Seam) -> Option<Offer> {
         let platform = artifact_key(channel, std::env::consts::OS, std::env::consts::ARCH)?;
         // check() logs its own errors and stamps last_check as an attempt before any connection.
-        let Ok(Outcome::Candidate(o)) = rt.block_on(check::check_with(dirs, prefs, seam.keys, platform, seam.build, seam.host, seam.now)) else { return None };
+        let result = rt.block_on(check::check_with(dirs, prefs, seam.keys, platform, seam.build, seam.host, seam.now));
+        state.lock().unwrap_or_else(|p| p.into_inner()).check_error = result.is_err().then(|| install::failed(""));
+        let Ok(Outcome::Candidate(o)) = result else { return None };
         (!state.lock().unwrap_or_else(|p| p.into_inner()).bad_session.contains(&o.build)).then_some(o)
     }
 
@@ -178,7 +184,7 @@ mod online {
             }
             _ => target(channel).with_file_name(format!(".gnobbi.{}.{}.{}.new", c.build, std::process::id(), id)),
         };
-        let client = match reqwest::Client::builder().user_agent("Gnobbi").connect_timeout(READ_TIMEOUT).read_timeout(READ_TIMEOUT).redirect(crate::update::github::redirect_policy()).build() {
+        let client = match crate::http::client_builder().user_agent("Gnobbi").connect_timeout(READ_TIMEOUT).read_timeout(READ_TIMEOUT).redirect(crate::update::github::redirect_policy()).build() {
             Ok(c) => c,
             Err(e) => { eprintln!("update: client: {e}"); return None; }
         };

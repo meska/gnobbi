@@ -3,6 +3,7 @@
 pub mod build_info;
 pub mod feedback;
 pub mod hooks;
+pub mod http;
 pub mod crash_log;
 pub mod composer_image;
 
