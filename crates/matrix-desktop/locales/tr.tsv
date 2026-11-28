@@ -627,8 +627,7 @@ menu	Bring All to Front	Tümünü öne getir
 	Based on {votes}	{votes} temelinde
 @plural	{n} vote	{n} oy|{n} oy
 	Generate gnome	Cüce oluştur
-	Male gnome	Cüce
-	Female gnome	Dişi cüce
+	Generate female gnome	Dişi cüce oluştur
 	Could not get the gnome. Try again later.	Cüce alınamadı. Daha sonra tekrar deneyin.
 # forward_picker
 	Forward to…	İlet…

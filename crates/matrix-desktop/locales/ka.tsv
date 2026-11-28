@@ -712,8 +712,7 @@ menu	Bring All to Front	ყველა წინ
 	Based on {votes}	დაფუძნებულია {votes}-ზე
 @plural	{n} vote	{n} ხმა|{n} ხმა
 	Generate gnome	გნომის გენერაცია
-	Male gnome	გნომი
-	Female gnome	გნომი (მდედრ.)
+	Generate female gnome	გნომის (მდედრ.) გენერაცია
 	Could not get the gnome. Try again later.	გნომის მიღება ვერ მოხერხდა. სცადეთ მოგვიანებით.
 # forward_picker
 	Forward to…	გადაგზავნა…

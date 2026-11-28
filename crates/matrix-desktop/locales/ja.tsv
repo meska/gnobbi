@@ -626,8 +626,7 @@ menu	Bring All to Front	すべてを手前に移動
 	Based on {votes}	{votes}に基づく
 @plural	{n} vote	{n}票
 	Generate gnome	ノームを生成
-	Male gnome	ノーム（男）
-	Female gnome	ノーム（女）
+	Generate female gnome	ノーム（女）を生成
 	Could not get the gnome. Try again later.	ノームを取得できませんでした。後でもう一度お試しください。
 # forward_picker
 	Forward to…	転送先…

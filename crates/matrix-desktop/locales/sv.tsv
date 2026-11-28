@@ -712,8 +712,7 @@ menu	Bring All to Front	Lägg alla överst
 	Based on {votes}	Baserat på {votes}
 @plural	{n} vote	{n} röst|{n} röster
 	Generate gnome	Skapa tomte
-	Male gnome	Tomte
-	Female gnome	Tomtekvinna
+	Generate female gnome	Skapa tomtekvinna
 	Could not get the gnome. Try again later.	Det gick inte att hämta tomten. Försök igen senare.
 # forward_picker
 	Forward to…	Vidarebefordra till…

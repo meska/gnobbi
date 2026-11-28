@@ -712,8 +712,7 @@ menu	Bring All to Front	Усі вікна на передній план
 	Based on {votes}	На основі: {votes}
 @plural	{n} vote	{n} голос|{n} голоси|{n} голосів
 	Generate gnome	Створити гнома
-	Male gnome	Гном
-	Female gnome	Гномиха
+	Generate female gnome	Створити гномиху
 	Could not get the gnome. Try again later.	Не вдалося отримати гнома. Спробуйте пізніше.
 # forward_picker
 	Forward to…	Переслати до…

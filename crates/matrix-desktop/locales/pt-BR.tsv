@@ -627,8 +627,7 @@ menu	Bring All to Front	Trazer tudo para a frente
 	Based on {votes}	Baseado em {votes}
 @plural	{n} vote	{n} voto|{n} votos
 	Generate gnome	Gerar gnomo
-	Male gnome	Gnomo
-	Female gnome	Gnoma
+	Generate female gnome	Gerar gnoma
 	Could not get the gnome. Try again later.	Não foi possível obter o gnomo. Tente novamente mais tarde.
 # forward_picker
 	Forward to…	Encaminhar para…
