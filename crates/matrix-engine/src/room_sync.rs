@@ -2489,8 +2489,8 @@ pub(crate) async fn fill(
         if now.rows.len() >= want || now.at_start {
             return (now, Ok(()));
         }
-        let before = now.rows.len();
         let step_started = std::time::Instant::now();
+        let items_before = timeline.items().await.len();
         // A thread timeline pages through its event cache, which is what `Timeline::paginate_backwards` does
         // for it; going there ourselves tells whether the page brought events (the timeline does not).
         let paged = match thread {
@@ -2504,20 +2504,18 @@ pub(crate) async fn fill(
                 Err(crate::history::HistoryError::Transport),
             );
         };
-        // The timeline applies the cache updates in its own task: wait for the rows to show up, but only when
-        // the page brought events (an empty one has nothing to wait for).
-        // Reaching the start adds its marker at once, so only a row count change counts.
+        // The timeline applies the cache updates in its own task: wait for its items to change, but only when
+        // the page brought events (an empty one has nothing to wait for). Poll the item count, never `loaded`:
+        // that converts every row and, on this single-thread runtime, starved the very task that applies the
+        // page, so the deadline passed with the rows already there and a second page was asked for until the
+        // request timed out. Reaching the start adds its marker at once, so only a count change counts.
         // shortcut: polling with a deadline, upgrade to the timeline's diff stream if it flickers.
         let deadline = tokio::time::Instant::now()
             + Duration::from_millis(if reached_start { 400 } else { 3000 });
-        now = loaded(room, timeline).await;
-        while added {
-            if now.rows.len() != before || tokio::time::Instant::now() >= deadline {
-                break;
-            }
+        while added && timeline.items().await.len() == items_before && tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(20)).await;
-            now = loaded(room, timeline).await;
         }
+        now = loaded(room, timeline).await;
         // The server has nothing older. A thread has no start marker of its own, so without this it paged on to the step
         // limit while the rows it wanted did not exist.
         if reached_start {
