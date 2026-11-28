@@ -601,6 +601,10 @@ menu	Bring All to Front	Prebaci sve naprijed
 	Update failed: restored {version}	Ažuriranje nije uspjelo: vraćena verzija {version}
 	Update failed: error	Ažuriranje nije uspjelo: greška
 	Update postponed: message not sent	Ažuriranje odgođeno: poruka nije poslana
+	Update ready to install	Ažuriranje je spremno za instalaciju
+	signature differs from the installed app	potpis se razlikuje od instalirane aplikacije
+	Allow installs from Gnobbi, then update again	Dozvoli instalacije iz Gnobbija, zatim ponovo ažuriraj
+	installer not available	instalater nije dostupan
 	backup differs from the binary, kept	sigurnosna kopija se razlikuje od binarne datoteke, zadržana
 	gnobbi-keys.txt	gnobbi-kljucevi.txt
 	Filter: {label}	Filter: {label}

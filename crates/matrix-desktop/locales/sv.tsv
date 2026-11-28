@@ -676,6 +676,10 @@ menu	Bring All to Front	Lägg alla överst
 	Update failed: restored {version}	Uppdateringen misslyckades: {version} återställdes
 	Update failed: error	Uppdateringen misslyckades: fel
 	Update postponed: message not sent	Uppdateringen sköts upp: meddelandet skickades inte
+	Update ready to install	Uppdateringen är redo att installeras
+	signature differs from the installed app	signaturen skiljer sig från den installerade appens
+	Allow installs from Gnobbi, then update again	Tillåt installationer från Gnobbi och uppdatera igen
+	installer not available	installationsprogrammet är inte tillgängligt
 
 # update
 	backup differs from the binary, kept	säkerhetskopian skiljer sig från programfilen, behölls

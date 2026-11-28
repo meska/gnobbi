@@ -676,6 +676,10 @@ menu	Bring All to Front	Усі вікна на передній план
 	Update failed: restored {version}	Не вдалося оновити: відновлено {version}
 	Update failed: error	Не вдалося оновити: помилка
 	Update postponed: message not sent	Оновлення відкладено: повідомлення не надіслано
+	Update ready to install	Оновлення готове до встановлення
+	signature differs from the installed app	підпис відрізняється від підпису встановленого застосунку
+	Allow installs from Gnobbi, then update again	Дозвольте встановлення з Gnobbi і оновіть знову
+	installer not available	інсталятор недоступний
 
 # update
 	backup differs from the binary, kept	резервна копія відрізняється від файлу, збережена

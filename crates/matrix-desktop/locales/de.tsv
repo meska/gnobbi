@@ -676,6 +676,10 @@ menu	Bring All to Front	Alle nach vorne bringen
 	Update failed: restored {version}	Update fehlgeschlagen: {version} wiederhergestellt
 	Update failed: error	Update fehlgeschlagen: Fehler
 	Update postponed: message not sent	Update verschoben: Nachricht nicht gesendet
+	Update ready to install	Update bereit zur Installation
+	signature differs from the installed app	Signatur weicht von der installierten App ab
+	Allow installs from Gnobbi, then update again	Installationen durch Gnobbi erlauben, dann erneut aktualisieren
+	installer not available	Installer nicht verfügbar
 
 # update
 	backup differs from the binary, kept	Sicherung weicht von der Binärdatei ab, behalten

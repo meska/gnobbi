@@ -600,6 +600,10 @@ menu	Bring All to Front	Przesuń wszystko na wierzch
 	Update failed: restored {version}	Aktualizacja nie powiodła się: przywrócono {version}
 	Update failed: error	Aktualizacja nie powiodła się: błąd
 	Update postponed: message not sent	Aktualizacja odłożona: wiadomość niewysłana
+	Update ready to install	Aktualizacja gotowa do instalacji
+	signature differs from the installed app	podpis różni się od zainstalowanej aplikacji
+	Allow installs from Gnobbi, then update again	Zezwól na instalacje z Gnobbi, a potem zaktualizuj ponownie
+	installer not available	instalator niedostępny
 	backup differs from the binary, kept	kopia różni się od pliku binarnego, zachowano
 	gnobbi-keys.txt	gnobbi-keys.txt
 	Filter: {label}	Filtr: {label}

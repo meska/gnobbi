@@ -676,6 +676,10 @@ menu	Bring All to Front	全部置于前面
 	Update failed: restored {version}	更新失败：已恢复到 {version}
 	Update failed: error	更新失败：错误
 	Update postponed: message not sent	更新已推迟：消息未发送
+	Update ready to install	更新已可安装
+	signature differs from the installed app	签名与已安装的应用不同
+	Allow installs from Gnobbi, then update again	请允许 Gnobbi 安装应用，然后再次更新
+	installer not available	安装程序不可用
 
 # update
 	backup differs from the binary, kept	备份与程序不一致，已保留

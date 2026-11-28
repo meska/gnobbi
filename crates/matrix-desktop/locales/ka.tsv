@@ -676,6 +676,10 @@ menu	Bring All to Front	ყველა წინ
 	Update failed: restored {version}	განახლება ვერ მოხერხდა: აღდგა {version}
 	Update failed: error	განახლება ვერ მოხერხდა: შეცდომა
 	Update postponed: message not sent	განახლება გადაიდო: შეტყობინება არ გაიგზავნა
+	Update ready to install	განახლება მზადაა დასაყენებლად
+	signature differs from the installed app	ხელმოწერა განსხვავდება დაყენებული აპის ხელმოწერისგან
+	Allow installs from Gnobbi, then update again	დაუშვით ინსტალაციები Gnobbi-დან, შემდეგ განაახლეთ ხელახლა
+	installer not available	ინსტალერი მიუწვდომელია
 
 # update
 	backup differs from the binary, kept	სარეზერვო ასლი განსხვავდება ფაილისგან, შენახულია

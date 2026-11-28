@@ -568,6 +568,10 @@ menu	Bring All to Front	העברת הכול לחזית
 	Update failed: restored {version}	העדכון נכשל: גרסה {version} שוחזרה
 	Update failed: {cause}	העדכון נכשל: {cause}
 	Update postponed: message not sent	העדכון נדחה: ההודעה לא נשלחה
+	Update ready to install	העדכון מוכן להתקנה
+	signature differs from the installed app	החתימה שונה מזו של האפליקציה המותקנת
+	Allow installs from Gnobbi, then update again	אפשרו התקנות מ-Gnobbi ואז עדכנו שוב
+	installer not available	המתקין אינו זמין
 	Updated to {version}	עודכן לגרסה {version}
 	Windows update not available	עדכון Windows אינו זמין
 	Reply/edit: write in the draft, then use the button. Enter sends normally.	לתגובה או עריכה: יש לכתוב בטיוטה ואז להשתמש בכפתור. Enter שולח כרגיל.

@@ -64,6 +64,9 @@ pub fn start(dirs: AppDirs, state: Arc<Mutex<UpdateState>>, cfg: Config) -> Opti
         return None;
     }
     std::thread::Builder::new().name("update-check".into()).spawn(move || {
+        if matches!(channel, Channel::AndroidDirect) {
+            prune_installed(&dirs, super::install::running_build());
+        }
         // shortcut: leave unproven orphans untouched; add interprocess ownership before cleanup.
         // Built lazily: a disabled switch never creates the runtime or the HTTP client.
         let mut rt: Option<tokio::runtime::Runtime> = None;
@@ -88,6 +91,18 @@ pub fn release_build(distributed: bool, build: &str) -> bool {
 
 /// Folder of the staged APK inside the app cache; `file_provider_paths.xml` exposes `.cache/gnobbi/updates/`.
 const UPDATES_DIR: &str = "updates";
+
+/// The app now runs a build at least as new as a staged `gnobbi-<build>.apk`: the install happened, the 130 MB file goes.
+fn prune_installed(dirs: &AppDirs, running: u64) {
+    let Ok(rd) = std::fs::read_dir(dirs.cache.join(UPDATES_DIR)) else { return };
+    for e in rd.flatten() {
+        let name = e.file_name();
+        let build = name.to_str().and_then(|n| n.strip_prefix("gnobbi-")?.strip_suffix(".apk")?.parse::<u64>().ok());
+        if build.is_some_and(|b| b <= running) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
 
 fn target(channel: &Channel) -> &Path {
     match channel {
@@ -251,6 +266,22 @@ mod tests {
         for ch in [Channel::MacStore, Channel::Flatpak, Channel::SystemPackage, Channel::Unknown] {
             assert!(!should_check(&ch, &prefs(true, None), now));
         }
+    }
+
+    #[test]
+    fn prune_removes_only_apks_not_newer_than_the_running_build() {
+        let tmp = std::env::temp_dir().join(format!("gnobbi-prune-{}", std::process::id()));
+        let dirs = AppDirs { config: tmp.join("c"), data: tmp.join("d"), cache: tmp.join("k") };
+        let up = dirs.cache.join(UPDATES_DIR);
+        std::fs::create_dir_all(&up).unwrap();
+        for n in ["gnobbi-8.apk", "gnobbi-9.apk", "gnobbi-10.apk", "other.txt"] {
+            std::fs::write(up.join(n), b"x").unwrap();
+        }
+        prune_installed(&dirs, 9);
+        let mut left: Vec<_> = std::fs::read_dir(&up).unwrap().flatten().map(|e| e.file_name().into_string().unwrap()).collect();
+        left.sort();
+        assert_eq!(left, ["gnobbi-10.apk", "other.txt"]);
+        let _ = std::fs::remove_dir_all(tmp);
     }
 
     #[test]

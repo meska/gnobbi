@@ -601,6 +601,10 @@ menu	Bring All to Front	Tümünü öne getir
 	Update failed: restored {version}	Güncelleme başarısız: {version} geri yüklendi
 	Update failed: error	Güncelleme başarısız: hata
 	Update postponed: message not sent	Güncelleme ertelendi: mesaj gönderilmedi
+	Update ready to install	Güncelleme yüklemeye hazır
+	signature differs from the installed app	imza, yüklü uygulamanın imzasından farklı
+	Allow installs from Gnobbi, then update again	Gnobbi'den yüklemelere izin verin, sonra yeniden güncelleyin
+	installer not available	yükleyici kullanılamıyor
 	backup differs from the binary, kept	yedek ikili dosyadan farklı, korundu
 	gnobbi-keys.txt	gnobbi-keys.txt
 	Filter: {label}	Filtre: {label}

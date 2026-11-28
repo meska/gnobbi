@@ -81,6 +81,22 @@ fn status_of(state: &Mutex<stage::UpdateState>) -> Status {
     }
 }
 
+/// After an error the offer is still there: the row keeps «Update» next to the line (e.g. «allow installs», installer closed).
+pub fn retryable() -> bool {
+    retryable_of(&shared_state())
+}
+
+fn retryable_of(state: &Mutex<stage::UpdateState>) -> bool {
+    let s = state.lock().unwrap_or_else(|e| e.into_inner());
+    s.available.is_some() && !s.working
+}
+
+/// The APK staged by a previous click, if it is the offered build and still verifies (size, hash): no new download.
+fn staged_apk(state: &Mutex<stage::UpdateState>, channel: &channel::Channel, offer: &check::Offer) -> Option<stage::Ready> {
+    let ready = state.lock().unwrap_or_else(|e| e.into_inner()).ready.clone()?;
+    (matches!(channel, channel::Channel::AndroidDirect) && ready.build == offer.build && install::reverify(&ready.path, &ready).is_ok()).then_some(ready)
+}
+
 /// «Aggiorna»: downloads, verifies and installs in a background thread (the UI never blocks), then
 /// restarts the app. Any failure leaves the running build untouched and becomes `Status::Error`.
 /// `lock` is `matrix_engine::lock_for_update` (see `stage_then_install`): nothing installs without it.
@@ -99,7 +115,7 @@ pub fn start_update<L>(dirs: AppDirs, lock: impl Fn() -> Option<L> + Send + 'sta
     let spawned = std::thread::Builder::new().name("update-apply".into()).spawn(move || {
         let line = stage_then_install(
             lock,
-            || scheduler::stage(&dirs, &state, &channel, &offer),
+            || staged_apk(&state, &channel, &offer).map_or_else(|| scheduler::stage(&dirs, &state, &channel, &offer), Ok),
             |ready| install::install_and_restart(&dirs, &channel, &ready),
         );
         let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
@@ -226,5 +242,30 @@ mod status_tests {
         assert_eq!(status_of(&st), Status::Error("Update failed: error".into()));
         st.lock().unwrap().working = true;
         assert_eq!(status_of(&st), Status::Working);
+    }
+
+    /// «allow installs» and «installer closed» end as error lines: the offer stays and so does «Update».
+    #[test]
+    fn update_can_start_again_after_permission_and_opened() {
+        use super::android::{OPENED, PERMISSION};
+        let root = std::env::temp_dir().join(format!("gnobbi-retry-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("gnobbi-9.apk");
+        std::fs::write(&path, b"apk").unwrap();
+        let ready = stage::Ready { version: "1".into(), build: 9, path: path.clone(), size: 3, sha256: verify::sha256_file(&path).unwrap() };
+        let st = Mutex::new(stage::UpdateState { available: Some(check::Offer { build: 9, ..offer() }), ready: Some(ready.clone()), ..Default::default() });
+        for (code, line) in [(PERMISSION, "Allow installs from Gnobbi, then update again"), (OPENED, "Update ready to install")] {
+            let got = install::install_apk(&ready, |_| code);
+            assert_eq!(got, line);
+            { let mut s = st.lock().unwrap(); (s.working, s.error) = (false, Some(got)); }
+            assert!(matches!(status_of(&st), Status::Error(_)));
+            assert!(retryable_of(&st), "«Update» stays pressable");
+            let again = staged_apk(&st, &channel::Channel::AndroidDirect, &offer());
+            assert_eq!(again.as_ref(), Some(&ready), "same build: the staged APK is reused, no new download");
+        }
+        assert!(staged_apk(&st, &channel::Channel::AndroidDirect, &check::Offer { build: 10, ..offer() }).is_none());
+        std::fs::write(&path, b"evil").unwrap();
+        assert!(staged_apk(&st, &channel::Channel::AndroidDirect, &offer()).is_none(), "altered APK is not reused");
+        let _ = std::fs::remove_dir_all(root);
     }
 }

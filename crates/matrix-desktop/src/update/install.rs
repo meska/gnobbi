@@ -297,7 +297,7 @@ pub(super) fn install_apk(ready: &Ready, open: impl FnOnce(&Path) -> i32) -> Str
     match open(&ready.path) {
         OPENED => crate::i18n::t("Update ready to install").into(),
         SIGNATURE => failed(crate::i18n::t("signature differs from the installed app")),
-        PERMISSION => failed(crate::i18n::t("allow installs from Gnobbi, then update again")),
+        PERMISSION => crate::i18n::t("Allow installs from Gnobbi, then update again").into(), // not a failure: the row keeps «Update»
         _ => failed(crate::i18n::t("installer not available")),
     }
 }

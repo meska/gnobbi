@@ -676,6 +676,10 @@ menu	Bring All to Front	Όλα μπροστά
 	Update failed: restored {version}	Η ενημέρωση απέτυχε: επαναφέρθηκε η {version}
 	Update failed: error	Η ενημέρωση απέτυχε: σφάλμα
 	Update postponed: message not sent	Η ενημέρωση αναβλήθηκε: το μήνυμα δεν στάλθηκε
+	Update ready to install	Η ενημέρωση είναι έτοιμη για εγκατάσταση
+	signature differs from the installed app	η υπογραφή διαφέρει από της εγκατεστημένης εφαρμογής
+	Allow installs from Gnobbi, then update again	Επιτρέψτε τις εγκαταστάσεις από το Gnobbi και ενημερώστε ξανά
+	installer not available	το πρόγραμμα εγκατάστασης δεν είναι διαθέσιμο
 
 # update
 	backup differs from the binary, kept	το αντίγραφο ασφαλείας διαφέρει από το εκτελέσιμο, διατηρήθηκε

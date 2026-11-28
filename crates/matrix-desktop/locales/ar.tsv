@@ -568,6 +568,10 @@ menu	Bring All to Front	إحضار الكل إلى المقدمة
 	Update failed: restored {version}	فشل التحديث: تمت استعادة {version}
 	Update failed: {cause}	فشل التحديث: {cause}
 	Update postponed: message not sent	تأجل التحديث: لم تُرسل الرسالة
+	Update ready to install	التحديث جاهز للتثبيت
+	signature differs from the installed app	التوقيع يختلف عن التطبيق المثبّت
+	Allow installs from Gnobbi, then update again	اسمح بالتثبيت من Gnobbi ثم حدّث مرة أخرى
+	installer not available	المثبّت غير متاح
 	Updated to {version}	تم التحديث إلى {version}
 	Windows update not available	تحديث Windows غير متاح
 	Reply/edit: write in the draft, then use the button. Enter sends normally.	للرد أو التعديل: اكتب في المسودة ثم استخدم الزر. يرسل Enter كالمعتاد.
