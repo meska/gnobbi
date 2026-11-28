@@ -757,6 +757,10 @@ impl Session {
         // A click on an alert opens its room (once it is in the list).
         let click = self.notify.as_ref().and_then(|h| h.take_click()).map(|(_, scope)| scope);
         if let Some(scope) = click.or_else(|| self.catalog_id.and_then(|id| matrix_desktop::notifications::take_early_click(Some(id)))) {
+            // Same jump as a search hit inside a thread: the room opens with the thread panel on its root.
+            if let matrix_desktop::notifications::TapRoute::Thread { scope: room, root, .. } = matrix_desktop::notifications::route_tap(scope.clone()) {
+                self.jump_after_open = Some((room, (EventId::new(root), true)));
+            }
             self.pending_select = Some(scope);
             self.pending_click = Some((std::time::Instant::now(), self.sidebar.picks()));
             // A click that launched the app must not lose to the room restored from the last run.

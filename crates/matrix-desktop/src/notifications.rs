@@ -355,6 +355,35 @@ pub fn set_badge(unread: u64, active: bool) {
     let _ = (unread, active);
 }
 
+/// Where a tap lands: the room alone, or its thread panel opened on `root` with the notified `event` in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TapRoute {
+    Chat(RoomScope),
+    Thread { scope: RoomScope, root: String, event: String },
+}
+
+/// The push's `thread_root` / `event_id` of the last tap, with its room: read by the session that opens the room.
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
+static THREAD_TAP: Mutex<Option<(String, String, String)>> = Mutex::new(None);
+
+/// A tap's `userInfo` on a push inside a thread. Both ids must be event ids (`$...`); anything else is a plain chat tap.
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
+fn remember_thread_tap(room: &str, root: Option<&str>, event: Option<&str>) {
+    let hint = root.zip(event).filter(|(r, e)| r.starts_with('$') && e.starts_with('$')).map(|(r, e)| (room.to_owned(), r.to_owned(), e.to_owned()));
+    *THREAD_TAP.lock().unwrap_or_else(|e| e.into_inner()) = hint;
+}
+
+/// The route for a tap that opens `scope`; consumes the thread hint when it names that room.
+pub fn route_tap(scope: RoomScope) -> TapRoute {
+    #[cfg(any(target_os = "macos", target_os = "ios", test))]
+    if let Ok(mut hint) = THREAD_TAP.lock()
+        && let Some((_, root, event)) = hint.take_if(|(room, ..)| room == scope.room_id.as_str())
+    {
+        return TapRoute::Thread { scope, root, event };
+    }
+    TapRoute::Chat(scope)
+}
+
 /// A click that reached the process before (or without) the session that owns it: kept here until that account polls.
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", test))]
 static EARLY_CLICK: Mutex<Option<(Option<AccountId>, RoomScope)>> = Mutex::new(None);
@@ -491,6 +520,7 @@ mod macos {
                     None => text("gnobbi_account").zip(text("room_id")).and_then(|(account, room)| parse_remote(&account, &room)),
                 };
                 if let Some((catalog, scope)) = target {
+                    remember_thread_tap(scope.room_id.as_str(), text("thread_root").as_deref(), text("event_id").as_deref());
                     let key = target_key(catalog, &scope);
                     let slot = SLOTS.lock().ok().and_then(|slots| slots.as_ref()?.get(&key).cloned());
                     match slot.as_ref().map(|slot| slot.lock()) {

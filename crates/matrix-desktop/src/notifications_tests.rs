@@ -345,3 +345,17 @@ fn push_is_silent_only_for_the_room_on_screen() {
     assert!(!is_visible("3:7:accounts/3", "!r:fixture.invalid"));
     set_visible(None);
 }
+
+#[test]
+fn tap_with_thread_root_opens_the_thread_and_without_it_only_the_chat() {
+    let scope = RoomScope { account_id: AccountId::new(7), room_id: RoomId::new("!r:fixture.invalid") };
+    remember_thread_tap("!r:fixture.invalid", Some("$root"), Some("$reply"));
+    assert_eq!(route_tap(scope.clone()), TapRoute::Thread { scope: scope.clone(), root: "$root".into(), event: "$reply".into() });
+    // Taken once.
+    assert_eq!(route_tap(scope.clone()), TapRoute::Chat(scope.clone()));
+    // No thread_root, a malformed one, or another room's hint: the chat alone.
+    for (room, root, event) in [("!r:fixture.invalid", None, Some("$e")), ("!r:fixture.invalid", Some("root"), Some("$e")), ("!r:fixture.invalid", Some("$root"), None), ("!other:s", Some("$root"), Some("$e"))] {
+        remember_thread_tap(room, root, event);
+        assert_eq!(route_tap(scope.clone()), TapRoute::Chat(scope.clone()), "{room} {root:?} {event:?}");
+    }
+}
