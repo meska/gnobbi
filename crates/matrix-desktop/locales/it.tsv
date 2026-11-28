@@ -782,8 +782,7 @@ menu	Bring All to Front	Porta tutto in primo piano
 	Based on {votes}	Basato su {votes}
 @plural	{n} vote	{n} voto|{n} voti
 	Generate gnome	Genera gnomo
-	Male gnome	Gnomo
-	Female gnome	Gnoma
+	Generate female gnome	Genera gnoma
 	Could not get the gnome. Try again later.	Non riesco a scaricare il gnomo. Riprova più tardi.
 	Previous	Precedente
 	Next	Successivo

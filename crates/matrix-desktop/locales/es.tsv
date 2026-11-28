@@ -627,8 +627,7 @@ menu	Bring All to Front	Traer todo al frente
 	Based on {votes}	Basado en {votes}
 @plural	{n} vote	{n} voto|{n} votos
 	Generate gnome	Generar gnomo
-	Male gnome	Gnomo
-	Female gnome	Gnoma
+	Generate female gnome	Generar gnoma
 	Could not get the gnome. Try again later.	No se pudo obtener el gnomo. Inténtalo de nuevo más tarde.
 	Update	Actualizar
 	Updating…	Actualizando…

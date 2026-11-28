@@ -627,8 +627,7 @@ menu	Bring All to Front	Összes előtérbe hozása
 	Based on {votes}	Alapja: {votes}
 @plural	{n} vote	{n} szavazat|{n} szavazat
 	Generate gnome	Manó készítése
-	Male gnome	Manó
-	Female gnome	Mannó
+	Generate female gnome	Mannó készítése
 	Could not get the gnome. Try again later.	Nem sikerült letölteni a manót. Próbáld újra később.
 # forward_picker
 	Forward to…	Továbbítás ide…

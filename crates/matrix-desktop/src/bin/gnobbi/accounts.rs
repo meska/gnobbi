@@ -27,9 +27,9 @@ pub struct Form {
     photo: Photo,
     /// The retouch window; kept (closed) after «Applica» so the same picture can be adjusted again.
     editor: Option<Editor>,
-    /// «Genera gnomo»: the gender chosen and how many gnomes were asked (the first is the account's own, each next one is another).
-    female: bool,
-    gnomes: u32,
+    /// «Genera gnomo» / «Genera gnoma»: how many gnomes were asked of each gender [male, female] (the first is the account's own, each next one is another), and which button is working.
+    gnomes: [u32; 2],
+    gnome_female: bool,
     /// A «Salva» is on its way: a good answer drops the chosen picture (the server's one is shown again).
     sent: bool,
     /// Test hook state (see `card`).
@@ -38,6 +38,13 @@ pub struct Form {
 }
 
 impl Form {
+    /// The counter for the next gnome of this gender: each gender counts on its own, so the other one's first (the account's own) stays reachable.
+    fn next_gnome(&mut self, female: bool) -> u32 {
+        let n = &mut self.gnomes[usize::from(female)];
+        *n += 1;
+        *n - 1
+    }
+
     /// A file from the picker or dropped on the window opens the retouch window; `profile` is the account's private folder.
     pub fn pick(&mut self, path: PathBuf, profile: &std::path::Path, ctx: &egui::Context) {
         self.editor = Some(Editor::from_file(path, draft(profile), ctx));
@@ -80,7 +87,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         f.name = shown.1.clone().unwrap_or_default();
         f.seeded = Some(shown.clone());
     }
-    let mut gnome = false;
+    let mut gnome: Option<bool> = None;
     // Test hook: GNOBBI_EGUI_NAME=<text> and GNOBBI_EGUI_PHOTO=<file>|remove fill the card once; GNOBBI_EGUI_CONFIRM presses «Salva».
     if !f.hooked && s.profile_caps.is_some() {
         f.hooked = true;
@@ -93,7 +100,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
             Err(_) => {}
         }
         // GNOBBI_EGUI_GNOME presses «Genera gnomo» once.
-        gnome = matrix_desktop::hooks::var_os("GNOBBI_EGUI_GNOME").is_some();
+        gnome = matrix_desktop::hooks::var_os("GNOBBI_EGUI_GNOME").is_some().then_some(false);
         f.hook_save = matrix_desktop::hooks::var_os("GNOBBI_EGUI_CONFIRM").is_some();
         // With the confirm hook the retouch window applies the picture as it is.
         if let Some(e) = f.editor.as_mut().filter(|_| f.hook_save) {
@@ -160,12 +167,14 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         if can_photo {
             ui.add_enabled_ui(!f.editor.as_ref().is_some_and(Editor::busy), |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    gnome |= ui.button(i18n::t("Generate gnome")).clicked();
-                    if f.editor.as_ref().is_some_and(Editor::busy) {
-                        ui.spinner();
+                    for (female, label) in [(false, "Generate gnome"), (true, "Generate female gnome")] {
+                        if ui.button(i18n::t(label)).clicked() {
+                            gnome = Some(female);
+                        }
+                        if f.gnome_female == female && f.editor.as_ref().is_some_and(Editor::busy) {
+                            ui.spinner();
+                        }
                     }
-                    ui.selectable_value(&mut f.female, false, i18n::t("Male gnome"));
-                    ui.selectable_value(&mut f.female, true, i18n::t("Female gnome"));
                 });
             });
         }
@@ -195,9 +204,9 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
             });
         }
     });
-    if gnome {
-        f.editor = Some(Editor::from_gnome(&id, f.gnomes, f.female, draft(profile), ui.ctx()));
-        f.gnomes += 1;
+    if let Some(female) = gnome {
+        f.gnome_female = female;
+        f.editor = Some(Editor::from_gnome(&id, f.next_gnome(female), female, draft(profile), ui.ctx()));
     }
     if f.hook_save && !f.editing() && !f.editor.as_ref().is_some_and(Editor::busy) {
         f.hook_save = false;
@@ -520,6 +529,18 @@ fn wipe_with(dir: &std::path::Path, cache: Option<PathBuf>, mut forget: impl FnM
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn each_gender_counts_its_gnomes_on_its_own() {
+        let mut f = super::Form::default();
+        assert_eq!((f.next_gnome(false), f.next_gnome(false), f.next_gnome(false)), (0, 1, 2));
+        // The female gnome with counter 0 is still the account's own, whatever was asked of the male ones.
+        assert_eq!(f.next_gnome(true), 0);
+        assert_eq!(f.next_gnome(false), 3);
+        assert_eq!(f.next_gnome(true), 1);
+        let (m, w) = (crate::avatar_editor::gnome_url("a", 0, false), crate::avatar_editor::gnome_url("a", 0, true));
+        assert!(m.ends_with("&g=m") && w.ends_with("&g=f") && m.replace("g=m", "g=f") == w);
+    }
+
     #[test]
     fn save_waits_while_a_picture_is_on_its_way() {
         let ctx = crate::icons::test_context();

@@ -626,8 +626,7 @@ menu	Bring All to Front	Przesuń wszystko na wierzch
 	Based on {votes}	Na podstawie {votes}
 @plural	{n} vote	{n} głos|{n} głosy|{n} głosów
 	Generate gnome	Wygeneruj gnoma
-	Male gnome	Gnom
-	Female gnome	Gnomka
+	Generate female gnome	Wygeneruj gnomkę
 	Could not get the gnome. Try again later.	Nie udało się pobrać gnoma. Spróbuj ponownie później.
 # forward_picker
 	Forward to…	Przekaż do…

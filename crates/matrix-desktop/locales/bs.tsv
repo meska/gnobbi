@@ -627,8 +627,7 @@ menu	Bring All to Front	Prebaci sve naprijed
 	Based on {votes}	Na osnovu {votes}
 @plural	{n} vote	{n} glas|{n} glasa|{n} glasova
 	Generate gnome	Generiši patuljka
-	Male gnome	Patuljak
-	Female gnome	Patuljica
+	Generate female gnome	Generiši patuljicu
 	Could not get the gnome. Try again later.	Nije moguće preuzeti patuljka. Pokušaj ponovo kasnije.
 # forward_picker
 	Forward to…	Proslijedi u…

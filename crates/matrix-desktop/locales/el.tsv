@@ -712,8 +712,7 @@ menu	Bring All to Front	Όλα μπροστά
 	Based on {votes}	Βάσει {votes}
 @plural	{n} vote	{n} ψήφος|{n} ψήφοι
 	Generate gnome	Δημιουργία νάνου
-	Male gnome	Νάνος
-	Female gnome	Νάνα
+	Generate female gnome	Δημιουργία νάνας
 	Could not get the gnome. Try again later.	Δεν ήταν δυνατή η λήψη του νάνου. Δοκιμάστε ξανά αργότερα.
 # forward_picker
 	Forward to…	Προώθηση σε…
