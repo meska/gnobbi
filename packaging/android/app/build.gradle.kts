@@ -40,7 +40,7 @@ tasks.matching { it.name == "preBuild" }.configureEach {
 }
 
 dependencies {
-    implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
+    implementation(platform("com.google.firebase:firebase-bom:35.2.0"))
     implementation("com.google.firebase:firebase-messaging")
     implementation("androidx.core:core:1.13.1") // FileProvider for «Share»
     testImplementation("junit:junit:4.13.2")
