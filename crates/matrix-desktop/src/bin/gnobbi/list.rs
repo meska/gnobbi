@@ -216,7 +216,8 @@ fn dim_leaving(ui: &mut egui::Ui, rect: egui::Rect, leaving: bool, t: &DesignTok
     ui.painter().rect_filled(rect, 0., crate::list_fill(t).gamma_multiply(0.6));
     // Lower half, the unread badge's spot: the stamp above stays readable.
     let at = crate::dir::flip_pos(rect, egui::pos2(rect.right() - 24., rect.top() + 38.));
-    ui.put(egui::Rect::from_center_size(at, Vec2::splat(18.)), egui::Spinner::new().size(18.));
+    // Painted, not put: a put would move the layout cursor and lift the next row.
+    egui::Spinner::new().size(18.).paint_at(ui, egui::Rect::from_center_size(at, Vec2::splat(18.)));
 }
 
 /// The one confirmation modal: a question, what `body` adds, «Annulla» and a red button, both at button height (44 pt on touch).
@@ -356,6 +357,8 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     let mut pick = None;
     let mut action = None;
     if let Some(error) = &session.room_error { ui.colored_label(rgb(t.error), error); }
+    // Merged list: a failed leave of another account's chat reports here too (its error sits in that session).
+    if let Some(u) = &unified { for e in u.parked.iter().filter_map(|p| p.session.room_error.as_deref()) { ui.colored_label(rgb(t.error), e); } }
     // Before the first sync answered an empty list is a list on its way: ghost rows instead of nothing.
     let waiting = crate::loading::list_waiting(sidebar.rooms().len(), !matches!(session.sync, None | Some(matrix_engine::RoomSyncStatus::Connecting)));
     if let Some(waited) = session.list_wait.elapsed(waiting, std::time::Instant::now()) {
@@ -640,6 +643,23 @@ mod tests {
     use super::{header_button, pressed_here, released_after_press, room_menu, row_popup};
     use eframe::egui;
 
+    /// The row under one that waits for «Esci» stays where it was (a put of the spinner moved the cursor 17 pt up).
+    #[test]
+    fn the_row_after_a_leaving_row_keeps_its_place() {
+        let ctx = crate::icons::test_context();
+        let mut second = [0.; 2];
+        for (i, leaving) in [false, true].into_iter().enumerate() {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 400.))), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(300., 52.), egui::Sense::click());
+                super::dim_leaving(ui, rect, leaving, &matrix_desktop::DARK);
+                second[i] = ui.allocate_exact_size(egui::vec2(300., 52.), egui::Sense::click()).0.top();
+            });
+            out.textures_delta.clear();
+        }
+        assert_eq!(second[0], second[1]);
+    }
+
     /// A right click on a room row opens the room menu: the one body behind the single list and every row of the multi-account list.
     #[test]
     fn right_click_on_a_row_opens_the_room_menu() {
@@ -658,6 +678,39 @@ mod tests {
             out.textures_delta.clear();
         }
         assert!(egui::Popup::is_any_open(&ctx));
+    }
+
+    /// The «Leave» entry of the room menu, clicked, asks to leave (the modal's own start; `session.rs` tests what follows).
+    #[test]
+    fn the_leave_entry_of_the_room_menu_asks_to_leave() {
+        use matrix_domain::{AccountId, RoomId, RoomScope};
+        fn texts(shape: &egui::epaint::Shape, into: &mut Vec<(String, egui::Pos2)>) {
+            match shape {
+                egui::epaint::Shape::Text(t) => into.push((t.galley.text().to_owned(), t.pos + t.galley.rect.center().to_vec2())),
+                egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| texts(s, into)),
+                _ => {}
+            }
+        }
+        let room = matrix_desktop::SidebarRoom { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:x") }, name: "a".into(), initials: String::new(), preview: String::new(), time: "", color: 0, unread: 0, info: Default::default() };
+        let ctx = crate::icons::test_context();
+        let (mut pick, mut action, mut found) = (None, None, Vec::new());
+        let at = egui::pos2(50., 30.);
+        let button = |pos, b, pressed| egui::Event::PointerButton { pos, button: b, pressed, modifiers: Default::default() };
+        let (secondary, primary) = (egui::PointerButton::Secondary, egui::PointerButton::Primary);
+        let mut step = |events: Vec<egui::Event>, found: &mut Vec<(String, egui::Pos2)>, action: &mut Option<crate::session::RoomAction>| {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 400.))), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                let (_, resp) = ui.allocate_exact_size(egui::vec2(300., 52.), egui::Sense::click());
+                *action = action.take().or(room_menu(egui::Popup::context_menu(&resp), &room, &None, &mut pick, &matrix_desktop::DARK));
+            });
+            found.clear();
+            out.shapes.iter().for_each(|c| texts(&c.shape, found));
+            out.textures_delta.clear();
+        };
+        for events in [vec![egui::Event::PointerMoved(at)], vec![button(at, secondary, true)], vec![button(at, secondary, false)], vec![], vec![]] { step(events, &mut found, &mut action); }
+        let go = found.iter().find(|(t, _)| t.ends_with(&*matrix_desktop::i18n::t("Leave"))).unwrap_or_else(|| panic!("the menu has «Leave»: {found:?}")).1;
+        for events in [vec![egui::Event::PointerMoved(go)], vec![button(go, primary, true)], vec![button(go, primary, false)], vec![]] { step(events, &mut found, &mut action); }
+        assert!(matches!(action, Some(crate::session::RoomAction::Leave)));
     }
 
     /// On touch a long press on a row opens the same room menu as the right click, in tall rows; its release does not open the room.

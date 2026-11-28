@@ -341,6 +341,11 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
         }
         for row in &rows {
             let resp = item(ui, avatars, t, Icon::Space(row), &row.name, row.unread, row.selected);
+            if sidebar.is_leaving(&row.scope) {
+                // «Esci» sent, the server not yet answered: faded with a spinner, painted so the next item stays put.
+                ui.painter().rect_filled(resp.rect, 0., ui.visuals().panel_fill.gamma_multiply(0.6));
+                egui::Spinner::new().size(18.).paint_at(ui, egui::Rect::from_center_size(resp.rect.center_top() + Vec2::new(0., 22.), Vec2::splat(18.)));
+            }
             let id = row.id();
             // Same click on a parent: pick it and unfold it; on the picked one, fold or unfold.
             if resp.clicked() {

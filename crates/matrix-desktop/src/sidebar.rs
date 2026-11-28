@@ -101,6 +101,8 @@ pub struct Sidebar {
     /// «Non lette» view: only joined rooms with unread messages or a manual mark. Exclusive with `space`.
     unread_view: bool,
     selected: Option<usize>,
+    /// The open chat was just left: the panel stays empty until the user picks one (no automatic first pick).
+    emptied: bool,
     /// Rooms the user opened (`select`, `navigate`); the automatic first pick and `select_outside_view` do not count.
     picks: u64,
     keyboard_focus: Option<RoomScope>,
@@ -160,6 +162,7 @@ impl Sidebar {
             visible: Vec::new(),
             query: String::new(),
             selected: None,
+            emptied: false,
             picks: 0,
             keyboard_focus: None,
             space: None,
@@ -237,7 +240,7 @@ impl Sidebar {
             self.rooms.push(row);
         }
         self.set_query(&self.query.clone());
-        if self.selected.is_none() {
+        if self.selected.is_none() && !self.emptied {
             self.selected = self.visible.first().copied();
         }
         if self.visible != visible {
@@ -294,6 +297,7 @@ impl Sidebar {
             visible: (0..300).collect(),
             query: String::new(),
             selected: Some(0),
+            emptied: false,
             picks: 0,
             keyboard_focus: None,
             space: None,
@@ -415,6 +419,8 @@ impl Sidebar {
             self.leave_error = None;
             let was_open = self.selected().is_some_and(|r| r.scope == *scope);
             self.apply_diff(RoomListDiff::Remove(scope.clone()));
+            // Two columns: an empty panel, not the first row of the list. One column goes back to the list on `was_open`.
+            if was_open { self.selected = None; self.emptied = true; }
             return was_open;
         }
         self.leave_error = result.err().map(|e| {
@@ -834,6 +840,7 @@ impl Sidebar {
                 self.retire_navigation();
             }
             self.selected = Some(i);
+            self.emptied = false;
             self.picks += 1;
             self.keyboard_focus = Some(scope.clone());
             true
@@ -849,6 +856,7 @@ impl Sidebar {
         };
         self.retire_navigation();
         self.selected = Some(i);
+        self.emptied = false;
         true
     }
 
@@ -866,6 +874,7 @@ impl Sidebar {
             self.retire_navigation();
         }
         self.selected = Some(self.visible[position]);
+        self.emptied = false;
         self.picks += 1;
         self.keyboard_focus = Some(self.rooms[self.visible[position]].scope.clone());
         Some(position)
@@ -1577,6 +1586,23 @@ mod invite_tests {
         assert!(sidebar.begin_leave(a.clone()));
         assert!(sidebar.room_left(&a, Ok(())), "the open chat was left");
         assert!(sidebar.rooms().iter().all(|r| r.scope != a) && !sidebar.is_leaving(&a));
+        assert!(sidebar.selected().is_none(), "two columns: an empty panel, not the first row");
+        upsert(&mut sidebar, account, "!b:t.invalid", "b2", RoomInfo { joined_members: 2, preview: Some("y".into()), ..Default::default() });
+        assert!(sidebar.selected().is_none(), "a sync does not pick one either");
+        assert!(sidebar.select(&b) && sidebar.selected().is_some(), "the user's pick works again");
+    }
+
+    #[test]
+    fn leaving_a_room_that_is_not_open_keeps_the_open_one() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let (a, b) = (scope(account, "!a:t.invalid"), scope(account, "!b:t.invalid"));
+        for id in ["!a:t.invalid", "!b:t.invalid"] {
+            upsert(&mut sidebar, account, id, id, RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
+        }
+        assert!(sidebar.select(&b));
+        assert!(!sidebar.room_left(&a, Ok(())));
+        assert_eq!(sidebar.selected().map(|r| &r.scope), Some(&b));
     }
 
     #[test]

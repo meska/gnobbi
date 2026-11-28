@@ -2381,6 +2381,8 @@ mod leave_tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dirs = AppDirs { config: dir.join("c"), data: dir.join("d"), cache: dir.join("k") };
         let mut s = Session::start(&dirs, dir.join("root"), None).expect("session");
+        // The worker idles on the sign-in and the tests never read the files: no folder left in tmp per test.
+        let _ = std::fs::remove_dir_all(&dir);
         s.sidebar = matrix_desktop::Sidebar::connected(AccountId::new(1));
         for (id, name) in [("!bots:t.invalid", "Bots"), ("!other:t.invalid", "Other")] {
             s.sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary { scope: scope(id), name: name.into(), unread: 0, info: RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() } })));
@@ -2493,5 +2495,12 @@ mod leave_tests {
         assert!(s.sidebar.is_leaving(&space));
         s.leave_space(space.clone(), false);
         assert_eq!(s.op_queue.len(), 1, "one request only");
+        let answer = |result| OperationResult::SpaceLeft { scope: space.clone(), is_last_owner: None, result };
+        s.handle_result(answer(Err(OperationError::Forbidden)));
+        assert!(!s.sidebar.is_leaving(&space), "the answer ends the wait");
+        assert_eq!(s.room_error.as_deref(), Some(&*i18n::t("Not allowed by the server")));
+        s.leave_space(space.clone(), false);
+        s.handle_result(answer(Ok(false)));
+        assert!(!s.sidebar.is_leaving(&space) && s.room_error.is_none());
     }
 }

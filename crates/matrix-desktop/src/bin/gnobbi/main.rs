@@ -1938,6 +1938,8 @@ impl App {
         }
         for p in &mut self.parked {
             list::leave_modal(ui.ctx(), &mut p.session);
+            // Only the shown account's shell reads it; left on, it would send the first tap on this account back to the list.
+            p.session.left_open = false;
         }
         secret_clip::tick(ui.ctx());
         let account = self.session.as_ref().and_then(|s| s.account);
