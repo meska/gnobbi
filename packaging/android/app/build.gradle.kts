@@ -20,7 +20,21 @@ android {
         versionName = (findProperty("gnobbiVersionName") as String?) ?: "0.2"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
-    // Optional: sign bundleRelease here when the upload key is given by env (path, password file, alias), never from the repo.
+    // Same application id (and signing key) for both: `play` goes to the Play Store and has no updater; `direct` is the GitHub APK,
+    // which updates itself (src/direct adds REQUEST_INSTALL_PACKAGES, the only difference in the manifest).
+    flavorDimensions += "dist"
+    productFlavors {
+        create("play") {
+            dimension = "dist"
+            buildConfigField("boolean", "SELF_UPDATE", "false")
+        }
+        create("direct") {
+            dimension = "dist"
+            buildConfigField("boolean", "SELF_UPDATE", "true")
+        }
+    }
+    buildFeatures.buildConfig = true
+    // Optional: sign bundlePlayRelease / assembleDirectRelease here when the upload key is given by env (path, password file, alias), never from the repo.
     // The standard flow leaves the AAB unsigned and tools/android-build.sh signs it on the Mac, so the key never reaches the CT.
     System.getenv("GNOBBI_UPLOAD_STORE")?.let { store ->
         signingConfigs.create("upload") {

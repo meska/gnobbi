@@ -9,6 +9,7 @@ use std::{collections::BTreeSet, io::{Read, Write}, path::{Path, PathBuf}, sync:
 
 pub use super::github::MAX_ARTIFACT_BYTES;
 /// The one file taken from the Windows zip.
+#[cfg(not(target_os = "android"))]
 const ZIP_EXE: &str = "gnobbi.exe";
 pub const SELF_TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -98,11 +99,14 @@ fn run(c: &Candidate, body: impl Read, staging: &Path, timeout: Duration) -> Res
         (c.size, c.sha256.clone())
     };
     let mut guard = Guard(staging, false);
-    // Step 9.
-    #[cfg(unix)]
-    std::fs::set_permissions(staging, std::os::unix::fs::PermissionsExt::from_mode(0o755)).map_err(StageError::Io)?;
-    // Step 10.
-    self_test(staging, c.build, timeout)?;
+    // An APK is not executable: the system installer checks it (hash here, signature in `Native.installApk`).
+    if !c.file_name.ends_with(".apk") {
+        // Step 9.
+        #[cfg(unix)]
+        std::fs::set_permissions(staging, std::os::unix::fs::PermissionsExt::from_mode(0o755)).map_err(StageError::Io)?;
+        // Step 10.
+        self_test(staging, c.build, timeout)?;
+    }
     guard.1 = true;
     Ok(Ready { version: c.version.clone(), build: c.build, path: staging.to_owned(), size, sha256 })
 }
@@ -134,6 +138,12 @@ fn download(path: &Path, c: &Candidate, body: impl Read) -> Result<(), StageErro
 
 /// `gnobbi.exe` of the (already verified) zip into `dest`, never more than [`MAX_ARTIFACT_BYTES`]
 /// whatever the zip header claims. Returns size and SHA-256 of the extracted file.
+#[cfg(target_os = "android")] // no zip crate there (and no zip asset: the Android artifact is the APK itself)
+fn extract_exe(_: &Path, _: &Path) -> Result<(u64, String), StageError> {
+    Err(StageError::BadZip)
+}
+
+#[cfg(not(target_os = "android"))]
 fn extract_exe(zip: &Path, dest: &Path) -> Result<(u64, String), StageError> {
     let mut ar = zip::ZipArchive::new(std::fs::File::open(zip).map_err(StageError::Io)?).map_err(|_| StageError::BadZip)?;
     let entry = ar.by_name(ZIP_EXE).map_err(|_| StageError::BadZip)?;

@@ -180,7 +180,7 @@ fn install_job(dirs: &AppDirs, paths: &Paths, ready: &Ready, link: impl Fn(&Path
     let rm = |p: &Path| std::fs::remove_file(p);
     let to = ready.build;
     install::refuse_pending(dirs)?;
-    install::reverify(paths, ready)?;
+    install::reverify(&paths.new, ready)?;
     // Contract order: backup link, marker, one move.
     link(&paths.target, &paths.prev).map_err(|e| install::message(&e))?;
     if let Err(e) = startup::write_pending(dirs, &Pending { from_build: install::running_build(), to_build: to, attempts: 0 }) {

@@ -2864,7 +2864,7 @@ fn main() -> eframe::Result {
             }
         }
     }
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "android"))]
     if let Some(d) = &dirs {
         matrix_desktop::update::scheduler::start(d.clone(), matrix_desktop::update::shared_state(), Default::default());
     }

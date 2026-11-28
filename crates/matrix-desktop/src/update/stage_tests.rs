@@ -226,3 +226,18 @@ fn body_longer_than_declared_is_stopped_while_receiving() {
     assert!(matches!(stage_with_timeout(&t.dirs, &t.state, &cand(&b, 7), Endless(0), &t.staging, T10), Err(StageError::Verify(_))));
     assert_eq!(leftovers(&t), Vec::<String>::new());
 }
+
+#[test]
+fn apk_is_verified_but_never_executed() {
+    let t = t("apk");
+    let apk = b"PK\x03\x04 not an executable";
+    let c = Candidate { file_name: "gnobbi-android-arm64-42.apk".into(), ..cand(apk, 7) };
+    let r = stage(&t, apk, &c, T10).unwrap();
+    assert_eq!(std::fs::read(&r.path).unwrap(), apk);
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(std::fs::metadata(&r.path).unwrap().permissions().mode() & 0o111, 0, "no exec bit, no --self-test");
+    let t = self::t("apk-bad");
+    let bad = Candidate { sha256: "0".repeat(64), ..c };
+    assert!(matches!(stage(&t, apk, &bad, T10), Err(StageError::Verify(_))));
+    assert!(!t.staging.exists());
+}

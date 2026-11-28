@@ -1,4 +1,5 @@
-//! In-app update (Linux AppImage, Windows portable). One file per card; no GUI here.
+//! In-app update (Linux AppImage, Windows portable, Android `direct` APK). One file per card; no GUI here.
+mod android;
 pub mod channel;
 pub mod label;
 pub mod check;
@@ -28,6 +29,12 @@ pub const DEFAULT_UPDATE_BASE: &str = "https://gnobbi.meskatech.net/download/";
 pub fn effective_base(prefs: &Preferences) -> String {
     let base = prefs.update_base.as_deref().unwrap_or(DEFAULT_UPDATE_BASE);
     format!("{}/", base.trim().trim_end_matches('/'))
+}
+
+/// True when this build updates itself (`Channel::self_updates`); decided once. The Android Play build is the case that says no.
+pub fn self_updates() -> bool {
+    static YES: OnceLock<bool> = OnceLock::new();
+    *YES.get_or_init(|| channel::detect_channel(&channel::Env::from_process()).self_updates())
 }
 
 /// The one state shared by the scheduler (writes `ready`) and the UI (reads it).

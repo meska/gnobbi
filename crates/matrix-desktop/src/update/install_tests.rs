@@ -517,3 +517,57 @@ fn permission_denied_stays_the_exact_line_even_when_the_cleanup_fails_too() {
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Ok(()), deny).unwrap_err();
     assert_eq!(err, "Update failed: folder not writable");
 }
+
+/// Android: `<cache>/updates/gnobbi-9.apk` = "apk", Ready for it.
+fn apk_fixture(name: &str) -> (AppDirs, Ready) {
+    let root = tmp(name);
+    let dirs = AppDirs { config: root.join("config"), data: root.join("data"), cache: root.join("cache") };
+    std::fs::create_dir_all(dirs.cache.join("updates")).unwrap();
+    let path = dirs.cache.join("updates/gnobbi-9.apk");
+    std::fs::write(&path, b"apk").unwrap();
+    (dirs, Ready { version: "1.0".into(), build: 9, path, size: 3, sha256: sha256(b"apk") })
+}
+
+#[test]
+fn android_opens_the_installer_only_for_the_verified_file() {
+    use super::android::{OPENED, PERMISSION, SIGNATURE, UNAVAILABLE};
+    let (_, ready) = apk_fixture("apk-ok");
+    let opened = Cell::new(None);
+    let line = install::install_apk(&ready, |p| { opened.set(Some(p.to_path_buf())); OPENED });
+    assert_eq!((line.as_str(), opened.take()), ("Update ready to install", Some(ready.path.clone())));
+    assert!(ready.path.exists(), "the installer reads it after we return");
+    for (code, line) in [
+        (SIGNATURE, "Update failed: signature differs from the installed app"),
+        (PERMISSION, "Update failed: allow installs from Gnobbi, then update again"),
+        (UNAVAILABLE, "Update failed: installer not available"),
+    ] {
+        assert_eq!(install::install_apk(&ready, |_| code), line);
+    }
+}
+
+#[test]
+fn android_wrong_hash_or_size_never_reaches_the_installer() {
+    for (name, ready_of) in [
+        ("apk-hash", (|r: &Ready| Ready { sha256: sha256(b"other"), ..r.clone() }) as fn(&Ready) -> Ready),
+        ("apk-size", |r: &Ready| Ready { size: 4, ..r.clone() }),
+    ] {
+        let (_, ready) = apk_fixture(name);
+        let line = install::install_apk(&ready_of(&ready), |_| panic!("installer called"));
+        assert!(line.starts_with("Update failed: staging has a different"), "{line}");
+        assert!(!ready.path.exists(), "altered APK is deleted");
+    }
+    // altered after staging, not only a lying Ready
+    let (_, ready) = apk_fixture("apk-tampered");
+    std::fs::write(&ready.path, b"evil").unwrap();
+    assert_eq!(install::install_apk(&ready, |_| panic!("installer called")), "Update failed: staging has a different size");
+}
+
+#[test]
+fn android_install_does_not_exit_the_process() {
+    // Off Android the JNI bridge reports «installer not available»: the point is that the call returns an error line, never `Ok`/exit.
+    let (dirs, ready) = apk_fixture("apk-noexit");
+    let line = install::install_and_restart(&dirs, &Channel::AndroidDirect, &ready).unwrap_err();
+    assert_eq!(line, "Update failed: installer not available");
+    let line = install::install_and_restart(&dirs, &Channel::AndroidDirect, &Ready { sha256: sha256(b"x"), ..ready }).unwrap_err();
+    assert_eq!(line, "Update failed: staging has a different hash");
+}
