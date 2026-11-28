@@ -18,6 +18,15 @@ fn engine_lines_and_notification_bodies_follow_the_language() {
     }
     assert_eq!(notification_body(None, true, false), "Nuovi messaggi");
     assert_eq!(notification_body(None, true, true), "1 nuovo messaggio");
+    // Every label `latest_event_text` (engine room_sync.rs) can give a chat-list preview: translated, never blank.
+    for label in [
+        "Image", "Voice message", "Location", "Message without text", "Sticker", "Poll",
+        "Message deleted", "Encrypted message", "Call", "Room update", "New message",
+    ] {
+        let shown = matrix_desktop::row_text::engine_placeholder(label);
+        assert!(!shown.trim().is_empty() && (shown != label || label == "Sticker"), "no it translation: {label}");
+    }
+    assert_eq!(matrix_desktop::row_text::engine_placeholder("ciao"), "ciao", "a normal text is left as it is");
     i18n::apply(Preference::Fixed("en"), None);
     assert_eq!(notification_body(None, true, false), "New messages");
 }

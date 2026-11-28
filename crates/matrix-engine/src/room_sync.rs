@@ -1614,13 +1614,8 @@ impl RoomSync {
             };
             let latest = matrix_sdk_ui::timeline::RoomExt::latest_event(&room).await;
             let unread = room.num_unread_notifications();
-            let (preview, last_event_ts) = if matches!(latest, matrix_sdk_ui::timeline::LatestEventValue::None) && (unread > 0 || room.is_marked_unread()) {
-                // The SDK has no latest event (e.g. not decryptable, call): label and date from the room's own activity.
-                let stamp = room.recency_stamp().map(u64::from);
-                (Some("New message".to_owned()), Some(activity_fallback(&mut self.activity_seen, &id, stamp, now_ms())))
-            } else {
-                (latest_event_text(&latest), latest_event_ts(&latest))
-            };
+            let stamp = room.recency_stamp().map(u64::from);
+            let (preview, last_event_ts) = row_preview(&latest, unread > 0 || room.is_marked_unread(), &mut self.activity_seen, &id, stamp, now_ms());
             let children = children_of.remove(&id).unwrap_or_default();
             let (tags, favourite_order) = match room.tags().await {
                 Ok(Some(tags)) => (crate::room_tags::group_names(&tags), crate::room_tags::favourite_order(&tags)),
@@ -1782,6 +1777,23 @@ pub(crate) fn latest_event_ts(latest: &matrix_sdk_ui::timeline::LatestEventValue
     match latest {
         Remote { timestamp, .. } | Local { timestamp, .. } => Some(timestamp.0.into()),
         _ => None,
+    }
+}
+
+/// Preview and date of a room row: from the SDK latest event; when it has none (e.g. not decryptable, call)
+/// and the room is unread, the «New message» label and the date of `activity_fallback`.
+pub(crate) fn row_preview(
+    latest: &matrix_sdk_ui::timeline::LatestEventValue,
+    unread: bool,
+    seen: &mut BTreeMap<String, (Option<u64>, u64)>,
+    room: &str,
+    stamp: Option<u64>,
+    now: u64,
+) -> (Option<String>, Option<u64>) {
+    if matches!(latest, matrix_sdk_ui::timeline::LatestEventValue::None) && unread {
+        (Some("New message".to_owned()), Some(activity_fallback(seen, room, stamp, now)))
+    } else {
+        (latest_event_text(latest), latest_event_ts(latest))
     }
 }
 

@@ -522,3 +522,99 @@ fn latest_event_labels_and_date_cover_every_content_type() {
         assert_eq!(latest_event_ts(&v), Some(1_700_000_000_123), "{want}: date without text");
     }
 }
+
+/// Real `row_preview` / `latest_event_text` / `latest_event_ts` on real SDK values. Message, edit, poll,
+/// sticker and state contents cannot be built outside the SDK crate (private fields): they are not here.
+mod row_preview_cases {
+    use super::*;
+    use matrix_sdk::ruma::MilliSecondsSinceUnixEpoch;
+    use matrix_sdk_ui::timeline::{
+        EncryptedMessage, LatestEventValue, MsgLikeContent, TimelineDetails, TimelineItemContent as C,
+    };
+
+    const TS: u64 = 1_700_000_000_123;
+
+    fn ts() -> MilliSecondsSinceUnixEpoch {
+        MilliSecondsSinceUnixEpoch(TS.try_into().unwrap())
+    }
+
+    fn remote(content: C) -> LatestEventValue {
+        LatestEventValue::Remote {
+            timestamp: ts(),
+            sender: matrix_sdk::ruma::user_id!("@a:t").to_owned(),
+            is_own: false,
+            profile: TimelineDetails::Unavailable,
+            content,
+        }
+    }
+
+    fn local(content: C) -> LatestEventValue {
+        LatestEventValue::Local {
+            timestamp: ts(),
+            sender: matrix_sdk::ruma::user_id!("@a:t").to_owned(),
+            profile: TimelineDetails::Unavailable,
+            content,
+            state: matrix_sdk_ui::timeline::LatestEventValueLocalState::IsSending,
+        }
+    }
+
+    fn row(latest: &LatestEventValue, unread: bool) -> (Option<String>, Option<u64>) {
+        row_preview(latest, unread, &mut BTreeMap::new(), "!r", Some(7), 5_000)
+    }
+
+    #[test]
+    fn utd_redaction_and_call_have_label_and_event_date() {
+        let cases = [
+            (C::MsgLike(MsgLikeContent::unable_to_decrypt(EncryptedMessage::Unknown)), "Encrypted message"),
+            (C::MsgLike(MsgLikeContent::redacted()), "Message deleted"),
+            (C::CallInvite, "Call"),
+        ];
+        for (content, want) in cases {
+            for latest in [remote(content.clone()), local(content.clone())] {
+                for unread in [true, false] {
+                    assert_eq!(row(&latest, unread), (Some(want.to_owned()), Some(TS)), "{want} unread={unread}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn no_event_with_unread_gets_label_and_fallback_date() {
+        let mut seen = BTreeMap::new();
+        let first = row_preview(&LatestEventValue::None, true, &mut seen, "!r", Some(7), 5_000);
+        assert_eq!(first, (Some("New message".to_owned()), Some(5_000)));
+        let again = row_preview(&LatestEventValue::None, true, &mut seen, "!r", Some(7), 9_000);
+        assert_eq!(again.1, Some(5_000), "the date does not slide while nothing happens");
+        let moved = row_preview(&LatestEventValue::None, true, &mut seen, "!r", Some(8), 9_000);
+        assert_eq!(moved.1, Some(9_000), "new activity moves it");
+        let no_stamp = row_preview(&LatestEventValue::None, true, &mut seen, "!x", None, 1_000);
+        assert_eq!(no_stamp, (Some("New message".to_owned()), Some(1_000)));
+    }
+
+    #[test]
+    fn no_event_and_nothing_unread_stays_empty() {
+        assert_eq!(row(&LatestEventValue::None, false), (None, None));
+    }
+
+    #[test]
+    fn an_invite_gets_no_label_and_no_client_date() {
+        let invite = LatestEventValue::RemoteInvite { timestamp: ts(), inviter: None, inviter_profile: TimelineDetails::Unavailable };
+        assert_eq!(row(&invite, true), (None, None));
+    }
+
+    #[test]
+    fn unread_row_is_never_without_date_or_preview() {
+        let contents = [
+            C::MsgLike(MsgLikeContent::unable_to_decrypt(EncryptedMessage::Unknown)),
+            C::MsgLike(MsgLikeContent::redacted()),
+            C::CallInvite,
+        ];
+        let mut latests = vec![LatestEventValue::None];
+        latests.extend(contents.iter().flat_map(|c| [remote(c.clone()), local(c.clone())]));
+        for latest in latests {
+            let (preview, date) = row(&latest, true);
+            assert!(preview.is_some_and(|p| !p.trim().is_empty()), "{latest:?}");
+            assert!(date.is_some(), "{latest:?}");
+        }
+    }
+}
